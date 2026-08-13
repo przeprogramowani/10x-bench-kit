@@ -6,7 +6,7 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
-## 0.1.0 — (niewydane)
+## 0.1.0 — 2026-08-13
 
 Neutralny — pierwsza wersja, brak wcześniejszej ery.
 
