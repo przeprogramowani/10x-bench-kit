@@ -21,14 +21,14 @@
  * Wyjście: lista `ok:` / `warn:` / `error:`; kod 0 gdy brak errorów
  * (warningi dopuszczalne), 1 gdy jakikolwiek error, 2 przy złym użyciu.
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { BenchConfigSchema, type BenchConfig } from "../schemas/config.ts";
 import { TaskSchema, type Task } from "../schemas/task.ts";
+import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.ts";
 
 const PLACEHOLDER_COMMIT = "0".repeat(40);
 
@@ -55,21 +55,6 @@ function parseArgs(args: string[]): Options | null {
     } else return null;
   }
   return opts;
-}
-
-/** Szuka korzenia instancji (katalogu z bench.config.yaml) od `start` w górę. */
-function findInstanceRoot(start: string): string | null {
-  let dir = start;
-  for (;;) {
-    if (existsSync(join(dir, "bench.config.yaml"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
-function readYamlFile(path: string): unknown {
-  return parseYaml(readFileSync(path, "utf8"));
 }
 
 /** Asercja judge/* to plik .md z co najmniej jednym parsowalnym blokiem ```json
@@ -163,9 +148,7 @@ export async function validateCommand(args: string[]): Promise<number> {
 
   // --- tasks/<x>/ ---
   const tasksDir = join(root, "tasks");
-  const taskNames = existsSync(tasksDir)
-    ? readdirSync(tasksDir).filter((name) => statSync(join(tasksDir, name)).isDirectory())
-    : [];
+  const taskNames = listTaskNames(root);
   if (taskNames.length === 0) {
     report({ level: "warn", where: "tasks/", message: "brak zadań — instancja nie ma czego uruchamiać" });
   }

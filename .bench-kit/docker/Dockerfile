@@ -24,6 +24,11 @@ RUN npm install -g opencode-ai@${OPENCODE_VERSION}
 # Izolacja historyczna: świeży, pusty XDG_DATA_HOME per próba — OpenCode
 # startuje bez śladu jakiejkolwiek wcześniejszej sesji.
 ENV XDG_DATA_HOME=/bench/xdg-data
-RUN mkdir -p /bench/xdg-data /workspace
+RUN mkdir -p /bench/xdg-data /bench/out /workspace
+
+# Cykl próby + adapter metryk (jedyny szew harness ↔ kit).
+COPY trial.sh /bench/trial.sh
+COPY metrics-adapter/adapter.mjs /bench/metrics-adapter.mjs
+RUN chmod +x /bench/trial.sh
 
 WORKDIR /workspace
