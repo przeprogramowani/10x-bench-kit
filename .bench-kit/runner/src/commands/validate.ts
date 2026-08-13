@@ -11,17 +11,22 @@
  * - model sędziego jest inny niż modele oceniane,
  * - repo bazowe daje się sklonować, pinowany commit istnieje
  *   (pomijane przy --offline),
- * - zadania po dacie ważności → warning (starzenie zadań).
+ * - zadania po dacie ważności → warning (starzenie zadań),
+ * - spójność deklaracji `reference` w task.yaml (klucze ⊆ evaluation[],
+ *   tylko asercje nie-LLM-owe; ważona asercja bez deklaracji → warning),
+ * - `--assert`: weryfikacja referencyjna — asercje z deklaracją `reference`
+ *   biegną na stanie startowym zadania (repo@pin + overlay, pusty diff)
+ *   w kontenerze oceny; rozjazd z deklaracją = error. Wymaga sieci
+ *   i silnika kontenerów (nie łączy się z --offline).
  *
  * Poza zakresem (kontrakt na później):
- * - testy weryfikacyjne na wersji referencyjnej (wymaga `bench run`
- *   wersji wzorcowej),
  * - migracje schematu po `bench-kit update`.
  *
  * Wyjście: lista `ok:` / `warn:` / `error:`; kod 0 gdy brak errorów
  * (warningi dopuszczalne), 1 gdy jakikolwiek error, 2 przy złym użyciu.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -30,6 +35,8 @@ import { BenchConfigSchema, type BenchConfig } from "../schemas/config.ts";
 import { TaskSchema, type Task } from "../schemas/task.ts";
 import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
+import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
+import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
 
 const PLACEHOLDER_COMMIT = "0".repeat(40);
 
@@ -42,19 +49,27 @@ interface Issue {
 interface Options {
   root: string;
   offline: boolean;
+  assert: boolean;
+  engine: string | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), offline: false };
+  const opts: Options = { root: process.cwd(), offline: false, assert: false, engine: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--offline") opts.offline = true;
-    else if (arg === "--root") {
+    else if (arg === "--assert") opts.assert = true;
+    else if (arg === "--engine") {
+      const value = args[++i];
+      if (!value) return null;
+      opts.engine = value;
+    } else if (arg === "--root") {
       const value = args[++i];
       if (!value) return null;
       opts.root = resolve(value);
     } else return null;
   }
+  if (opts.assert && opts.offline) return null;
   return opts;
 }
 
@@ -109,7 +124,7 @@ function checkCommitExists(url: string, commit: string): string | null {
 export async function validateCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
-    console.error("usage: bench validate [--offline] [--root <dir>]");
+    console.error("usage: bench validate [--offline] [--assert] [--engine docker|podman] [--root <dir>]  (--assert nie łączy się z --offline)");
     return 2;
   }
 
@@ -246,6 +261,25 @@ export async function validateCommand(args: string[]): Promise<number> {
       }
     }
 
+    // --- deklaracje reference: klucze ⊆ evaluation[], tylko nie-LLM-owe ---
+    for (const ref of Object.keys(task.reference ?? {})) {
+      if (ref.startsWith("judge/")) {
+        report({ level: "error", where, message: `reference deklaruje "${ref}" — dotyczy tylko asercji nie-LLM-owych (sędzia nie biegnie na referencji)` });
+      } else if (!task.evaluation.includes(ref)) {
+        report({ level: "error", where, message: `reference deklaruje "${ref}", którego nie ma w evaluation[]` });
+      }
+    }
+    for (const ref of task.evaluation) {
+      const type = ref.split("/")[0] as keyof Task["weights"];
+      if (type !== "judge" && task.weights[type] > 0 && !task.reference?.[ref]) {
+        report({
+          level: "warn",
+          where,
+          message: `asercja "${ref}" bez deklaracji reference (pass|fail na stanie startowym) — weryfikacja referencyjna (--assert) ją pominie`,
+        });
+      }
+    }
+
     if (task.expires && task.expires < today) {
       report({
         level: "warn",
@@ -290,6 +324,50 @@ export async function validateCommand(args: string[]): Promise<number> {
         } else {
           ok(`tasks/${taskName}: pin ${task.commit.slice(0, 12)}… istnieje w ${repoName}`);
         }
+      }
+    }
+  }
+
+  // --- weryfikacja referencyjna: asercje na stanie startowym vs deklaracje ---
+  if (opts.assert && config) {
+    const declared = [...tasks].filter(([, t]) => Object.keys(t.reference ?? {}).length > 0);
+    if (declared.length === 0) {
+      console.log("info:  --assert — żadne zadanie nie deklaruje reference, nic do weryfikacji");
+    } else {
+      try {
+        const engine = detectEngine(opts.engine);
+        const image = ensureBaseImage(engine, root);
+        for (const [name, task] of declared) {
+          const url = repoUrls.get(task.repo);
+          if (!url || task.commit === PLACEHOLDER_COMMIT) continue; // zaraportowane wyżej
+          const refs = Object.keys(task.reference ?? {}).filter((ref) => !ref.startsWith("judge/"));
+          if (refs.length === 0) continue;
+          console.log(`info:  --assert — tasks/${name}: stan startowy ${task.repo}@${task.commit.slice(0, 12)}…`);
+          const overlay = join(root, "tasks", name, "overlay");
+          const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null);
+          try {
+            const outcomes = runAssertions(engine, root, image, workspace, refs, null);
+            for (const ref of refs) {
+              const expectation = (task.reference ?? {})[ref];
+              const outcome = outcomes[ref];
+              const passes = (outcome?.score ?? 0) >= 1;
+              if ((expectation === "pass") === passes) {
+                ok(`tasks/${name}: ${ref} na stanie startowym zgodnie z deklaracją (${expectation})`);
+              } else {
+                const failed = outcome?.checks.filter((c) => c.exit !== 0).map((c) => `${c.name}: exit ${c.exit}`).join("; ");
+                report({
+                  level: "error",
+                  where: `tasks/${name}`,
+                  message: `asercja "${ref}" na stanie startowym ${passes ? "przechodzi" : "nie przechodzi"}, a deklaracja mówi "${expectation}"${failed ? ` (${failed})` : ""} — popraw asercję, overlay albo deklarację`,
+                });
+              }
+            }
+          } finally {
+            rmSync(workspace, { recursive: true, force: true });
+          }
+        }
+      } catch (err) {
+        report({ level: "error", where: "--assert", message: `weryfikacja referencyjna nie doszła do skutku: ${err instanceof Error ? err.message : String(err)}` });
       }
     }
   }

@@ -6,6 +6,42 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## Unreleased
+
+Neutralny. Schemat `task.yaml` rozszerzony wstecznie zgodnie (nowe pole
+opcjonalne) — `task_hash` zmienia się dopiero, gdy zadanie zadeklaruje
+`reference`, co otwiera nową erę tylko tego zadania.
+
+Enablery skilli (SKILLS_DESIGN): zasada "testuj na referencji, zanim
+zaproponujesz" dostała tanie wejścia w runnerze.
+
+- `bench assert` — pojedyncze asercje nie-LLM-owe z puli na referencji,
+  bez pełnego cyklu próby: stan startowy (repo@pin + overlay + commit
+  startowy) budowany na hoście i montowany do kontenera oceny (ten sam
+  `evaluate.mjs`, wynik tożsamy z `bench evaluate`). Tryby `--task`
+  (domyślnie wszystkie asercje nie-LLM-owe zadania, `--no-overlay` dla
+  czystej referencji) albo `--repo`/`--commit` (+ `--overlay`);
+  `--patch` nakłada diff (np. wzorcowe rozwiązanie). Exit 0 = wszystkie
+  score 1, exit 1 = którakolwiek niżej — skill sprawdza oba kierunki.
+- `bench judge` — pojedyncze wywołanie sędziego na zadanym diffie
+  (`--task` + `--patch`, opcjonalnie `--rubric`, `--model` do porównań
+  sędziów przy kalibracji); werdykty JSON na stdout, ta sama ścieżka
+  co w `evaluate`. Fundament `bench-rubric`.
+- `task.yaml`: opcjonalne pole `reference` — deklaracja oczekiwanego
+  zachowania asercji nie-LLM-owych na stanie startowym (`pass` = guard,
+  musi przechodzić na starcie; `fail` = miara pracy, ma nie przechodzić,
+  inaczej zadanie przechodzi się pustym diffem).
+- `bench validate`: spójność deklaracji `reference` (klucze ⊆
+  `evaluation[]`, tylko nie-LLM-owe; ważona asercja bez deklaracji →
+  warning) oraz nowa flaga `--assert` — weryfikacja referencyjna:
+  zadeklarowane asercje biegną na stanie startowym, rozjazd z deklaracją
+  = error. Domyka odłożoną część kontraktu `validate`; z deklaracją
+  `static/lint: pass` obie lekcje pierwszego runu (brak `npm ci`,
+  zastane błędy lintu referencji) zostałyby złapane przed CI.
+- Refaktor wewnętrzny: wspólne `lib/containers.ts` (silnik, obraz
+  bazowy) i `lib/reference.ts` (stan startowy, asercje na workspace)
+  używane przez run / evaluate / assert / validate.
+
 ## 0.2.0 — 2026-08-13
 
 Neutralny formalnie (0.1.0 nie liczyło jeszcze żadnych wyników — to

@@ -23,10 +23,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve, relative } from "node:path";
-import { z } from "zod";
-import { findInstanceRoot, loadConfig, loadTask, readYamlFile } from "../lib/instance.ts";
+import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { judgeTrial } from "../lib/judge.ts";
-import { CheckFileSchema } from "../schemas/check.ts";
+import { buildEvalPlan } from "../lib/reference.ts";
+import { detectEngine } from "../lib/containers.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
 import type { Task } from "../schemas/task.ts";
 
@@ -48,14 +48,6 @@ function parseArgs(args: string[]): Options | null {
   }
   if (!opts.run) return null;
   return opts;
-}
-
-function detectEngine(forced: string | null): string {
-  const candidates = forced ? [forced] : ["docker", "podman"];
-  for (const engine of candidates) {
-    if (spawnSync(engine, ["info"], { timeout: 15_000 }).status === 0) return engine;
-  }
-  throw new Error("ani docker, ani podman nie odpowiada — uruchom daemon/machine albo wskaż --engine");
 }
 
 /** SHA-256 katalogu zadania: posortowane ścieżki względne + treści plików. */
@@ -102,12 +94,7 @@ type Component = (typeof NON_JUDGE)[number] | "judge";
 
 /** Ocena asercji nie-LLM-owych w kontenerze; zwraca score per ref. */
 function runChecksContainer(engine: string, root: string, trialDir: string, image: string, refs: string[]): Map<string, number> {
-  const plan = refs.map((ref) => {
-    const parsed = CheckFileSchema.safeParse(readYamlFile(join(root, "evaluation-pool", ref, "check.yaml")));
-    if (!parsed.success) throw new Error(`evaluation-pool/${ref}/check.yaml nie parsuje się schematem:\n${z.prettifyError(parsed.error)}`);
-    return { ref, score_mode: parsed.data.score, checks: parsed.data.checks };
-  });
-  writeFileSync(join(trialDir, "eval-plan.json"), JSON.stringify(plan, null, 2) + "\n");
+  writeFileSync(join(trialDir, "eval-plan.json"), JSON.stringify(buildEvalPlan(root, refs), null, 2) + "\n");
 
   const mounts = refs.flatMap((ref) => ["-v", `${join(root, "evaluation-pool", ref)}:/bench/assertions/${ref}:ro`]);
   const result = spawnSync(

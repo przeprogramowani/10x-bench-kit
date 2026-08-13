@@ -41,6 +41,14 @@ export const TaskSchema = z.object({
   weights: ScoreWeights,
   /** Data ważności zadania (starzenie: po niej validate ostrzega o refresh). */
   expires: z.iso.date().optional(),
+  /**
+   * Oczekiwane zachowanie asercji nie-LLM-owych na stanie startowym zadania
+   * (repo@pin + overlay, pusty diff): "pass" = guard, musi przechodzić już
+   * na starcie (np. lint — lekcja z pierwszego runu); "fail" = miara pracy,
+   * ma nie przechodzić na starcie (inaczej zadanie przechodzi się pustym
+   * diffem). Podstawa weryfikacji `bench validate --assert`.
+   */
+  reference: z.record(EvaluationRef, z.enum(["pass", "fail"])).optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;

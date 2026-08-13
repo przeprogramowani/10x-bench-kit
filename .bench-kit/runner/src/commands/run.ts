@@ -22,10 +22,10 @@
  *                   [--out <dir>] [--engine docker|podman] [--root <dir>]
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
+import { detectEngine, ensureBaseImage, must, sh } from "../lib/containers.ts";
 import type { Task } from "../schemas/task.ts";
 
 interface Options {
@@ -52,31 +52,6 @@ function parseArgs(args: string[]): Options | null {
   }
   if (opts.trials !== null && (!Number.isInteger(opts.trials) || opts.trials < 1)) return null;
   return opts;
-}
-
-function sh(cmd: string, args: string[], opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {}) {
-  return spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...opts });
-}
-
-function must(cmd: string, args: string[], what: string, opts: Parameters<typeof sh>[2] = {}): string {
-  const result = sh(cmd, args, opts);
-  if (result.status !== 0) {
-    throw new Error(`${what}: ${cmd} ${args.join(" ")}\n${(result.stderr || result.stdout || "").trim()}`);
-  }
-  return result.stdout;
-}
-
-/** docker jeśli daemon odpowiada, inaczej podman — albo wymuszony --engine. */
-function detectEngine(forced: string | null): string {
-  const candidates = forced ? [forced] : ["docker", "podman"];
-  for (const engine of candidates) {
-    if (sh(engine, ["info"], { timeout: 15_000 }).status === 0) return engine;
-  }
-  throw new Error(
-    forced
-      ? `${forced} nie odpowiada — czy daemon/machine działa?`
-      : "ani docker, ani podman nie odpowiada — uruchom daemon/machine albo wskaż --engine",
-  );
 }
 
 /** Env przekazywany do kontenera próby: sekrety modeli + konfiguracja OpenCode. */
@@ -170,15 +145,8 @@ export async function runCommand(args: string[]): Promise<number> {
     console.log(`macierz: ${models.length} model(i) × ${taskNames.length} zadań × ${trials} prób → ${outDir}`);
 
     // --- przygotowanie: obraz bazowy + obrazy zadań (jedyny etap z siecią) ---
-    const opencodeVersion = readFileSync(join(root, ".bench-kit", "docker", "opencode.version"), "utf8").trim();
-    const baseImage = `bench-base:${opencodeVersion}`;
+    const baseImage = ensureBaseImage(engine, root);
     console.log(`prepare: obraz bazowy ${baseImage}`);
-    must(
-      engine,
-      ["build", "-q", "--build-arg", `OPENCODE_VERSION=${opencodeVersion}`, "-t", baseImage, join(root, ".bench-kit", "docker")],
-      "budowa obrazu bazowego",
-      { timeout: 900_000 },
-    );
 
     const repoUrls = new Map(config.base_repos.map((r) => [r.name, r.url]));
     const prepared: PreparedTask[] = [];
