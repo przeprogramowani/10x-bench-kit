@@ -40,7 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      INSTANCE: ${{ runner.temp }}/instance
       # Wiring demo w CI: publiczne repo + pin + tani, niezawodny model
       # próbny + sędzia — odpowiedniki decyzji z bench-wiring.
       BASE_REPO_URL: https://github.com/przeprogramowani/10x-astro-starter.git
@@ -56,6 +55,8 @@ jobs:
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - name: materializacja instancji (jak init — bez historii gita)
         run: |
+          echo "INSTANCE=$RUNNER_TEMP/instance" >> "$GITHUB_ENV"
+          INSTANCE="$RUNNER_TEMP/instance"
           mkdir -p "$INSTANCE"
           rsync -a --exclude .git --exclude .github --exclude node_modules ./ "$INSTANCE/"
           git -C "$INSTANCE" init -q && git -C "$INSTANCE" add -A
