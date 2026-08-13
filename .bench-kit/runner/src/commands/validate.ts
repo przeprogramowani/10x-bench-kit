@@ -29,6 +29,7 @@ import { z } from "zod";
 import { BenchConfigSchema, type BenchConfig } from "../schemas/config.ts";
 import { TaskSchema, type Task } from "../schemas/task.ts";
 import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.ts";
+import { CheckFileSchema } from "../schemas/check.ts";
 
 const PLACEHOLDER_COMMIT = "0".repeat(40);
 
@@ -210,6 +211,20 @@ export async function validateCommand(args: string[]): Promise<number> {
         const problem = validateRubric(assertionPath);
         if (problem) {
           report({ level: "error", where: `evaluation-pool/judge/${assertionName}.md`, message: problem });
+        }
+      } else {
+        const checkPath = join(assertionPath, "check.yaml");
+        if (!existsSync(checkPath)) {
+          report({ level: "error", where: `evaluation-pool/${ref}`, message: "brak check.yaml (kontrakt asercji nie-LLM-owych)" });
+        } else {
+          try {
+            const parsed = CheckFileSchema.safeParse(readYamlFile(checkPath));
+            if (!parsed.success) {
+              report({ level: "error", where: `evaluation-pool/${ref}/check.yaml`, message: z.prettifyError(parsed.error) });
+            }
+          } catch (err) {
+            report({ level: "error", where: `evaluation-pool/${ref}/check.yaml`, message: `niepoprawny YAML: ${String(err)}` });
+          }
         }
       }
     }

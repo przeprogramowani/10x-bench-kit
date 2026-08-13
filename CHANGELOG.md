@@ -28,6 +28,15 @@ Neutralny (dotychczas).
   sesji agenta; brak danych → `"incomplete": true`.
 - Pin OpenCode podbity 0.6.4 → 1.18.3 (format storage SQLite, na którym
   opiera się adapter).
+- `bench evaluate` zaimplementowane: asercje nie-LLM-owe (static → tests
+  → e2e) w świeżym kontenerze z obrazu zadania — patch.diff nakładany na
+  /workspace, asercje montowane :ro dopiero teraz; kontrakt `check.yaml`
+  (schemat `schemas/check.ts`: score binary|fraction + lista komend,
+  ASSERTION_DIR w env). LLM-as-judge host-side (anthropic/openrouter),
+  brak poprawnego JSON-a = 0, surowa odpowiedź w judge.json. Wyjście:
+  result.json ze stemplami er (template_version, task_hash = SHA-256
+  katalogu zadania, judge_model, rubric_version).
+- `bench validate` sprawdza też check.yaml asercji nie-LLM-owych.
 
 ## 0.1.0 — 2026-08-13
 

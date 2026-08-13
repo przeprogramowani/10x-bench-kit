@@ -1,18 +1,249 @@
 /**
- * bench evaluate — oceni artefakty próby i wyprodukuje result.json.
+ * bench evaluate — ocenia artefakty prób i produkuje result.json.
  *
- * Kontrakt (do implementacji):
- * - działa w kontenerze próby już bez agenta; dopiero na tym etapie
- *   montowane są asercje z evaluation-pool/ (izolacja z konstrukcji),
- * - kolejność: static (lint/typecheck/build) → testy weryfikacyjne →
- *   e2e Playwright → LLM-as-judge (stały, mocny model — inny niż oceniane;
- *   dostaje prompt.md + patch.diff + rubrykę, zwraca JSON wg
- *   evaluation-pool/judge/),
- * - wynik próby = ważona suma składowych wg wag z task.yaml,
- * - wyjście: result.json zgodny ze schematem schemas/result.ts, ze
- *   stemplami er (template_version, task_hash, judge_model, rubric_version).
+ * Przebieg per próba (katalog trial-* z artefaktami `bench run`):
+ * 1. Asercje nie-LLM-owe (static → tests → e2e): świeży kontener z obrazu
+ *    zadania (agent dawno nie żyje), patch.diff nakładany na /workspace,
+ *    asercje montowane :ro pod /bench/assertions/<ref> — dopiero teraz,
+ *    izolacja z konstrukcji. Runner parsuje check.yaml na hoście
+ *    (eval-plan.json), w kontenerze biegnie /bench/evaluate.mjs →
+ *    checks.json. Składowa = średnia score'ów jej asercji.
+ * 2. LLM-as-judge (host-side): sędzia z bench.config.yaml dostaje
+ *    prompt.md + patch.diff + rubrykę, zwraca JSON; brak poprawnego
+ *    JSON-a = 0. Surowa odpowiedź → judge.json (audyt).
+ * 3. result.json: scores (null przy wadze 0), total = ważona suma,
+ *    koszt/czas/tokeny z metrics.json, stemple er (template_version,
+ *    task_hash = SHA-256 katalogu zadania, judge_model, rubric_version).
+ *
+ * Próby z awarią infrastruktury (infra_failure) są pomijane z warningiem.
+ *
+ * Użycie: bench evaluate --run <dir> [--engine docker|podman] [--root <dir>]
  */
-export async function evaluateCommand(_args: string[]): Promise<number> {
-  console.error("bench evaluate: not implemented in 0.1.0");
-  return 1;
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join, resolve, relative } from "node:path";
+import { z } from "zod";
+import { findInstanceRoot, loadConfig, loadTask, readYamlFile } from "../lib/instance.ts";
+import { judgeTrial } from "../lib/judge.ts";
+import { CheckFileSchema } from "../schemas/check.ts";
+import { ResultSchema, type Result } from "../schemas/result.ts";
+import type { Task } from "../schemas/task.ts";
+
+interface Options {
+  root: string;
+  run: string | null;
+  engine: string | null;
+}
+
+function parseArgs(args: string[]): Options | null {
+  const opts: Options = { root: process.cwd(), run: null, engine: null };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const value = () => args[++i];
+    if (arg === "--run") opts.run = resolve(value() ?? "");
+    else if (arg === "--engine") opts.engine = value() ?? null;
+    else if (arg === "--root") opts.root = resolve(value() ?? "");
+    else return null;
+  }
+  if (!opts.run) return null;
+  return opts;
+}
+
+function detectEngine(forced: string | null): string {
+  const candidates = forced ? [forced] : ["docker", "podman"];
+  for (const engine of candidates) {
+    if (spawnSync(engine, ["info"], { timeout: 15_000 }).status === 0) return engine;
+  }
+  throw new Error("ani docker, ani podman nie odpowiada — uruchom daemon/machine albo wskaż --engine");
+}
+
+/** SHA-256 katalogu zadania: posortowane ścieżki względne + treści plików. */
+function hashTaskDir(taskDir: string): string {
+  const hash = createHash("sha256");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir)
+      .sort()
+      .flatMap((name) => {
+        const full = join(dir, name);
+        return statSync(full).isDirectory() ? walk(full) : [full];
+      });
+  for (const file of walk(taskDir)) {
+    hash.update(relative(taskDir, file));
+    hash.update("\0");
+    hash.update(readFileSync(file));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+interface TrialRef {
+  dir: string;
+  meta: { task: string; model: string; trial: number; image: string; infra_failure: boolean };
+}
+
+function findTrials(runDir: string): TrialRef[] {
+  const trials: TrialRef[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (!statSync(full).isDirectory()) continue;
+      const trialJson = join(full, "trial.json");
+      if (existsSync(trialJson)) trials.push({ dir: full, meta: JSON.parse(readFileSync(trialJson, "utf8")) });
+      else walk(full);
+    }
+  };
+  walk(runDir);
+  return trials.sort((a, b) => a.dir.localeCompare(b.dir));
+}
+
+const NON_JUDGE = ["static", "tests", "e2e"] as const;
+type Component = (typeof NON_JUDGE)[number] | "judge";
+
+/** Ocena asercji nie-LLM-owych w kontenerze; zwraca score per ref. */
+function runChecksContainer(engine: string, root: string, trialDir: string, image: string, refs: string[]): Map<string, number> {
+  const plan = refs.map((ref) => {
+    const parsed = CheckFileSchema.safeParse(readYamlFile(join(root, "evaluation-pool", ref, "check.yaml")));
+    if (!parsed.success) throw new Error(`evaluation-pool/${ref}/check.yaml nie parsuje się schematem:\n${z.prettifyError(parsed.error)}`);
+    return { ref, score_mode: parsed.data.score, checks: parsed.data.checks };
+  });
+  writeFileSync(join(trialDir, "eval-plan.json"), JSON.stringify(plan, null, 2) + "\n");
+
+  const mounts = refs.flatMap((ref) => ["-v", `${join(root, "evaluation-pool", ref)}:/bench/assertions/${ref}:ro`]);
+  const result = spawnSync(
+    engine,
+    ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...mounts, image, "node", "/bench/evaluate.mjs"],
+    { encoding: "utf8", timeout: 3_600_000, maxBuffer: 64 * 1024 * 1024 },
+  );
+  if (result.status !== 0 || !existsSync(join(trialDir, "checks.json"))) {
+    throw new Error(`kontener oceny zakończony kodem ${result.status}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
+  }
+  const checks = JSON.parse(readFileSync(join(trialDir, "checks.json"), "utf8")) as Record<string, { score: number }>;
+  return new Map(refs.map((ref) => [ref, checks[ref]?.score ?? 0]));
+}
+
+export async function evaluateCommand(args: string[]): Promise<number> {
+  const opts = parseArgs(args);
+  if (!opts) {
+    console.error("usage: bench evaluate --run <dir> [--engine docker|podman] [--root <dir>]");
+    return 2;
+  }
+  const root = findInstanceRoot(opts.root);
+  if (!root) {
+    console.error(`error: nie znaleziono bench.config.yaml od ${opts.root} w górę — to nie jest instancja benchmarku`);
+    return 1;
+  }
+
+  const runDir = opts.run;
+  if (!runDir) return 2;
+
+  try {
+    const config = loadConfig(root);
+    const templateVersion = readFileSync(join(root, ".bench-kit", "VERSION"), "utf8").trim();
+    const trials = findTrials(runDir);
+    if (trials.length === 0) throw new Error(`brak prób (trial.json) w ${runDir}`);
+    console.log(`bench evaluate: ${trials.length} prób(y) w ${runDir}`);
+
+    const taskCache = new Map<string, { task: Task; hash: string }>();
+    let engine: string | null = null;
+    let failures = 0;
+
+    for (const { dir, meta } of trials) {
+      const label = `${meta.task} × ${meta.model} × próba ${meta.trial}`;
+      if (meta.infra_failure) {
+        console.error(`skip:  ${label} — awaria infrastruktury w bench run, nie ma czego oceniać`);
+        continue;
+      }
+      try {
+        let cached = taskCache.get(meta.task);
+        if (!cached) {
+          cached = { task: loadTask(root, meta.task), hash: hashTaskDir(join(root, "tasks", meta.task)) };
+          taskCache.set(meta.task, cached);
+        }
+        const { task, hash } = cached;
+
+        // składowe → listy refów z task.yaml
+        const refsByComponent = new Map<Component, string[]>();
+        for (const ref of task.evaluation) {
+          const component = ref.split("/")[0] as Component;
+          refsByComponent.set(component, [...(refsByComponent.get(component) ?? []), ref]);
+        }
+
+        // 1. static → tests → e2e w jednym kontenerze oceny
+        const nonJudgeRefs = NON_JUDGE.flatMap((c) => refsByComponent.get(c) ?? []);
+        let refScores = new Map<string, number>();
+        if (nonJudgeRefs.length > 0) {
+          engine ??= detectEngine(opts.engine);
+          refScores = runChecksContainer(engine, root, dir, meta.image, nonJudgeRefs);
+        }
+        const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+        const componentScore = (c: Component): number | null => {
+          const refs = refsByComponent.get(c) ?? [];
+          if (task.weights[c] === 0 || refs.length === 0) return null;
+          return mean(refs.map((ref) => refScores.get(ref) ?? 0));
+        };
+
+        // 2. LLM-as-judge
+        let judgeScore: number | null = null;
+        const judgeRefs = refsByComponent.get("judge") ?? [];
+        if (task.weights.judge > 0 && judgeRefs.length > 0) {
+          const taskPrompt = readFileSync(join(root, "tasks", meta.task, "prompt.md"), "utf8");
+          const patchDiff = readFileSync(join(dir, "patch.diff"), "utf8");
+          const verdicts = [];
+          for (const ref of judgeRefs) {
+            const rubric = readFileSync(join(root, "evaluation-pool", "judge", `${ref.split("/")[1]}.md`), "utf8");
+            const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubric);
+            verdicts.push({ ref, ...verdict });
+          }
+          writeFileSync(join(dir, "judge.json"), JSON.stringify(verdicts, null, 2) + "\n");
+          judgeScore = mean(verdicts.map((v) => v.score));
+        }
+
+        // 3. result.json
+        const scores = {
+          static: componentScore("static"),
+          tests: componentScore("tests"),
+          e2e: componentScore("e2e"),
+          judge: judgeScore,
+        };
+        const total = (Object.keys(scores) as Component[]).reduce(
+          (acc, c) => acc + task.weights[c] * (scores[c] ?? 0),
+          0,
+        );
+        const metricsPath = join(dir, "metrics.json");
+        const metrics = existsSync(metricsPath) ? JSON.parse(readFileSync(metricsPath, "utf8")) : {};
+        const result: Result = ResultSchema.parse({
+          task: meta.task,
+          model: meta.model,
+          trial: meta.trial,
+          scores,
+          total: Math.min(1, Math.max(0, total)),
+          cost_usd: metrics.cost_usd ?? 0,
+          duration_s: metrics.duration_s ?? 0,
+          tokens: { input: metrics.tokens?.input ?? 0, output: metrics.tokens?.output ?? 0 },
+          stamps: {
+            template_version: templateVersion,
+            task_hash: hash,
+            judge_model: config.judge.model,
+            rubric_version: config.judge.rubric_version,
+          },
+        });
+        writeFileSync(join(dir, "result.json"), JSON.stringify(result, null, 2) + "\n");
+        const summary = (Object.entries(scores) as [string, number | null][])
+          .filter(([, v]) => v !== null)
+          .map(([k, v]) => `${k} ${(v as number).toFixed(2)}`)
+          .join(", ");
+        console.log(`eval:  ${label} → total ${result.total.toFixed(3)} (${summary})`);
+      } catch (err) {
+        failures++;
+        console.error(`eval:  ${label} — BŁĄD: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    console.log(`\nbench evaluate: gotowe${failures ? ` (${failures} prób z błędem oceny)` : ""}`);
+    return failures > 0 ? 1 : 0;
+  } catch (err) {
+    console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 }
