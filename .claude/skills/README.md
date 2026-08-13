@@ -12,8 +12,10 @@ SKILLS_DESIGN w repo projektowym):
   `validate`: repo bazowe, modele, sekrety, obraz pod stack firmy.
 - **bench-refresh** *(planowany)* — odświeżenie przeterminowanego
   zadania (nowy pin + asercje) → PR otwierający nową erę zadania.
-- **bench-rubric** *(planowany)* — kalibracja rubryk LLM-as-judge na
-  diffach o znanej jakości.
+- **bench-rubric** *(dostępny)* — kalibracja rubryk LLM-as-judge:
+  zbiór kalibracyjny z diffów o znanej jakości, pomiar rozdzielczości
+  i stabilności sędziego (`bench judge`), iteracja kryteriów, PR
+  z podbiciem `rubric_version`.
 
 Kontrakt strefy przy `bench-kit update`: kit **proponuje diff** nowych
 wersji skilli — firma decyduje, co przyjąć. Lokalne modyfikacje są
