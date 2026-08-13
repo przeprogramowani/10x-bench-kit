@@ -33,6 +33,8 @@ export const BenchConfigSchema = z.object({
     models: z.array(z.string().min(1)).min(1),
     /** Timeout próby, gdy task.yaml nie nadpisze. */
     timeout_s: z.number().int().positive().default(1800),
+    /** Próg "pass" dla pass@k: próba zalicza, gdy total >= threshold. */
+    pass_threshold: z.number().min(0).max(1).default(0.7),
   }),
 });
 

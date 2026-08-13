@@ -37,6 +37,11 @@ Neutralny (dotychczas).
   result.json ze stemplami er (template_version, task_hash = SHA-256
   katalogu zadania, judge_model, rubric_version).
 - `bench validate` sprawdza też check.yaml asercji nie-LLM-owych.
+- `bench report` zaimplementowane: mediana per (model × zadanie) dla
+  total/kosztu/czasu, pass@k (estymator kombinatoryczny; próg "pass"
+  w nowym opcjonalnym `defaults.pass_threshold`, domyślnie 0.7), koszt
+  runu (na razie suma prób — `cost_scope: "trials"`), grupowanie w ery
+  po krotce stamps → `report.json` dla dashboardu.
 
 ## 0.1.0 — 2026-08-13
 
