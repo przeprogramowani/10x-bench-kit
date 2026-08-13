@@ -14,19 +14,21 @@ import { runCommand } from "./commands/run.ts";
 import { evaluateCommand } from "./commands/evaluate.ts";
 import { validateCommand } from "./commands/validate.ts";
 import { reportCommand } from "./commands/report.ts";
+import { matrixCommand } from "./commands/matrix.ts";
 
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   run: runCommand,
   evaluate: evaluateCommand,
   validate: validateCommand,
   report: reportCommand,
+  matrix: matrixCommand,
 };
 
 const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
 if (!handler) {
-  console.error("usage: bench <run|evaluate|validate|report> [options]");
+  console.error("usage: bench <run|evaluate|validate|report|matrix> [options]");
   process.exit(2);
 }
 

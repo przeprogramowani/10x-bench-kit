@@ -6,9 +6,11 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
-## Niewydane
+## 0.2.0 — 2026-08-13
 
-Neutralny (dotychczas).
+Neutralny formalnie (0.1.0 nie liczyło jeszcze żadnych wyników — to
+pierwsza wersja zdolna do scoringu, więc otwiera pierwszą realną erę
+porównywalności).
 
 - `bench validate` zaimplementowane: parsowanie schematami
   (bench.config.yaml, task.yaml), spójność referencji `evaluation[]`
@@ -42,6 +44,14 @@ Neutralny (dotychczas).
   w nowym opcjonalnym `defaults.pass_threshold`, domyślnie 0.7), koszt
   runu (na razie suma prób — `cost_scope: "trials"`), grupowanie w ery
   po krotce stamps → `report.json` dla dashboardu.
+- Realny workflow `bench-run.yaml`: job `plan` (validate jako bramka +
+  `bench matrix`), macierz per model × zadanie (próby sekwencyjnie
+  w jobie — obraz zadania budowany raz), `run` + `evaluate` per job,
+  `aggregate` scala artefakty i robi `report`. Leaderboard nadal jako
+  artefakty CI (dashboard świadomie odłożony).
+- Nowa komenda `bench matrix` — helper CI wypisujący macierz jobów.
+- `10x bench-kit init` kopiuje `.bench-kit/workflows/` do
+  `.github/workflows/` (zmiana po stronie 10x-cli, PR #30).
 
 ## 0.1.0 — 2026-08-13
 

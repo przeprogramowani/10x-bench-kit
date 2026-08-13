@@ -9,11 +9,9 @@ Zawartość:
 
 - `VERSION` — wersja template'u, z którego pochodzi ta strefa; stemplowana
   w każdym `result.json`.
-- `runner/` — CLI `bench` (`run` / `evaluate` / `validate` / `report`).
-  W 0.1.0 komendy są stubami; wiążące są schematy kontraktów w
-  `runner/src/schemas/`.
+- `runner/` — CLI `bench` (`run` / `evaluate` / `validate` / `report` /
+  `matrix`); schematy kontraktów w `runner/src/schemas/`.
 - `docker/` — bazowy Dockerfile obrazu próby, pinowana wersja OpenCode
-  (`opencode.version`), kontrakt adaptera metryk.
-- `workflows/` — szablony GitHub Actions (run benchmarku, leaderboard).
-  Instancja kopiuje je do `.github/workflows/` (docelowo robi to
-  `bench-kit init`/`update`).
+  (`opencode.version`), adapter metryk, skrypty cyklu próby i oceny.
+- `workflows/` — workflows GitHub Actions (run benchmarku, leaderboard).
+  `bench-kit init`/`update` kopiuje je do `.github/workflows/`.

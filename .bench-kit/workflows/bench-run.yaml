@@ -1,8 +1,12 @@
-# Szablon workflow runu benchmarku. Instancja kopiuje go do
-# .github/workflows/ (docelowo robi to bench-kit init/update).
+# Workflow runu benchmarku. `bench-kit init`/`update` kopiuje go do
+# .github/workflows/ instancji.
 #
 # Rytuał: nowy model na rynku → dispatch z jego ID → nowy wiersz w tabeli.
 # Wszystkie parametry mają defaults z bench.config.yaml.
+#
+# Wymagane sekrety instancji: klucze API providerów używanych przez
+# oceniane modele i sędziego (np. OPENROUTER_API_KEY); dla prywatnych
+# repozytoriów bazowych dodatkowo deploy key / token read-only.
 
 name: bench-run
 
@@ -10,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "Modele oceniane (CSV, np. anthropic/claude-sonnet-5). Puste = defaults.models z bench.config.yaml"
+        description: "Modele oceniane (CSV, np. openrouter/google/gemini-2.5-flash). Puste = defaults.models z bench.config.yaml"
         required: false
         type: string
       tasks:
@@ -22,22 +26,93 @@ on:
         required: false
         type: string
 
+env:
+  # Parametry dispatch dokładane do komend tylko, gdy podane.
+  MODELS_ARG: ${{ inputs.models != '' && format('--models {0}', inputs.models) || '' }}
+  TASKS_ARG: ${{ inputs.tasks != '' && format('--tasks {0}', inputs.tasks) || '' }}
+  TRIALS_ARG: ${{ inputs.trials != '' && format('--trials {0}', inputs.trials) || '' }}
+
 jobs:
-  prepare:
-    # Kontrakt (implementacja wraz z `bench run`):
-    # - bench validate jako bramka,
-    # - jednorazowe pobranie pinowanych commitów repozytoriów bazowych
-    #   i zapieczenie w obrazy (próby nie zależą od sieci),
-    # - wyjście: macierz model × zadanie × próba.
+  # Bramka + macierz: validate musi przejść, zanim wydamy centa na próby.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+      - name: bench validate
+        run: npm run bench --prefix .bench-kit/runner --silent -- validate --root "$GITHUB_WORKSPACE"
+      - name: bench matrix
+        id: matrix
+        run: |
+          echo "matrix=$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG)" >> "$GITHUB_OUTPUT"
+
+  # Jeden job = model × zadanie; próby (trials) sekwencyjnie w środku —
+  # obraz zadania buduje się raz per job, próby nie zależą od sieci.
+  trial:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+      - name: bench run
+        run: |
+          npm run bench --prefix .bench-kit/runner --silent -- run \
+            --root "$GITHUB_WORKSPACE" \
+            --models "${{ matrix.model }}" --tasks "${{ matrix.task }}" $TRIALS_ARG \
+            --out "$GITHUB_WORKSPACE/out/run"
+      - name: bench evaluate
+        run: |
+          npm run bench --prefix .bench-kit/runner --silent -- evaluate \
+            --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.slug }}
+          path: out/run
+          if-no-files-found: warn
+
+  # Agregacja: mediana, pass@k, koszt runu → report.json jako artefakt.
+  # (Leaderboard/dashboard celowo później — surowe JSON-y wystarczą.)
+  aggregate:
+    needs: trial
+    if: always() && needs.plan.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "bench-run not implemented in 0.1.0" && exit 1
-
-  # trial:
-  #   needs: prepare
-  #   strategy: { matrix: "z prepare" }   # próby równoległe i niezależne
-  #   steps: bench run (jedna próba) → bench evaluate → upload result.json
-  #
-  # aggregate:
-  #   needs: trial
-  #   steps: bench report (mediana, pass@k, koszt całego runu) → artefakty
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: out/run
+          merge-multiple: true
+      - name: bench report
+        run: |
+          npm run bench --prefix .bench-kit/runner --silent -- report \
+            --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: out/run/report.json
