@@ -9,7 +9,10 @@ mocny model (inny niż modele oceniane, skonfigurowany w
 - rubrykę,
 
 i zwraca ustrukturyzowany JSON (format w rubryce). Wynik składowej
-`judge` = `total` z odpowiedzi sędziego (0–1).
+`judge` (0–1): przy rubryce z wagami kryteriów we frontmatterze YAML
+(`weights: { <kryterium>: <waga> }`, suma = 1) total liczy **runner**
+z `criteria[*].score` — model nie robi arytmetyki; rubryka bez
+frontmattera to stary kontrakt (`total` z odpowiedzi sędziego).
 
 Zasady:
 

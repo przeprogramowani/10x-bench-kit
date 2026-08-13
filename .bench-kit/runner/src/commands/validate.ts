@@ -35,6 +35,7 @@ import { BenchConfigSchema, type BenchConfig } from "../schemas/config.ts";
 import { TaskSchema, type Task } from "../schemas/task.ts";
 import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
+import { parseRubric } from "../lib/judge.ts";
 import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
 import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
 
@@ -74,11 +75,34 @@ function parseArgs(args: string[]): Options | null {
 }
 
 /** Asercja judge/* to plik .md z co najmniej jednym parsowalnym blokiem ```json
- *  zawierającym wymagany format odpowiedzi (criteria + total). */
+ *  z formatem odpowiedzi. Rubryka z wagami we frontmatterze: wagi muszą
+ *  sumować się do 1, a kryteria bloku formatu muszą pokrywać się z kluczami
+ *  wag (total liczy runner). Bez frontmattera: stary kontrakt
+ *  ({ criteria, total } — total od modelu). */
 function validateRubric(path: string): string | null {
   const text = readFileSync(path, "utf8");
-  const blocks = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)].map((m) => m[1] ?? "");
+  const rubric = parseRubric(text);
+  if (rubric.problem) return rubric.problem;
+  const blocks = [...rubric.body.matchAll(/```json\s*\n([\s\S]*?)```/g)].map((m) => m[1] ?? "");
   if (blocks.length === 0) return "brak bloku ```json z formatem odpowiedzi sędziego";
+  if (rubric.weights) {
+    const sum = Object.values(rubric.weights).reduce((a, b) => a + b, 0);
+    if (Math.abs(sum - 1) > 0.001) return `wagi frontmattera sumują się do ${sum.toFixed(4)}, oczekiwano 1`;
+    const wanted = Object.keys(rubric.weights).sort();
+    for (const block of blocks) {
+      try {
+        const parsed = JSON.parse(block) as Record<string, unknown>;
+        const criteria = parsed && typeof parsed === "object" ? parsed["criteria"] : null;
+        if (criteria && typeof criteria === "object" && !Array.isArray(criteria)) {
+          const got = Object.keys(criteria).sort();
+          if (got.length === wanted.length && got.every((k, i) => k === wanted[i])) return null;
+        }
+      } catch {
+        // spróbuj kolejnego bloku
+      }
+    }
+    return `żaden blok \`\`\`json nie ma criteria zgodnych z wagami frontmattera (${wanted.join(", ")})`;
+  }
   for (const block of blocks) {
     try {
       const parsed = JSON.parse(block);

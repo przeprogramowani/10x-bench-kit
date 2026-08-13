@@ -37,9 +37,14 @@ na realne runy.
 4. **Koszty jawne.** Kalibracja to dziesiątki wywołań sędziego — przed
    pomiarem podaj szacunek (diffy × powtórzenia × ~koszt wywołania),
    po pomiarze koszt faktyczny.
-5. **Format odpowiedzi jest kontraktem.** Rubryka musi zawierać blok
-   ```json z polami `criteria` i liczbowym `total` (sprawdza to
-   `bench validate`); odpowiedź sędziego bez poprawnego JSON-a = 0.
+5. **Format odpowiedzi jest kontraktem.** Nowe rubryki deklarują wagi
+   kryteriów we frontmatterze YAML (`weights:`, suma = 1) — total liczy
+   runner z `criteria[*].score`, więc blok ```json zawiera tylko
+   `criteria` o kluczach zgodnych z wagami (sprawdza to `bench
+   validate`). Nie proś sędziego o arytmetykę — to źródło błędów klasy
+   "wyrażenie zamiast liczby". Rubryka bez frontmattera to kontrakt
+   legacy (`criteria` + liczbowy `total` od modelu); odpowiedź bez
+   poprawnego JSON-a = 0.
 
 ## Procedura
 
