@@ -6,9 +6,34 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
-## Unreleased
+## 0.3.0 — 2026-08-13 `[scoring-breaking]`
 
-Neutralny. Schemat `task.yaml` rozszerzony wstecznie zgodnie (nowe pole
+`[scoring-breaking]` przez zmianę kontraktu sędziego i rubryki domyślnej:
+adopcja rubryki z wagami we frontmatterze zmienia sposób liczenia
+składowej judge (total liczy runner, nie model) — wyniki liczone starą
+i nową ścieżką nie są porównywalne. Instancja, która zostaje przy
+rubrykach bez frontmattera, zachowuje stary kontrakt (zmiana wstecznie
+zgodna technicznie, era zamyka się przy adopcji rubryki).
+
+- Total sędziego liczony przez runner: rubryka może deklarować wagi
+  kryteriów we frontmatterze YAML (`weights:`, suma = 1) — wtedy
+  `parseVerdict` liczy total z `criteria[*].score` (clamp do [0,1],
+  brak kryterium = 0 z powodem), a arytmetyka modelu jest poza pętlą
+  oceny (lekcja z kalibracji: "policz dokładnie" prowokowało wyrażenie
+  zamiast liczby = niepoprawny JSON = 0). Nowe pole `total_source`
+  (`runner`/`model`) w werdyktach (judge.json) rozróżnia tryby w audycie.
+- `bench validate` dla rubryk z frontmatterem: wagi sumują się do 1,
+  kryteria bloku formatu odpowiedzi pokrywają się z kluczami wag.
+- `default-rubric` podbita do skalibrowanej v2 (correctness 0.6 /
+  scope 0.25 / quality 0.15 + kotwice, z kalibracji na
+  fix-auth-validation) z frontmatterem; format odpowiedzi bez `total`.
+- Skill `bench-wiring` — od świeżego init do pierwszego zielonego runu:
+  rozpoznanie stanu → repo bazowe → modele i sędzia → checklista
+  sekretów (nazwy i obecność, nigdy wartości) → validate → smoke run
+  (koszty jawne) → PR. Komplet skilli pierwszej fali poza odłożonymi
+  bench-refresh/bench-triage.
+
+Schemat `task.yaml` rozszerzony wstecznie zgodnie (nowe pole
 opcjonalne) — `task_hash` zmienia się dopiero, gdy zadanie zadeklaruje
 `reference`, co otwiera nową erę tylko tego zadania.
 
