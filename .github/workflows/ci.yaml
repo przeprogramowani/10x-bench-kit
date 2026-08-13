@@ -1,0 +1,94 @@
+# CI template'u — testuje go end-to-end: materializacja instancji (jak
+# `bench-kit init`, bez historii gita) → wiring demo na publiczne repo
+# bazowe → pełne `bench validate` → run zadania-demo na tanim modelu →
+# `bench evaluate` z bramką na wynik.
+#
+# Init z prawdziwego 10x-cli testują testy 10x-cli; tu testujemy kontrakt
+# template'u na BIEŻĄCYM commicie (przed tagiem), więc materializacja to
+# kopia working tree — dokładnie to, co init robi z pobranym tagiem.
+#
+# Wymagany sekret: OPENROUTER_API_KEY (model próbny + sędzia). Job e2e
+# nie rusza na PR-ach z forków (sekrety niedostępne) — wtedy tylko check.
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+      - name: typecheck
+        run: npm run typecheck --prefix .bench-kit/runner
+      - name: bench validate --offline (template z placeholderami)
+        run: npm run bench --prefix .bench-kit/runner --silent -- validate --offline --root "$GITHUB_WORKSPACE"
+
+  e2e:
+    needs: check
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      INSTANCE: ${{ runner.temp }}/instance
+      # Wiring demo w CI: publiczne repo + pin + tani, niezawodny model
+      # próbny + sędzia — odpowiedniki decyzji z bench-wiring.
+      BASE_REPO_URL: https://github.com/przeprogramowani/10x-astro-starter.git
+      BASE_REPO_PIN: cc0bfebcdfb193b2bb2ec6a6604d29883f84a7e4
+      TRIAL_MODEL: openrouter/anthropic/claude-haiku-4.5
+      JUDGE_MODEL: openrouter/google/gemini-2.5-flash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - name: materializacja instancji (jak init — bez historii gita)
+        run: |
+          mkdir -p "$INSTANCE"
+          rsync -a --exclude .git --exclude .github --exclude node_modules ./ "$INSTANCE/"
+          git -C "$INSTANCE" init -q && git -C "$INSTANCE" add -A
+          git -C "$INSTANCE" -c user.email=ci@bench -c user.name=ci commit -qm init
+      - name: wiring demo
+        run: |
+          cd "$INSTANCE"
+          sed -i "s|git@github.com:example-org/demo-app.git|$BASE_REPO_URL|" bench.config.yaml
+          sed -i "s|anthropic/claude-fable-5|$JUDGE_MODEL|" bench.config.yaml
+          sed -i "s|- anthropic/claude-sonnet-5|- $TRIAL_MODEL|" bench.config.yaml
+          sed -i "s|\"0000000000000000000000000000000000000000\"|\"$BASE_REPO_PIN\"|" tasks/demo-hello-bench/task.yaml
+      - run: npm ci --prefix "$INSTANCE/.bench-kit/runner"
+      - name: bench validate (pełne, z siecią)
+        run: npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- validate --root "$INSTANCE"
+      - name: bench run (demo × 1 próba)
+        run: |
+          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- run \
+            --root "$INSTANCE" --tasks demo-hello-bench --models "$TRIAL_MODEL" \
+            --trials 1 --out "$INSTANCE/out/run"
+      - name: bench evaluate + bramka
+        run: |
+          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- evaluate \
+            --root "$INSTANCE" --run "$INSTANCE/out/run"
+          RESULT=$(find "$INSTANCE/out/run" -name result.json | head -1)
+          [ -n "$RESULT" ] || { echo "brak result.json"; exit 1; }
+          node -e '
+            const r = require(process.argv[1]);
+            console.log(`total ${r.total} | cost $${r.cost_usd} | ${r.duration_s}s | stamps ${JSON.stringify(r.stamps)}`);
+            if (r.total < 0.7) { console.error("total ponizej progu 0.7 — demo nie przechodzi"); process.exit(1); }
+          ' "$RESULT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-run
+          path: ${{ env.INSTANCE }}/out/run
+          if-no-files-found: warn
