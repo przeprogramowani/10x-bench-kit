@@ -1,0 +1,47 @@
+import { z } from "zod";
+
+/**
+ * Schemat result.json — artefakt pojedynczej próby.
+ *
+ * Wyniki porównują się wyłącznie w obrębie ery: krotka `stamps` musi być
+ * identyczna. Erę zamyka release template'u oznaczony scoring-breaking,
+ * zmiana modelu sędziego lub rubryk albo zmiana definicji zadania.
+ */
+
+/** Składowe oceny w [0, 1]; null = składowa nie brana pod uwagę (waga 0). */
+export const Scores = z.object({
+  static: z.number().min(0).max(1).nullable(),
+  tests: z.number().min(0).max(1).nullable(),
+  e2e: z.number().min(0).max(1).nullable(),
+  judge: z.number().min(0).max(1).nullable(),
+});
+
+/** Stemple wersji wyznaczające erę porównywalności. */
+export const EraStamps = z.object({
+  /** Wersja template'u (kit i struktura to jeden byt — jeden tag). */
+  template_version: z.string().min(1),
+  /** Hash katalogu zadania (prompt.md + task.yaml + overlay/). */
+  task_hash: z.string().regex(/^[0-9a-f]{64}$/, "SHA-256 hex"),
+  judge_model: z.string().min(1),
+  rubric_version: z.string().min(1),
+});
+
+export const ResultSchema = z.object({
+  task: z.string().min(1),
+  /** Identyfikator ocenianego modelu (jak podany do opencode). */
+  model: z.string().min(1),
+  /** Numer próby, licząc od 1. */
+  trial: z.number().int().positive(),
+  scores: Scores,
+  /** Ważona suma scores wg wag z task.yaml. */
+  total: z.number().min(0).max(1),
+  cost_usd: z.number().min(0),
+  duration_s: z.number().min(0),
+  tokens: z.object({
+    input: z.number().int().min(0),
+    output: z.number().int().min(0),
+  }),
+  stamps: EraStamps,
+});
+
+export type Result = z.infer<typeof ResultSchema>;

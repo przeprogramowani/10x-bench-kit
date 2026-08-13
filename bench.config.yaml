@@ -1,0 +1,26 @@
+# Konfiguracja instancji benchmarku (strefa firmy — nietykalna przy update).
+# Schemat: .bench-kit/runner/src/schemas/config.ts
+
+# Repozytoria bazowe — projekty produktowe, na których agenci wykonują
+# zadania. Benchmark NIGDY ich nie modyfikuje; dostęp read-only
+# (deploy key / token w sekretach repo instancji).
+base_repos:
+  - name: demo-app
+    # (placeholder — podmień na realne repo firmy)
+    url: git@github.com:example-org/demo-app.git
+
+# LLM-as-judge: stały, mocny model — INNY niż modele oceniane.
+# Zmiana modelu lub rubric_version zamyka erę porównywalności wyników.
+judge:
+  model: anthropic/claude-fable-5
+  rubric_version: "1"
+
+# Defaults runu — nadpisywalne parametrami workflow_dispatch.
+defaults:
+  # Liczba prób na (model × zadanie); agregacja liczy medianę i pass@k.
+  trials: 3
+  # Modele oceniane, gdy dispatch nie poda własnej listy.
+  models:
+    - anthropic/claude-sonnet-5
+  # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
+  timeout_s: 1800

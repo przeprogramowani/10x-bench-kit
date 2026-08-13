@@ -1,0 +1,23 @@
+# Szablon workflow publikacji leaderboardu. Instancja kopiuje go do
+# .github/workflows/ (docelowo robi to bench-kit init/update).
+#
+# Kontrakt (implementacja wraz z `bench report`):
+# - wejście: artefakty result.json z runów bench-run,
+# - generator buduje statyczny dashboard: jakość vs koszt vs czas + trendy
+#   między runami; ery NIE są mieszane — stare wyniki widoczne jako
+#   historia,
+# - publikacja na GitHub Pages; surowe JSON-y zostają jako artefakty.
+
+name: leaderboard
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - run: echo "leaderboard not implemented in 0.1.0" && exit 1

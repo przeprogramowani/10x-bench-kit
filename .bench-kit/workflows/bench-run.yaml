@@ -1,0 +1,43 @@
+# Szablon workflow runu benchmarku. Instancja kopiuje go do
+# .github/workflows/ (docelowo robi to bench-kit init/update).
+#
+# Rytuał: nowy model na rynku → dispatch z jego ID → nowy wiersz w tabeli.
+# Wszystkie parametry mają defaults z bench.config.yaml.
+
+name: bench-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Modele oceniane (CSV, np. anthropic/claude-sonnet-5). Puste = defaults.models z bench.config.yaml"
+        required: false
+        type: string
+      tasks:
+        description: "Zadania (CSV nazw z tasks/). Puste = wszystkie"
+        required: false
+        type: string
+      trials:
+        description: "Prób na (model × zadanie). Puste = defaults.trials"
+        required: false
+        type: string
+
+jobs:
+  prepare:
+    # Kontrakt (implementacja wraz z `bench run`):
+    # - bench validate jako bramka,
+    # - jednorazowe pobranie pinowanych commitów repozytoriów bazowych
+    #   i zapieczenie w obrazy (próby nie zależą od sieci),
+    # - wyjście: macierz model × zadanie × próba.
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "bench-run not implemented in 0.1.0" && exit 1
+
+  # trial:
+  #   needs: prepare
+  #   strategy: { matrix: "z prepare" }   # próby równoległe i niezależne
+  #   steps: bench run (jedna próba) → bench evaluate → upload result.json
+  #
+  # aggregate:
+  #   needs: trial
+  #   steps: bench report (mediana, pass@k, koszt całego runu) → artefakty

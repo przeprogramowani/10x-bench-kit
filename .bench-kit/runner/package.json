@@ -1,0 +1,26 @@
+{
+  "name": "@przeprogramowani/bench-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runner benchmarku agentów AI — run / evaluate / validate / report",
+  "type": "module",
+  "bin": {
+    "bench": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "bench": "node --experimental-strip-types src/index.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.6.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

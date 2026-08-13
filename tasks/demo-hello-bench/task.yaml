@@ -1,0 +1,30 @@
+# Zadanie-demo (smoke test struktury i cyklu próby).
+# Schemat: .bench-kit/runner/src/schemas/task.ts
+
+# Identyfikator repo bazowego z bench.config.yaml (base_repos[].name).
+repo: demo-app
+
+# Pinowany commit repo bazowego — punkt startowy workspace'u.
+# (placeholder — podmień na realny SHA po skonfigurowaniu base_repos)
+commit: "0000000000000000000000000000000000000000"
+
+# Twardy timeout wykonania agenta (sekundy).
+timeout_s: 300
+
+# Dobór asercji z evaluation-pool/ — montowane dopiero na etapie oceny,
+# nigdy nie trafiają do workspace'u agenta.
+evaluation:
+  - static/lint
+  - judge/default-rubric
+
+# Wagi składowych oceny (muszą sumować się do 1).
+# Składowe bez asercji w `evaluation` mają wagę 0.
+weights:
+  static: 0.3
+  tests: 0
+  e2e: 0
+  judge: 0.7
+
+# Data ważności — po niej `bench validate` ostrzega o konieczności
+# odświeżenia (nowy pin + asercje = nowa era zadania).
+expires: "2026-12-31"
