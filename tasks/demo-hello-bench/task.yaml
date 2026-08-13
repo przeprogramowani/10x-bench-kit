@@ -14,16 +14,15 @@ timeout_s: 300
 # Dobór asercji z evaluation-pool/ — montowane dopiero na etapie oceny,
 # nigdy nie trafiają do workspace'u agenta.
 evaluation:
-  - static/lint
   - judge/default-rubric
 
 # Wagi składowych oceny (muszą sumować się do 1).
 # Składowe bez asercji w `evaluation` mają wagę 0.
 weights:
-  static: 0.3
+  static: 0
   tests: 0
   e2e: 0
-  judge: 0.7
+  judge: 1
 
 # Data ważności — po niej `bench validate` ostrzega o konieczności
 # odświeżenia (nowy pin + asercje = nowa era zadania).

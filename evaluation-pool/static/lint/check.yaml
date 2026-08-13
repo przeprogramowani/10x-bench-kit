@@ -10,4 +10,6 @@ score: binary
 checks:
   - name: lint
     # Smoke test struktury: linter tylko, gdy repo bazowe go definiuje.
-    run: "[ ! -f package.json ] || npm run lint --if-present"
+    # Obraz zadania nie ma node_modules — instalacja należy do asercji
+    # (etap oceny może korzystać z sieci; offline są tylko próby agenta).
+    run: "[ ! -f package.json ] || { npm ci --no-audit --no-fund >/dev/null && npm run lint --if-present; }"
