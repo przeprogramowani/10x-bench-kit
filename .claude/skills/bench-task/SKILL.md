@@ -1,0 +1,165 @@
+---
+name: bench-task
+description: >-
+  Tworzy nowe zadanie benchmarku agentów AI w instancji bench-kit: prompt,
+  pinowany commit, opcjonalny overlay (seed buga), asercje z evaluation-pool
+  z deklaracjami reference i wagi — wszystko sprawdzone na wersji
+  referencyjnej, zanim trafi do PR-a. Użyj, gdy użytkownik chce dodać
+  zadanie do benchmarku, przerobić pomysł na zadanie mierzalne albo mówi
+  "nowe zadanie / task do bencha".
+---
+
+# bench-task — autorstwo zadania benchmarku
+
+Tworzysz katalog `tasks/<nazwa>/` w instancji benchmarku. Zadanie ma być
+mierzalne, nieprzechodzalne pustym diffem i sprawdzone na referencji przed
+zaproponowaniem. Naczelna zasada: **niczego nie proponujesz, czego sam nie
+uruchomiłeś na wersji referencyjnej** — do tego służą `bench assert`,
+`bench judge` i `bench validate --assert` (patrz "Narzędzia" niżej).
+
+## Twarde zasady
+
+1. **Wyjście wyłącznie przez PR.** Nigdy nie commituj do mastera instancji
+   niczego, co wpływa na scoring (zadania, asercje, rubryki,
+   `bench.config.yaml`). Gałąź + PR wg [PR_TEMPLATE.md](PR_TEMPLATE.md).
+2. **Izolacja materiałów oceny.** Nic z `evaluation-pool/` nie może być
+   skopiowane ani zreferowane w `tasks/<nazwa>/` (jedyny wyjątek: wpisy
+   `evaluation: [...]` w task.yaml). `prompt.md` nie może zdradzać, jak
+   zadanie będzie oceniane, ani cytować ukrytych testów.
+3. **Testuj na referencji, zanim zaproponujesz.** Każda asercja przed
+   wejściem do PR-a musi być uruchomiona przez `bench assert` i zachować
+   się zgodnie z intencją — na stanie startowym ORAZ na wzorcowym
+   rozwiązaniu. Deklarujesz to w `reference` w task.yaml.
+4. **Runner jest twoim narzędziem.** Nie reimplementuj jego logiki, nie
+   oceniaj "na oko" — wołaj komendy `bench` i czytaj ich wyjścia. Jeśli
+   czegoś brakuje runnerowi, zgłoś to (issue), nie obchodź.
+5. **Nie dotykaj `.bench-kit/`** (strefa narzędzia) ani cudzych zadań.
+6. **Koszty jawne.** Przed próbnym runem lub wywołaniem sędziego podaj
+   szacunek kosztu i poproś o zgodę; po wykonaniu zraportuj koszt
+   faktyczny (z `metrics.json` / cennika sędziego).
+7. **Świadomość er.** Każda zmiana `tasks/<nazwa>/` zmienia `task_hash`
+   tego zadania (nowa era). PR musi to mówić wprost — sekcja "Skutki dla
+   porównywalności" w szablonie.
+
+## Narzędzia runnera
+
+Uruchamiane z korzenia instancji: `node --experimental-strip-types
+.bench-kit/runner/src/index.ts <komenda>` (dalej: `bench <komenda>`).
+
+- `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]` —
+  asercje nie-LLM-owe na stanie startowym zadania (repo@pin + overlay);
+  `--no-overlay` = czysta referencja, `--patch` = z nałożonym diffem.
+  Exit 0 gdy wszystkie score 1, exit 1 gdy nie — sprawdzasz oba kierunki.
+- `bench judge --task <nazwa> --patch <plik> [--rubric judge/<r>]` —
+  pojedynczy werdykt sędziego na diffie (kalibracja: patrz skill
+  bench-rubric).
+- `bench validate --assert` — pełna bramka + weryfikacja deklaracji
+  `reference` na stanie startowym.
+- `bench run --tasks <nazwa> --models <tani-model> --trials 1` +
+  `bench evaluate --run <dir>` — próbny pełny cykl (krok 7).
+
+## Procedura
+
+### 1. Wywiad
+
+Zbierz od użytkownika i zapisz sobie przed pisaniem czegokolwiek:
+
+- **Co zadanie mierzy**: implementacja funkcji / naprawa buga / refaktor /
+  dokumentacja. Jedno zadanie = jedna intencja.
+- **Repo bazowe** (musi być w `base_repos` w bench.config.yaml — jeśli
+  nie jest, to najpierw wiring, nie to zadanie).
+- **Poziom trudności** i **budżet czasowy próby** (`timeout_s` — typowo
+  300–900 s; za krótki timeout mierzy szybkość, nie jakość).
+- **Nazwa zadania**: kebab-case, mówiąca co jest do zrobienia
+  (np. `fix-cart-total-rounding`), nie jak (`edit-cart-ts`).
+
+### 2. Pin
+
+Zaproponuj konkretny commit repo bazowego: świeży, ale stabilny —
+najlepiej ostatni zielony na CI. Zweryfikuj, że zadanie ma na nim sens:
+sklonuj/przejrzyj repo na tym commicie, sprawdź że pliki, których zadanie
+dotyczy, istnieją, a projekt się buduje. Pełny SHA (40 znaków) do
+`task.yaml`.
+
+### 3. Overlay (zadania typu "napraw")
+
+Buga **wprowadzasz sam** jako pliki w `tasks/<nazwa>/overlay/` (nadpisują
+pliki repo przy starcie próby). Wymóg: bug musi być **obserwowalny** —
+istnieje asercja, która go łapie:
+
+- na stanie startowym (z overlayem) asercja **czerwona** —
+  `bench assert <ref> --task <nazwa>` → exit 1,
+- kontrdowód, że czerwień pochodzi z buga, nie z zepsutej asercji:
+  - overlay **modyfikuje** istniejące pliki → na czystej referencji
+    zielona: `bench assert <ref> --task <nazwa> --no-overlay` → exit 0,
+  - overlay **dodaje** nowe pliki (na czystej referencji asercja nie ma
+    czego testować) → kontrdowodem jest wzorcowe rozwiązanie:
+    `bench assert <ref> --task <nazwa> --patch <wzorzec.diff>` → exit 0.
+
+Jeśli nie umiesz pokazać obu wyników, bug jest nieobserwowalny albo
+asercja zła — wróć do projektowania, nie idź dalej. Overlay ma być
+minimalny: seed buga, nie przebudowa projektu.
+
+### 4. prompt.md
+
+Pisz jak zlecenie dla człowieka: cel, kontekst, granice ("nie zmieniaj
+niczego poza…"). Zakazane: podpowiadanie rozwiązania, wskazywanie linii
+do zmiany, jakiekolwiek przecieki z materiałów oceny (zasada 2). Prompt
+to **jedyne** wejście agenta — wszystko, czego nie napiszesz, agent musi
+wywnioskować z kodu.
+
+### 5. Asercje
+
+Najpierw przejrzyj `evaluation-pool/` pod **reużycie** — asercje są
+wspólne dla wielu zadań. Brakujące twórz **w puli** (katalog
+`evaluation-pool/<typ>/<nazwa>/check.yaml`), nigdy w katalogu zadania.
+Ukryte pliki testów trzymaj w katalogu asercji (w kontenerze oceny są
+pod `$ASSERTION_DIR`).
+
+Każda asercja przechodzi zasadę "testuj na referencji" (zasada 3):
+
+| Stan | Oczekiwanie | Komenda |
+|---|---|---|
+| startowy (z overlayem) | miara pracy czerwona, guardy zielone | `bench assert --task <nazwa>` |
+| wzorcowe rozwiązanie | wszystko zielone | `bench assert --task <nazwa> --patch <wzorzec.diff>` |
+
+Wzorcowe rozwiązanie przygotuj sam (diff względem stanu startowego)
+i zachowaj — przyda się do kalibracji rubryki (bench-rubric). Wyniki
+zapisz w `reference` w task.yaml: guardy (lint/build) → `pass`, miary
+pracy (ukryte testy) → `fail`. Pamiętaj o lekcji założycielskiej: asercja
+musi sama instalować swoje zależności (etap oceny może używać sieci)
+i nie może karać agenta za zastane problemy repo bazowego.
+
+Dla składowej `judge/*`: rubrykę twórz/kalibruj skillem **bench-rubric**,
+nie ręcznie w ramach tego skilla.
+
+### 6. Wagi
+
+Zaproponuj wagi z uzasadnieniem: co która składowa **faktycznie odróżnia**
+w tym zadaniu. Składowa, która nie odróżnia dobrego wykonania od złego
+(np. lint zielony niezależnie od jakości rozwiązania), dostaje wagę 0
+albo wylatuje z `evaluation[]`. Suma wag = 1.
+
+### 7. Samosprawdzenie
+
+Kolejno, każde musi przejść zanim pójdziesz dalej:
+
+1. `bench validate --assert` — zielone (deklaracje `reference` zgodne).
+2. `bench assert --task <nazwa> --patch <wzorzec.diff>` — exit 0
+   (zadanie jest wykonalne).
+3. Pusty diff **nie może** dawać wyniku ≥ progu zaliczenia: stan startowy
+   ma czerwoną miarę pracy (pkt 1) i — jeśli jest składowa judge —
+   `bench judge --task <nazwa> --patch <pusty.diff>` daje niski wynik.
+4. Za zgodą użytkownika (zasada 6): próbny `bench run` + `bench evaluate`
+   na jednym tanim modelu. Zadanie, którego nie da się przejść, albo
+   które przechodzi się pustym diffem, wraca do kroku 3/5.
+
+### 8. PR
+
+Gałąź `bench-task/<nazwa>`, commit z katalogiem zadania + ewentualnymi
+nowymi asercjami w puli. Opis PR-a wg [PR_TEMPLATE.md](PR_TEMPLATE.md) —
+obowiązkowo sekcje: co zadanie mierzy, dowody z referencji (wyniki komend
+z kroków 3/5/7), skutki dla porównywalności (zasada 7), koszt
+samosprawdzenia. Wzorcowego rozwiązania **nie** commituj do `tasks/`
+(przeciekłoby do workspace'u agenta) — jeśli ma zostać w repo, jego
+miejsce to `evaluation-pool/judge/<zadanie>-calibration/`.
