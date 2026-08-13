@@ -7,8 +7,8 @@
  *   bench validate  — bramka spójności instancji przed runem
  *   bench report    — agregacja result.json → dane leaderboardu
  *
- * W wersji 0.1.0 komendy są stubami: wiążący jest ich kontrakt (docstringi
- * w src/commands/) oraz schematy danych w src/schemas/.
+ * Zaimplementowane: validate. Pozostałe komendy są stubami: wiążący jest
+ * ich kontrakt (docstringi w src/commands/) oraz schematy w src/schemas/.
  */
 import { runCommand } from "./commands/run.ts";
 import { evaluateCommand } from "./commands/evaluate.ts";

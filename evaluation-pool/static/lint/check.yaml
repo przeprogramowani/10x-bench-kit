@@ -1,0 +1,10 @@
+# Asercja static/lint — używana przez zadanie-demo.
+# Konwencja (wiążąca od implementacji `bench evaluate`): lista komend
+# uruchamianych na workspace po próbie + mapowanie wyniku na 0–1.
+checks:
+  - name: lint
+    run: npm run lint
+    # binary: 1 gdy komenda kończy się kodem 0, inaczej 0.
+    # (alternatywa planowana: proporcjonalnie do liczby błędów względem
+    # wersji referencyjnej — żeby nie karać za zastane problemy repo.)
+    score: binary
