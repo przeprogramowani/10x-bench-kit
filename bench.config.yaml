@@ -12,7 +12,7 @@ base_repos:
 # LLM-as-judge: stały, mocny model — INNY niż modele oceniane.
 # Zmiana modelu lub rubric_version zamyka erę porównywalności wyników.
 judge:
-  model: anthropic/claude-fable-5
+  model: openrouter/openai/gpt-5.6-sol
   rubric_version: "1"
 
 # Defaults runu — nadpisywalne parametrami workflow_dispatch.
