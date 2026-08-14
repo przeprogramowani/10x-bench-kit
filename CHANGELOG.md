@@ -6,6 +6,29 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.4.0 — 2026-08-14 (neutralne)
+
+Leaderboard — pierwsza wersja z publikacją dashboardu. Zmiana neutralna
+dla scoringu: nie dotyka wykonania prób, oceny ani schematów wyników.
+
+- Nowa komenda `bench leaderboard --history <dir> [--out <dir>]
+  [--title <s>]`: buduje statyczny dashboard z historii report.json
+  (jeden plik = jeden run). Ery nigdy nie są mieszane — bieżącą erą
+  zadania jest ta z najnowszym runem, starsze zostają widoczne jako
+  historia. Widoki: tabela median (wynik + pass@1/pass@k + koszt/czas),
+  jakość vs koszt (oś log), trend median między runami w obrębie ery.
+  Samowystarczalny HTML (dane wbudowane, zero zależności sieciowych),
+  tryb jasny i ciemny; obok ląduje data.json ze sklejoną historią.
+- Realny workflow `leaderboard.yaml`: trwała historia raportów na
+  gałęzi `bench-data` (`runs/<run_id>.json` — artefakty CI wygasają,
+  gałąź nie), trigger po udanym bench-run + `workflow_dispatch`
+  z backfillem z jeszcze żywych artefaktów, deploy na GitHub Pages.
+  Pages wymaga repo publicznego albo płatnego planu — gdy niedostępne,
+  deploy jest pomijany z warningiem, a dashboard zawsze zostaje
+  artefaktem `leaderboard-site`.
+- Nowy schemat `report.ts` (zod) — kontrakt report.json spisany jawnie
+  (dotąd tylko implicit w `bench report`).
+
 ## 0.3.0 — 2026-08-13 `[scoring-breaking]`
 
 `[scoring-breaking]` przez zmianę kontraktu sędziego i rubryki domyślnej:
