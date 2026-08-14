@@ -1,16 +1,19 @@
+![](./benchkit.png)
+
 # 10x-bench-kit
 
 Template repo wewnętrznego benchmarku agentów AI. Z tego repo powstaje
-**instancja benchmarku** firmy (`10x bench-kit init`) — osobne repo, które
-trzyma zadania, pulę ocen i konfigurację, i uruchamia próby agentów na
-repozytoriach produktowych firmy w pełnej izolacji.
+**instancja benchmarku** firmy przy pomocy [10xCLI](https://github.com/przeprogramowani/10x-cli)
+(`10x bench-kit init`) — osobne repo, które trzyma zadania, pulę ocen
+i konfigurację, i uruchamia próby agentów na repozytoriach produktowych
+firmy w pełnej izolacji.
 
 Harness na start: **OpenCode** (wyłącznie). Mierzone: jakość (ocena
 automatyczna + LLM-as-judge), koszt i czas wykonania.
 
-## Trzy strefy
+## Trzy składowe
 
-Struktura repo dzieli się na strefy o różnych właścicielach i różnym
+Struktura repo dzieli się na składowe o różnych właścicielach i różnym
 zachowaniu przy `10x bench-kit update`:
 
 | Strefa | Właściciel | Przy `update` |
