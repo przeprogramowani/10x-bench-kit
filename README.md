@@ -19,7 +19,7 @@ zachowaniu przy `10x bench-kit update`:
 | Strefa | Właściciel | Przy `update` |
 |---|---|---|
 | `.bench-kit/` | kit (my) | podmiana w całości (atomowa) |
-| `.claude/skills/` | współdzielona | propozycja diffu — firma decyduje |
+| `.agents/skills/` | współdzielona | propozycja diffu — firma decyduje |
 | `tasks/`, `evaluation-pool/`, `bench.config.yaml` | firma | nietykalne |
 
 Szczegóły kontraktu każdej strefy — w README danej strefy.

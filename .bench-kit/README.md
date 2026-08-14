@@ -3,7 +3,7 @@
 **Nie edytuj plików w tej strefie.** Przy `10x bench-kit update` cały
 katalog jest podmieniany atomowo na wersję z nowszego tagu template'u —
 lokalne zmiany przepadną bez ostrzeżenia. Wszystko, co firmowe, żyje w
-`tasks/`, `evaluation-pool/`, `bench.config.yaml` i `.claude/skills/`.
+`tasks/`, `evaluation-pool/`, `bench.config.yaml` i `.agents/skills/`.
 
 Zawartość:
 

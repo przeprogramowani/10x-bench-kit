@@ -6,6 +6,23 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.5.0 — 2026-08-14 (neutralne)
+
+- **Skille przeniesione do `.agents/skills/`** — mainstreamowa,
+  tool-agnostyczna konwencja (jeden katalog czytany przez różne narzędzia
+  agentowe). Bez symlinka kompatybilności: `10x bench-kit init`/`update`
+  (od 10x-cli v1.14.0+) auto-wykrywają źródło skilli w template
+  i materializują je w instancji pod ścieżką narzędzia wybranego przy
+  `init` (`.claude/skills/` dla Claude Code itd., wybór w `instance.json`).
+  Istniejące instancje: `update` zsynchronizuje skille pod dotychczasową
+  ścieżką (domyślny profil claude-code) — nic do zrobienia ręcznie.
+- Leaderboard: tabela i wykres jakość-vs-koszt bieżącej ery pokazują
+  **najświeższy wynik per model** (unia modeli ze wszystkich runów ery),
+  nie tylko wiersze ostatniego runu — rytuał "dispatch tylko z nowym
+  modelem" nie chowa już starszych modeli; wiersze spoza najnowszego runu
+  dostają stempel runu, z którego pochodzą. Zmiana czysto prezentacyjna
+  (report.json bez zmian).
+
 ## 0.4.2 — 2026-08-14 (neutralne)
 
 - Fix workflow `leaderboard`: przygotowanie gałęzi `bench-data` padało

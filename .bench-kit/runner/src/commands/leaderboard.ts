@@ -266,6 +266,18 @@ const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&
 const models = [...new Set(DATA.tasks.flatMap(t => t.eras.flatMap(e => e.runs.flatMap(r => r.rows.map(x => x.model)))))].sort();
 const colorOf = m => { const i = models.indexOf(m); return i < SLOTS.length ? "var(" + SLOTS[i] + ")" : "var(--ink-muted)"; };
 
+// najświeższy wynik per model w obrębie ery — rytuał "dispatch tylko z nowym
+// modelem" nie może chować modeli, których nie było w ostatnim runie; wiersz
+// spoza najnowszego runu dostaje stempel runu, z którego pochodzi
+function latestRowsPerModel(era) {
+  const newestRun = era.runs[era.runs.length - 1];
+  const byModel = new Map();
+  for (const run of era.runs) {
+    for (const r of run.rows) byModel.set(r.model, { ...r, run_id: run.run_id, run_at: run.generated_at });
+  }
+  return [...byModel.values()].map(r => ({ ...r, stale: r.run_id !== newestRun.run_id }));
+}
+
 function tableHtml(rows, threshold) {
   const sorted = [...rows].sort((a, b) => b.median_total - a.median_total);
   return '<table><thead><tr><th>Model</th><th>Wynik (mediana)</th>' +
@@ -275,7 +287,8 @@ function tableHtml(rows, threshold) {
       const passed = r.median_total >= threshold;
       return '<tr>' +
         '<td class="model"><span class="swatch" style="background:' + colorOf(r.model) + '"></span>' +
-          esc(short(r.model)) + '<span class="full">' + esc(r.model) + '</span></td>' +
+          esc(short(r.model)) + '<span class="full">' + esc(r.model) +
+          (r.stale ? " · run " + esc(r.run_id) + " (" + fmt.date(r.run_at) + ")" : "") + '</span></td>' +
         '<td><div class="scorecell"><span class="n' + (passed ? ' pass' : '') + '">' + fmt.score(r.median_total) + '</span>' +
           '<div class="scorebar"><div class="fill" style="width:' + (r.median_total * 100) + '%"></div>' +
           '<div class="thresh" style="left:' + (threshold * 100) + '%"></div></div></div></td>' +
@@ -369,10 +382,10 @@ function eraMeta(stamps, runs) {
 }
 
 function eraHtml(era, threshold) {
-  const latest = era.runs[era.runs.length - 1];
+  const rows = latestRowsPerModel(era);
   let html = '<p class="era-meta">' + eraMeta(era.stamps, era.runs) + "</p>" +
-    '<div class="card">' + tableHtml(latest.rows, threshold) + "</div>" +
-    '<div class="charts"><div class="card"><h3>Jakość vs koszt (ostatni run)</h3>' + scatterSvg(latest.rows, threshold) + "</div>";
+    '<div class="card">' + tableHtml(rows, threshold) + "</div>" +
+    '<div class="charts"><div class="card"><h3>Jakość vs koszt (najświeższy wynik per model)</h3>' + scatterSvg(rows, threshold) + "</div>";
   if (era.runs.length >= 2) {
     html += '<div class="card"><h3>Trend median między runami</h3>' + trendSvg(era.runs, threshold) +
       '<div class="legend">' + [...new Set(era.runs.flatMap(r => r.rows.map(x => x.model)))].sort()
