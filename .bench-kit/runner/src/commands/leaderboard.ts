@@ -87,8 +87,11 @@ function buildSiteData(title: string, reports: { run_id: string; report: Report 
   const eras = new Map<string, { stamps: Result["stamps"]; runs: EraRun[] }>();
   for (const { run_id, report } of reports) {
     for (const era of report.eras) {
+      // scoring_version (tylko scoring-breaking podbija) zamiast
+      // template_version — neutralny release template'u nie rozdziela er;
+      // raporty legacy bez scoring_version zachowują stary klucz.
       const key = JSON.stringify([
-        era.stamps.template_version,
+        era.stamps.scoring_version ?? era.stamps.template_version,
         era.stamps.task_hash,
         era.stamps.judge_model,
         era.stamps.rubric_version,
@@ -376,7 +379,12 @@ function trendSvg(runs, threshold) {
 }
 
 function eraMeta(stamps, runs) {
-  return "template " + esc(stamps.template_version) + " · rubryka v" + esc(stamps.rubric_version) +
+  // Era scoringowa może obejmować wiele wersji template'u (neutralne
+  // release'y) — pokazujemy stempel, który faktycznie wyznacza erę.
+  const version = stamps.scoring_version !== undefined
+    ? "scoring v" + esc(stamps.scoring_version)
+    : "template " + esc(stamps.template_version);
+  return version + " · rubryka v" + esc(stamps.rubric_version) +
     " · sędzia " + esc(short(stamps.judge_model)) + " · zadanie <code>" + stamps.task_hash.slice(0, 8) + "</code>" +
     " · " + runs.length + " run(y): " + runs.map(r => esc(r.run_id)).join(", ");
 }

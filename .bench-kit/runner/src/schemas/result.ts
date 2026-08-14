@@ -20,6 +20,15 @@ export const Scores = z.object({
 export const EraStamps = z.object({
   /** Wersja template'u (kit i struktura to jeden byt — jeden tag). */
   template_version: z.string().min(1),
+  /**
+   * Wersja scoringu (.bench-kit/SCORING_VERSION) — podbijana WYŁĄCZNIE
+   * przy release'ach oznaczonych scoring-breaking, więc neutralne
+   * release'y template'u nie rozdzielają er. Klucz ery używa tego pola;
+   * template_version zostaje w stemplach jako informacja. Optional dla
+   * zgodności z wynikami sprzed wprowadzenia (tam klucz ery spada na
+   * template_version — historyczne ery się nie przetasowują).
+   */
+  scoring_version: z.string().min(1).optional(),
   /** Hash katalogu zadania (prompt.md + task.yaml + overlay/). */
   task_hash: z.string().regex(/^[0-9a-f]{64}$/, "SHA-256 hex"),
   judge_model: z.string().min(1),

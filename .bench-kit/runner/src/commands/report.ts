@@ -89,11 +89,14 @@ export async function reportCommand(args: string[]): Promise<number> {
     const results = findResults(opts.run);
     if (results.length === 0) throw new Error(`brak result.json w ${opts.run} — najpierw \`bench evaluate\``);
 
-    // grupowanie: era (krotka stamps) → (model × zadanie) → próby
+    // grupowanie: era (krotka stamps) → (model × zadanie) → próby.
+    // Klucz używa scoring_version (podbijanej tylko przy scoring-breaking),
+    // nie template_version — neutralny release nie rozdziela er; wyniki
+    // legacy (bez scoring_version) spadają na template_version.
     const eras = new Map<string, { stamps: Result["stamps"]; cells: Map<string, Result[]> }>();
     for (const result of results) {
       const eraKey = JSON.stringify([
-        result.stamps.template_version,
+        result.stamps.scoring_version ?? result.stamps.template_version,
         result.stamps.task_hash,
         result.stamps.judge_model,
         result.stamps.rubric_version,

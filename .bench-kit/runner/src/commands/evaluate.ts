@@ -127,6 +127,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
   try {
     const config = loadConfig(root);
     const templateVersion = readFileSync(join(root, ".bench-kit", "VERSION"), "utf8").trim();
+    const scoringVersion = readFileSync(join(root, ".bench-kit", "SCORING_VERSION"), "utf8").trim();
     const trials = findTrials(runDir);
     if (trials.length === 0) throw new Error(`brak prób (trial.json) w ${runDir}`);
     console.log(`bench evaluate: ${trials.length} prób(y) w ${runDir}`);
@@ -210,6 +211,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           tokens: { input: metrics.tokens?.input ?? 0, output: metrics.tokens?.output ?? 0 },
           stamps: {
             template_version: templateVersion,
+            scoring_version: scoringVersion,
             task_hash: hash,
             judge_model: config.judge.model,
             rubric_version: config.judge.rubric_version,

@@ -6,6 +6,29 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.7.0 — 2026-08-14 `[scoring-breaking]`
+
+- **Stempel `scoring_version`** (fix
+  [#1](https://github.com/przeprogramowani/10x-bench-kit/issues/1)):
+  nowy plik `.bench-kit/SCORING_VERSION` (start: `1`), podbijany
+  WYŁĄCZNIE przy release'ach `[scoring-breaking]`. `result.json`
+  dostaje `stamps.scoring_version`; klucz ery w `bench report`
+  i `bench leaderboard` używa `scoring_version` zamiast
+  `template_version` — neutralne release'y template'u przestają
+  rozdzielać ery na dashboardzie. `template_version` zostaje
+  w stemplach jako informacja; meta ery na dashboardzie pokazuje
+  "scoring vN" (era może obejmować wiele wersji template'u).
+- **Wsteczna zgodność**: `scoring_version` jest opcjonalne w schemacie —
+  wyniki i raporty sprzed tej wersji parsują się bez zmian, a ich klucz
+  ery spada na `template_version`, więc historyczne ery się nie
+  przetasowują. Zweryfikowane na realnej historii bench-data instancji
+  referencyjnej + syntetycznych raportach (dwa neutralne bumpy przy tym
+  samym scoringu → jedna era).
+- Release jest `[scoring-breaking]`, bo zmienia grupowanie er: pierwszy
+  run po adopcji otworzy nowe ery (klucz "1" zamiast wersji template'u)
+  dla wszystkich zadań. Kolejne neutralne release'y już er nie ruszą —
+  po to ta zmiana.
+
 ## 0.6.0 — 2026-08-14 (neutralne)
 
 - **Skille `bench-refresh` i `bench-triage`** — komplet zestawu
