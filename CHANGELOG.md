@@ -6,6 +6,18 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.4.1 — 2026-08-14 (neutralne)
+
+- Workflow `leaderboard`: opcjonalny deploy na **Cloudflare Pages** —
+  aktywuje się, gdy instancja ma sekrety `CLOUDFLARE_API_TOKEN`
+  (uprawnienie Cloudflare Pages: Edit) i `CLOUDFLARE_ACCOUNT_ID`;
+  nazwa projektu z repo variable `CLOUDFLARE_PAGES_PROJECT` (default:
+  nazwa repo), projekt tworzony automatycznie przy pierwszym deployu.
+  Publikacja działa niezależnie od widoczności repo GitHuba — domyka
+  lukę z 0.4.0 (GH Pages niedostępne dla prywatnych repo na darmowym
+  planie). Bez sekretów krok jest pomijany; GH Pages i artefakt
+  `leaderboard-site` bez zmian.
+
 ## 0.4.0 — 2026-08-14 (neutralne)
 
 Leaderboard — pierwsza wersja z publikacją dashboardu. Zmiana neutralna

@@ -5,9 +5,15 @@
 # (runs/<run_id>.json) — artefakty CI wygasają, gałąź nie. Dashboard buduje
 # `bench leaderboard` z całej gałęzi i publikuje na GitHub Pages.
 #
-# Pages wymaga repo publicznego albo płatnego planu (dla prywatnych).
-# Gdy Pages jest niedostępne, deploy jest pomijany z komunikatem,
-# a dashboard zawsze zostaje artefaktem `leaderboard-site`.
+# Cele publikacji (wszystkie warunkowe, dashboard zawsze zostaje
+# artefaktem `leaderboard-site`):
+# - Cloudflare Pages — gdy ustawione sekrety CLOUDFLARE_API_TOKEN
+#   (uprawnienie Cloudflare Pages: Edit) i CLOUDFLARE_ACCOUNT_ID;
+#   nazwa projektu z repo variable CLOUDFLARE_PAGES_PROJECT (default:
+#   nazwa repo). Działa niezależnie od widoczności repo GitHuba.
+# - GitHub Pages — wymaga repo publicznego albo płatnego planu
+#   (dla prywatnych); niedostępność wykrywana sondą, deploy pomijany
+#   z komunikatem.
 #
 # Triggery:
 # - workflow_run po udanym bench-run: dokłada report tego runu i przebudowuje,
@@ -31,6 +37,10 @@ permissions:
 concurrency:
   group: leaderboard
   cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
 jobs:
   publish:
@@ -106,6 +116,14 @@ jobs:
         with:
           name: leaderboard-site
           path: site
+
+      - name: Deploy na Cloudflare Pages
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || github.event.repository.name }}
+        run: |
+          npx --yes wrangler pages project create "$PAGES_PROJECT" --production-branch=master >/dev/null 2>&1 || true
+          npx --yes wrangler pages deploy site --project-name="$PAGES_PROJECT" --branch=master
 
       - name: Sonda dostępności Pages
         id: pages
