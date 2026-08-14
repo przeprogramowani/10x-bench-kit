@@ -32,7 +32,10 @@ Kolejność odpowiada cyklowi życia instancji:
   erę porównywalności; PR mówi to wprost, przed mergem.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
-- **Koszty jawne** — każdy run modeli poprzedza szacunek i zgoda.
+- **Budżet zamiast rytuału zgody** — kosztów pilnuje
+  `defaults.max_cost_usd` (runner przerywa run po przekroczeniu);
+  koszt faktyczny raportuje się po fakcie, a zgody człowieka wymaga
+  tylko podnoszenie budżetu.
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `run` / `evaluate`),
   nie deklaracja.

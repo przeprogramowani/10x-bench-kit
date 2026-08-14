@@ -384,7 +384,14 @@ function eraMeta(stamps, runs) {
   const version = stamps.scoring_version !== undefined
     ? "scoring v" + esc(stamps.scoring_version)
     : "template " + esc(stamps.template_version);
-  return version + " · rubryka v" + esc(stamps.rubric_version) +
+  // Nowy format stempla to "<rubryka>@<wersja>[+…]" (per rubryka),
+  // legacy to goła wersja globalna — etykieta dopasowana do formatu.
+  const rubric = stamps.rubric_version.includes("@")
+    ? "rubryki " + esc(stamps.rubric_version)
+    : stamps.rubric_version === "none"
+      ? "bez rubryk"
+      : "rubryka v" + esc(stamps.rubric_version);
+  return version + " · " + rubric +
     " · sędzia " + esc(short(stamps.judge_model)) + " · zadanie <code>" + stamps.task_hash.slice(0, 8) + "</code>" +
     " · " + runs.length + " run(y): " + runs.map(r => esc(r.run_id)).join(", ");
 }

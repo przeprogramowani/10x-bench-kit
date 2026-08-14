@@ -10,6 +10,8 @@
  *   bench matrix    — macierz jobów dla GH Actions
  *   bench assert    — pojedyncze asercje z puli na referencji (enabler skilli)
  *   bench judge     — pojedyncze wywołanie sędziego na diffie (kalibracja rubryk)
+ *   bench calibrate — pomiar rozdzielczości rubryki na zbiorze kalibracyjnym
+ *   bench doctor    — deterministyczna checklista środowiska instancji
  *
  * Wszystkie komendy zaimplementowane; kontrakty w docstringach
  * poszczególnych komend, schematy danych w src/schemas/.
@@ -22,6 +24,8 @@ import { leaderboardCommand } from "./commands/leaderboard.ts";
 import { matrixCommand } from "./commands/matrix.ts";
 import { assertCommand } from "./commands/assert.ts";
 import { judgeCommand } from "./commands/judge.ts";
+import { calibrateCommand } from "./commands/calibrate.ts";
+import { doctorCommand } from "./commands/doctor.ts";
 
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   run: runCommand,
@@ -32,13 +36,15 @@ const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   matrix: matrixCommand,
   assert: assertCommand,
   judge: judgeCommand,
+  calibrate: calibrateCommand,
+  doctor: doctorCommand,
 };
 
 const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
 if (!handler) {
-  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|assert|judge> [options]");
+  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|assert|judge|calibrate|doctor> [options]");
   process.exit(2);
 }
 

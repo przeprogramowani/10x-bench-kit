@@ -46,8 +46,10 @@ nie sztuczne ratowanie.
    rozwiązanie żyje w `evaluation-pool/judge/<zadanie>-calibration/`,
    nigdy w `tasks/`.
 7. **Nie dotykaj `.bench-kit/`** ani cudzych zadań.
-8. **Koszty jawne.** Przed próbnym runem lub wywołaniami sędziego —
-   szacunek i zgoda; po — koszt faktyczny.
+8. **Budżet zamiast rytuału zgody.** Kosztów pilnuje
+   `defaults.max_cost_usd` w bench.config.yaml — nie pytaj o zgodę przed
+   próbnym runem czy wywołaniem sędziego; po wykonaniu raportuj koszt
+   faktyczny. Zgody wymaga tylko podnoszenie budżetu.
 
 ## Narzędzia runnera
 
@@ -155,8 +157,8 @@ Kolejno, każde musi przejść:
    exit 0; przy składowej judge — `bench judge` na wzorcu wysoki.
 3. Pusty diff nie zalicza: miara pracy czerwona na starcie; przy
    składowej judge — `bench judge --patch <pusty.diff>` niski.
-4. Za zgodą (zasada 8): próbny `bench run` + `evaluate` na jednym
-   tanim modelu.
+4. Próbny `bench run --smoke` + `evaluate` na jednym tanim modelu
+   (budżet instancji pilnuje kosztów — zasada 8).
 
 ### 8. PR
 

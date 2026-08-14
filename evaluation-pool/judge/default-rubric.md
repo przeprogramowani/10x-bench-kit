@@ -1,16 +1,24 @@
 ---
+version: "3"
 weights:
   correctness: 0.6
   scope: 0.25
   quality: 0.15
 ---
 
-# Rubryka: default-rubric (v2)
+# Rubryka: default-rubric (v3)
 
 Ogólna rubryka jakości zmiany — punkt wyjścia do kalibracji per firma.
 v2 po pierwszej kalibracji (fix-auth-validation): kryteria ważone —
 correctness dominuje, żeby częściowe wykonanie nie rozmywało się
-w średniej; kotwice ograniczają uznaniowość.
+w średniej; kotwice ograniczają uznaniowość. v3 dokłada kontrakt
+zwięzłości odpowiedzi — u sędziów z rozumowaniem długie uzasadnienia
+prowokują ucięcie JSON-a na limicie tokenów (na kalibracji: po tej
+zmianie 12/12 poprawnych werdyktów, rozrzut 0.000).
+
+Wersję rubryki deklaruje frontmatter (`version`) — stempel ery jest per
+rubryka, więc kalibracja tej rubryki nie unieważnia wyników zadań,
+które jej nie używają.
 
 Wagi kryteriów deklaruje frontmatter — **total liczy runner**, sędzia
 ocenia wyłącznie kryteria (arytmetyka modelu jest poza pętlą oceny).
@@ -45,6 +53,13 @@ ocenia wyłącznie kryteria (arytmetyka modelu jest poza pętlą oceny).
 }
 ```
 
-Każde `score` to pojedyncza liczba dziesiętna w [0, 1] (np. `0.5`) —
-nigdy wyrażenie. Odpowiedź bez poprawnego JSON-a = 0 dla składowej judge
-(twarda zasada — sędzia ma zwracać strukturę, nie prozę).
+Kontrakt zwięzłości (obowiązkowy):
+
+- zacznij odpowiedź od `{` — bez markdownu, bez wstępu,
+- każde `justification` to jedno zdanie ≤ 150 znaków, bez cudzysłowów
+  i bez znaków nowej linii wewnątrz,
+- każde `score` to pojedyncza liczba dziesiętna w [0, 1] (np. `0.5`) —
+  nigdy wyrażenie arytmetyczne.
+
+Odpowiedź bez poprawnego JSON-a = 0 dla składowej judge (twarda zasada —
+sędzia ma zwracać strukturę, nie prozę).

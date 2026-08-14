@@ -16,8 +16,19 @@ export const BaseRepo = z.object({
 /** Model sędziego — stały i mocny, inny niż modele oceniane. */
 export const JudgeConfig = z.object({
   model: z.string().min(1),
-  /** Wersja rubryk; zmiana = nowa era porównywalności. */
-  rubric_version: z.string().min(1),
+  /**
+   * Budżet tokenów odpowiedzi sędziego. U modeli z rozumowaniem reasoning
+   * liczy się do budżetu, więc default jest z zapasem — za niski limit
+   * ucina JSON werdyktu i zeruje składową judge z winy narzędzia.
+   */
+  max_tokens: z.number().int().positive().default(8192),
+  /**
+   * Fallback dla rubryk bez `version` we frontmatterze (kontrakt legacy).
+   * Docelowo wersję deklaruje każda rubryka u siebie — stempel ery jest
+   * per rubryka, więc kalibracja jednej nie unieważnia wyników zadań,
+   * które jej nie używają.
+   */
+  rubric_version: z.string().min(1).optional(),
 });
 
 export const BenchConfigSchema = z.object({
@@ -35,6 +46,13 @@ export const BenchConfigSchema = z.object({
     timeout_s: z.number().int().positive().default(1800),
     /** Próg "pass" dla pass@k: próba zalicza, gdy total >= threshold. */
     pass_threshold: z.number().min(0).max(1).default(0.7),
+    /**
+     * Budżet kosztu prób jednego runu (USD): `bench run` przerywa po
+     * przekroczeniu sumy cost_usd z metrics.json. Zgoda człowieka jest
+     * potrzebna przy podnoszeniu budżetu, nie przy każdym uruchomieniu.
+     * Brak pola = bez limitu (zachowanie legacy).
+     */
+    max_cost_usd: z.number().positive().optional(),
   }),
 });
 

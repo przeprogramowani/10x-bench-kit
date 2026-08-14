@@ -34,9 +34,12 @@ uruchomiłeś na wersji referencyjnej** — do tego służą `bench assert`,
    oceniaj "na oko" — wołaj komendy `bench` i czytaj ich wyjścia. Jeśli
    czegoś brakuje runnerowi, zgłoś to (issue), nie obchodź.
 5. **Nie dotykaj `.bench-kit/`** (strefa narzędzia) ani cudzych zadań.
-6. **Koszty jawne.** Przed próbnym runem lub wywołaniem sędziego podaj
-   szacunek kosztu i poproś o zgodę; po wykonaniu zraportuj koszt
-   faktyczny (z `metrics.json` / cennika sędziego).
+6. **Budżet zamiast rytuału zgody.** Kosztów pilnuje
+   `defaults.max_cost_usd` w bench.config.yaml (runner przerywa run po
+   przekroczeniu) — nie pytaj o zgodę przed każdym próbnym runem czy
+   wywołaniem sędziego; po wykonaniu zraportuj koszt faktyczny
+   (z `metrics.json` / usage sędziego). Zgody użytkownika wymaga tylko
+   podnoszenie budżetu.
 7. **Świadomość er.** Każda zmiana `tasks/<nazwa>/` zmienia `task_hash`
    tego zadania (nowa era). PR musi to mówić wprost — sekcja "Skutki dla
    porównywalności" w szablonie.
@@ -50,6 +53,10 @@ Uruchamiane z korzenia instancji: `node --experimental-strip-types
   asercje nie-LLM-owe na stanie startowym zadania (repo@pin + overlay);
   `--no-overlay` = czysta referencja, `--patch` = z nałożonym diffem.
   Exit 0 gdy wszystkie score 1, exit 1 gdy nie — sprawdzasz oba kierunki.
+  Uwaga: kod wyjścia czytaj z `$?` bezpośrednio po komendzie, **bez
+  potoku** — `bench assert … | tail` podmienia `$?` na kod `tail`.
+  Przy długim wyjściu bezpieczniej czytać linie `score` z wyjścia niż
+  polegać na kodzie.
 - `bench judge --task <nazwa> --patch <plik> [--rubric judge/<r>]` —
   pojedynczy werdykt sędziego na diffie (kalibracja: patrz skill
   bench-rubric).
@@ -150,9 +157,10 @@ Kolejno, każde musi przejść zanim pójdziesz dalej:
 3. Pusty diff **nie może** dawać wyniku ≥ progu zaliczenia: stan startowy
    ma czerwoną miarę pracy (pkt 1) i — jeśli jest składowa judge —
    `bench judge --task <nazwa> --patch <pusty.diff>` daje niski wynik.
-4. Za zgodą użytkownika (zasada 6): próbny `bench run` + `bench evaluate`
-   na jednym tanim modelu. Zadanie, którego nie da się przejść, albo
-   które przechodzi się pustym diffem, wraca do kroku 3/5.
+4. Próbny `bench run --smoke --tasks <nazwa> --models <tani-model>` +
+   `bench evaluate` (budżet instancji pilnuje kosztów — zasada 6).
+   Zadanie, którego nie da się przejść, albo które przechodzi się pustym
+   diffem, wraca do kroku 3/5.
 
 ### 8. PR
 

@@ -3,7 +3,7 @@ name: bench-rubric
 description: >-
   Kalibruje rubrykę LLM-as-judge benchmarku na diffach o znanej jakości:
   buduje zbiór kalibracyjny, mierzy rozdzielczość i stabilność sędziego,
-  iteruje kryteria i domyka PR-em z podbiciem rubric_version. Użyj przy
+  iteruje kryteria i domyka PR-em z podbiciem wersji rubryki. Użyj przy
   tworzeniu rubryki dla nowego zadania, gdy wyniki sędziego wyglądają
   losowo/dryfują, albo gdy użytkownik mówi "skalibruj rubrykę / sędziego".
 ---
@@ -13,30 +13,40 @@ description: >-
 Rubryka bez kalibracji to generator liczb, nie ocena. Kalibrujesz ją
 empirycznie: sędzia dostaje diffy, których jakość **znasz z góry**,
 a ty sprawdzasz, czy jego ranking i wartości zgadzają się z twoimi —
-powtarzalnie. Narzędziem jest `bench judge --task <nazwa> --patch <plik>`
-(z korzenia instancji: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts judge …`) — dokładnie ta sama ścieżka
-oceny co w `bench evaluate`, więc wynik kalibracji przenosi się 1:1
-na realne runy.
+powtarzalnie. Narzędziem jest `bench calibrate --task <nazwa> --set
+<katalog-zbioru>` (z korzenia instancji: `node --experimental-strip-types
+.bench-kit/runner/src/index.ts calibrate …`) — ta sama ścieżka oceny co
+w `bench evaluate`, więc wynik kalibracji przenosi się 1:1 na realne
+runy. Runner robi arytmetykę (powtórzenia, min/med/max, rozrzut,
+dopisanie rundy do `results.json`); twoim wkładem jest osąd: projekt
+zbioru, ocena rankingu i separacji, decyzja o iteracji. Do pojedynczego
+werdyktu ad hoc (np. porównanie sędziów) zostaje `bench judge --task
+<nazwa> --patch <plik> [--model …]`.
 
 ## Twarde zasady
 
-1. **Wyjście przez PR.** Zmiana rubryki lub `rubric_version` nigdy nie
+1. **Wyjście przez PR.** Zmiana rubryki lub jej wersji nigdy nie
    idzie prosto do mastera instancji — gałąź + PR z wynikami kalibracji
    w opisie (dowód, nie deklaracja).
-2. **Zmiana rubryki = nowa era.** Podbicie `rubric_version`
-   w bench.config.yaml zamyka erę porównywalności WSZYSTKICH wyników
-   (stempel globalny). PR musi to mówić wprost. Kalibracja świeżo
-   utworzonej rubryki przed jej pierwszym użyciem ery nie zamyka —
-   dlatego kalibruj Z zadaniem (PR bench-task), nie po nim.
+2. **Zmiana rubryki = nowa era zadań, które jej używają.** Wersję
+   deklaruje frontmatter rubryki (`version`); stempel ery jest per
+   rubryka, więc podbicie unieważnia porównywalność wyłącznie zadań
+   z tą rubryką w `evaluation[]` — PR wymienia je wprost. Kalibracja
+   świeżo utworzonej rubryki przed jej pierwszym użyciem ery nie
+   zamyka — dlatego kalibruj Z zadaniem (PR bench-task), nie po nim.
+   (Globalne `judge.rubric_version` w configu to kontrakt legacy dla
+   rubryk bez frontmattera — migruj je przy pierwszej kalibracji.)
 3. **Zbiór kalibracyjny to materiał oceny.** Żyje w
    `evaluation-pool/judge/<zadanie>-calibration/`, nigdy w `tasks/`
    (przeciekłby do workspace'u agenta). Kolejne iteracje rubryki mierzą
    się na TYM SAMYM zbiorze — inaczej porównujesz rubryki na różnych
    danych.
-4. **Koszty jawne.** Kalibracja to dziesiątki wywołań sędziego — przed
-   pomiarem podaj szacunek (diffy × powtórzenia × ~koszt wywołania),
-   po pomiarze koszt faktyczny.
+4. **Budżet zamiast rytuału zgody.** Kalibracja to dziesiątki wywołań
+   sędziego, ale koszty pilnuje budżet instancji, nie negocjacja
+   szacunków — po pomiarze raportuj koszt faktyczny (`bench calibrate`
+   wypisuje go z usage sędziego). Zgody użytkownika wymaga dopiero
+   pomiar wyraźnie większy niż zwykle (np. porównanie kilku sędziów
+   na dużym zbiorze).
 5. **Format odpowiedzi jest kontraktem.** Nowe rubryki deklarują wagi
    kryteriów we frontmatterze YAML (`weights:`, suma = 1) — total liczy
    runner z `criteria[*].score`, więc blok ```json zawiera tylko
@@ -44,7 +54,11 @@ na realne runy.
    validate`). Nie proś sędziego o arytmetykę — to źródło błędów klasy
    "wyrażenie zamiast liczby". Rubryka bez frontmattera to kontrakt
    legacy (`criteria` + liczbowy `total` od modelu); odpowiedź bez
-   poprawnego JSON-a = 0.
+   poprawnego JSON-a = 0. Rubryka wymaga też **kontraktu zwięzłości**
+   (wzór w template'owej default-rubric): zacznij od `{`, uzasadnienie
+   jedno zdanie ≤ 150 znaków bez cudzysłowów i nowych linii, score jako
+   pojedyncza liczba — u sędziów z rozumowaniem rozwlekłe uzasadnienia
+   ucinają JSON na limicie tokenów dokładnie na diffach ze środka skali.
 
 ## Procedura
 
@@ -67,8 +81,14 @@ wraz z `expected.md` (oczekiwania + uzasadnienie).
 
 ### 2. Pomiar rozdzielczości
 
-Każdy diff oceń sędzią **co najmniej 3×** (`bench judge` w pętli).
-Raportuj per diff: min / max / medianę oraz per kryterium, i sprawdź:
+```
+bench calibrate --task <zadanie> --set evaluation-pool/judge/<zadanie>-calibration \
+  [--repeats 3] [--label <nazwa-rundy>]
+```
+
+Komenda ocenia każdy diff `--repeats` razy (co najmniej 3), wypisuje
+tabelę min/med/max + rozrzut per diff i mediany per kryterium, i dopisuje
+rundę do `results.json` zbioru. Na tej tabeli sprawdź:
 
 - **Ranking**: mediany układają się zgodnie z oczekiwaniem
   (wzorzec > częściowe > poza-zakresem ≥ … > pusty)?
@@ -93,7 +113,7 @@ ranking + separacja + stabilność są osiągnięte; nie tuninguj dalej
 
 - nowa/zmieniona rubryka w `evaluation-pool/judge/`,
 - zbiór kalibracyjny + `expected.md` + surowe wyniki pomiaru
-  (`results.json`) w `…/<zadanie>-calibration/`,
-- podbicie `rubric_version` **tylko jeśli** zmieniła się rubryka już
-  użyta w policzonych wynikach (zasada 2),
+  (`results.json` z rundami `bench calibrate`) w `…/<zadanie>-calibration/`,
+- podbicie `version` we frontmatterze rubryki **tylko jeśli** zmieniła
+  się rubryka już użyta w policzonych wynikach (zasada 2),
 - w opisie PR-a: tabela median z kroku 2, wnioski, koszt kalibracji.

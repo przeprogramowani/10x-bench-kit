@@ -218,6 +218,7 @@ export async function validateCommand(args: string[]): Promise<number> {
   }
 
   // --- spójność zadań: repo, asercje, wagi, starzenie ---
+  const checkedRubricVersions = new Set<string>();
   const today = new Date().toISOString().slice(0, 10);
   for (const [name, task] of tasks) {
     const where = `tasks/${name}`;
@@ -247,9 +248,27 @@ export async function validateCommand(args: string[]): Promise<number> {
         continue;
       }
       if (type === "judge") {
+        const rubricWhere = `evaluation-pool/judge/${assertionName}.md`;
         const problem = validateRubric(assertionPath);
         if (problem) {
-          report({ level: "error", where: `evaluation-pool/judge/${assertionName}.md`, message: problem });
+          report({ level: "error", where: rubricWhere, message: problem });
+        }
+        if (!checkedRubricVersions.has(assertionName)) {
+          checkedRubricVersions.add(assertionName);
+          const version = parseRubric(readFileSync(assertionPath, "utf8")).version;
+          if (!version && !config?.judge.rubric_version) {
+            report({
+              level: "error",
+              where: rubricWhere,
+              message: "rubryka bez `version` we frontmatterze, a config nie ma judge.rubric_version — wynik nie dostanie stempla wersji rubryki",
+            });
+          } else if (!version) {
+            report({
+              level: "warn",
+              where: rubricWhere,
+              message: `rubryka bez \`version\` we frontmatterze — stemplem będzie globalne judge.rubric_version ("${config?.judge.rubric_version}"); zadeklaruj wersję w rubryce, żeby jej kalibracja nie unieważniała innych zadań`,
+            });
+          }
         }
       } else {
         const checkPath = join(assertionPath, "check.yaml");

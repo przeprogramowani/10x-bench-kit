@@ -19,12 +19,15 @@ a każdy krok kończysz dowodem z runnera, nie deklaracją. Bramka końcowa:
 ## Twarde zasady
 
 1. **Wyjście przez PR.** Wiring zmienia `bench.config.yaml` (wpływa na
-   scoring: modele, sędzia, rubric_version) — gałąź `bench-wiring/<opis>`
+   scoring: modele, sędzia, wersje rubryk) — gałąź `bench-wiring/<opis>`
    + PR wg [PR_TEMPLATE.md](PR_TEMPLATE.md), człowiek merguje. Wyjątek:
    pierwsza konfiguracja świeżej instancji, której master to jeszcze sam
    szkielet z template'u — wtedy commit na master jest dopuszczalny za
    wyraźną zgodą użytkownika (nie ma jeszcze żadnych wyników, które
-   zmiana mogłaby unieważnić).
+   zmiana mogłaby unieważnić). Wyjątek obejmuje **także przepięcie
+   zadania-demo** z placeholdera na realny pin: formalnie to zmiana
+   `task_hash`, ale zadanie bez żadnych wyników nie ma ery do
+   unieważnienia — nie rób z tego osobnego PR-a.
 2. **Sekretów nie dotykasz.** Generujesz checklistę NAZW sekretów
    i weryfikujesz samą obecność (`gh secret list`, `[ -n "$VAR" ]`) —
    nigdy nie czytasz, nie wypisujesz ani nie zapisujesz wartości.
@@ -35,13 +38,17 @@ a każdy krok kończysz dowodem z runnera, nie deklaracją. Bramka końcowa:
    komendą `bench` i jej wyjściem: konfigurację — `validate`, wykonanie —
    smoke runem. Nie oceniaj "na oko", że coś zadziała.
 5. **Sędzia ≠ modele oceniane.** Twarda reguła (validate ją egzekwuje);
-   sędzia to stały, mocny model — zmiana sędziego lub `rubric_version`
-   zamyka erę porównywalności.
-6. **Koszty jawne.** Przed smoke runem podaj szacunek (rząd wielkości:
-   próba zadania-demo na tanim modelu ~$0.01, werdykt sędziego grosze)
-   i poproś o zgodę; po runie zraportuj koszt z `metrics.json`.
+   sędzia to stały, mocny model — zmiana sędziego lub wersji rubryki
+   (frontmatter `version` w rubryce) zamyka erę porównywalności zadań,
+   które jej używają.
+6. **Budżet zamiast rytuału zgody.** Ustaw `defaults.max_cost_usd`
+   w `bench.config.yaml` z użytkownikiem raz — runner przerywa run po
+   przekroczeniu, więc nie pytasz o zgodę przed każdym uruchomieniem.
+   Zgoda człowieka jest potrzebna tylko przy **podnoszeniu** budżetu.
+   Po każdym runie raportuj koszt faktyczny (`metrics.json` /
+   `report.json`), nie negocjuj szacunków.
 7. **Świadomość er.** Wiring definiuje pierwszą erę instancji (sędzia +
-   rubric_version). PR mówi to wprost; późniejsze zmiany tych pól
+   wersje rubryk). PR mówi to wprost; późniejsze zmiany tych pól
    unieważniają porównywalność dotychczasowych wyników.
 
 ## Narzędzia runnera
@@ -49,18 +56,25 @@ a każdy krok kończysz dowodem z runnera, nie deklaracją. Bramka końcowa:
 Z korzenia instancji: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts <komenda>` (dalej: `bench <komenda>`).
 
+- `bench doctor` — deterministyczna checklista środowiska (silnik
+  kontenerów, node, zależności runnera, obecność kluczy, remote,
+  workflows, klonowalność repo bazowych): tabela OK/BRAK z instrukcją
+  naprawy. To twój krok 1 — nie sprawdzaj tych rzeczy ręcznie.
 - `bench validate` — pełna bramka: schematy, spójność evaluation[] z pulą,
   wagi, sędzia ≠ oceniane, klonowalność repo bazowych + istnienie pinów.
   `--offline` pomija sieć (iteracja), `--assert` dodatkowo weryfikuje
   deklaracje `reference` zadań na stanie startowym (wymaga kontenerów).
-- `bench run --tasks demo-hello-bench --models <tani-model> --trials 1`
-  + `bench evaluate --run <dir>` — smoke run (krok 7).
+- `bench run --smoke --tasks demo-hello-bench --models <tani-model>`
+  + `bench evaluate --run <dir>` — smoke run (krok 7); `--smoke` = 1 próba
+  na pierwszym modelu z listy.
 
 ## Procedura
 
 ### 1. Rozpoznanie stanu
 
-Zanim o cokolwiek zapytasz, przeczytaj co już jest:
+Zanim o cokolwiek zapytasz, uruchom `bench doctor` (deterministyczna
+część rozpoznania — tabela OK/BRAK zamiast ręcznego sprawdzania)
+i przeczytaj co już jest:
 
 - `.bench-kit/instance.json` — wersja template'u; init odpalony z wnętrza
   repo produktowego zostawia tu kandydata na pierwsze repo bazowe i pin.
@@ -75,7 +89,10 @@ Zanim o cokolwiek zapytasz, przeczytaj co już jest:
 Dla każdego repo, na którym mają powstawać zadania:
 
 - **Publiczne** → URL `https://…` — klonuje się bez sekretów, zero
-  dodatkowego wiringu.
+  dodatkowego wiringu. Jeśli zastałeś URL `git@…`, sprawdź
+  `git ls-remote https://…` — gdy działa, przepisz na https i pomiń
+  całą sekcję sekretów dla tego repo (SSH wymusza klucz w kontenerze/CI
+  tam, gdzie https nie wymaga nic).
 - **Prywatne** → dostęp wyłącznie read-only: deploy key (URL `git@…`)
   albo fine-grained token (URL `https://…`, tylko contents:read).
   Nazwa sekretu do checklisty (zasada 2), np. `BASE_REPO_<NAZWA>_KEY`.
@@ -93,11 +110,17 @@ proponuje zapis do nich, to nieporozumienie do wyprostowania.
 - **Sędzia** (`judge.model`): providery wspierane host-side to
   `anthropic/…` i `openrouter/…`. Mocny, stabilny model, INNY niż
   oceniane (zasada 5) — sędziego nie zmienia się przy dodawaniu modeli.
-- **`judge.rubric_version`**: zgodna z wersją rubryk w
-  `evaluation-pool/judge/` (kalibracja rubryk to skill bench-rubric,
-  nie ten).
+- **Wersje rubryk**: deklaruje je frontmatter `version` każdej rubryki
+  w `evaluation-pool/judge/` (kalibracja rubryk to skill bench-rubric,
+  nie ten); `judge.rubric_version` w configu to tylko fallback dla
+  rubryk legacy bez frontmattera.
+- **`judge.max_tokens`**: budżet odpowiedzi sędziego (default 8192) —
+  nie obniżaj; u sędziów z rozumowaniem reasoning liczy się do budżetu
+  i za niski limit ucina JSON werdyktu (judge = 0 z winy narzędzia).
 - **`defaults.trials`** (domyślnie 3) i **`defaults.timeout_s`** — nie
   ruszaj bez powodu; za krótki timeout mierzy szybkość, nie jakość.
+- **`defaults.max_cost_usd`**: budżet kosztu prób jednego runu — ustal
+  z użytkownikiem raz (zasada 6).
 
 ### 4. Sekrety — checklista
 
@@ -135,12 +158,13 @@ Kolejno, aż zielone:
    pierwszy realny test sekretów z kroku 4).
 3. Jeśli zadania mają deklaracje `reference`: `bench validate --assert`.
 
-### 7. Smoke run (za zgodą)
+### 7. Smoke run
 
-Szacunek kosztu → zgoda użytkownika (zasada 6) → lokalnie:
+Budżet `defaults.max_cost_usd` jest już ustawiony (krok 3) — nie pytasz
+o zgodę na pojedynczy run (zasada 6). Lokalnie:
 
 ```
-bench run --tasks demo-hello-bench --models <najtańszy oceniany> --trials 1
+bench run --smoke --tasks demo-hello-bench --models <najtańszy oceniany>
 bench evaluate --run <katalog runu>
 ```
 
@@ -155,4 +179,4 @@ Gałąź `bench-wiring/<opis>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
 decyzje (repo, modele, sędzia) z uzasadnieniem, checklista sekretów ze
 statusem obecności, dowody (wyjście `validate`, wynik smoke runu
 z kosztem), sekcja "Skutki dla porównywalności" (pierwsza era: sędzia +
-rubric_version; co ją w przyszłości zamknie).
+wersje rubryk; co ją w przyszłości zamknie).

@@ -12,4 +12,20 @@ checks:
     # Smoke test struktury: linter tylko, gdy repo bazowe go definiuje.
     # Obraz zadania nie ma node_modules — instalacja należy do asercji
     # (etap oceny może korzystać z sieci; offline są tylko próby agenta).
-    run: "[ ! -f package.json ] || { npm ci --no-audit --no-fund >/dev/null && npm run lint --if-present; }"
+    # Package manager wykrywany po lockfile'u — realne monorepo bywa na
+    # pnpm/yarn/bun i twarde `npm ci` dawałoby czerwień z winy stacku,
+    # nie agenta (a zadanie traciłoby całą składową static).
+    run: |
+      [ -f package.json ] || exit 0
+      if [ -f pnpm-lock.yaml ]; then
+        corepack enable >/dev/null 2>&1 || true
+        pnpm install --frozen-lockfile >/dev/null && pnpm run lint --if-present
+      elif [ -f yarn.lock ]; then
+        corepack enable >/dev/null 2>&1 || true
+        yarn install --frozen-lockfile >/dev/null && yarn run lint --if-present
+      elif [ -f bun.lockb ] || [ -f bun.lock ]; then
+        command -v bun >/dev/null || { echo "repo używa bun — dodaj bun do obrazu pochodnego instancji"; exit 1; }
+        bun install --frozen-lockfile >/dev/null && bun run lint --if-present
+      else
+        npm ci --no-audit --no-fund >/dev/null && npm run lint --if-present
+      fi

@@ -81,7 +81,7 @@ export async function judgeCommand(args: string[]): Promise<number> {
       if (!existsSync(rubricPath)) throw new Error(`rubryka "${ref}" nie istnieje w evaluation-pool/judge/`);
       const rubric = readFileSync(rubricPath, "utf8");
       console.error(`judge: ${ref} × ${judgeModel} …`);
-      const verdict = await judgeTrial(judgeModel, taskPrompt, patchDiff, rubric);
+      const verdict = await judgeTrial(judgeModel, taskPrompt, patchDiff, rubric, { maxTokens: config.judge.max_tokens });
       verdicts.push({ ref, judge_model: judgeModel, ...verdict });
       console.error(`judge: ${ref} → score ${verdict.score.toFixed(2)}${verdict.invalid_reason ? ` (${verdict.invalid_reason})` : ""}`);
     }

@@ -24,7 +24,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { spawnSync } from "node:child_process";
 import { join, resolve, relative } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
-import { judgeTrial } from "../lib/judge.ts";
+import { judgeTrial, parseRubric } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
 import { detectEngine } from "../lib/containers.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
@@ -91,6 +91,31 @@ function findTrials(runDir: string): TrialRef[] {
 
 const NON_JUDGE = ["static", "tests", "e2e"] as const;
 type Component = (typeof NON_JUDGE)[number] | "judge";
+
+/**
+ * Stempel wersji rubryk zadania: per rubryka (`<nazwa>@<wersja>`, sortowane,
+ * łączone "+"), więc kalibracja jednej rubryki otwiera nową erę tylko
+ * zadaniom, które jej używają. Wersja z frontmattera rubryki; fallback:
+ * judge.rubric_version z configu (kontrakt legacy). Zadanie bez składowej
+ * judge dostaje "none" — rubryki nie wpływają na jego wynik.
+ */
+function rubricVersionStamp(root: string, judgeRefs: string[], fallback: string | undefined): string {
+  if (judgeRefs.length === 0) return "none";
+  return judgeRefs
+    .map((ref) => {
+      const name = ref.split("/")[1] as string;
+      const rubric = parseRubric(readFileSync(join(root, "evaluation-pool", "judge", `${name}.md`), "utf8"));
+      const version = rubric.version ?? fallback;
+      if (!version) {
+        throw new Error(
+          `rubryka "${ref}" bez \`version\` we frontmatterze, a config nie ma judge.rubric_version — uruchom \`bench validate\``,
+        );
+      }
+      return `${name}@${version}`;
+    })
+    .sort()
+    .join("+");
+}
 
 /** Ocena asercji nie-LLM-owych w kontenerze; zwraca score per ref. */
 function runChecksContainer(engine: string, root: string, trialDir: string, image: string, refs: string[]): Map<string, number> {
@@ -173,6 +198,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
 
         // 2. LLM-as-judge
         let judgeScore: number | null = null;
+        let judgeCostUsd: number | null = null;
         const judgeRefs = refsByComponent.get("judge") ?? [];
         if (task.weights.judge > 0 && judgeRefs.length > 0) {
           const taskPrompt = readFileSync(join(root, "tasks", meta.task, "prompt.md"), "utf8");
@@ -180,11 +206,20 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           const verdicts = [];
           for (const ref of judgeRefs) {
             const rubric = readFileSync(join(root, "evaluation-pool", "judge", `${ref.split("/")[1]}.md`), "utf8");
-            const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubric);
+            const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubric, {
+              maxTokens: config.judge.max_tokens,
+            });
             verdicts.push({ ref, ...verdict });
           }
           writeFileSync(join(dir, "judge.json"), JSON.stringify(verdicts, null, 2) + "\n");
           judgeScore = mean(verdicts.map((v) => v.score));
+          // Koszt sędziego osobno od kosztu próby — nie dokleja się do kosztu
+          // modelu, ale bez niego "koszt na leaderboardzie" myli przy tanich
+          // modelach. null = provider nie raportuje kosztu.
+          const knownCosts = verdicts.flatMap((v) =>
+            [v.usage?.cost_usd, v.first_attempt?.usage?.cost_usd].filter((c): c is number => typeof c === "number"),
+          );
+          judgeCostUsd = knownCosts.length > 0 ? knownCosts.reduce((a, b) => a + b, 0) : null;
         }
 
         // 3. result.json
@@ -207,6 +242,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           scores,
           total: Math.min(1, Math.max(0, total)),
           cost_usd: metrics.cost_usd ?? 0,
+          judge_cost_usd: judgeCostUsd,
           duration_s: metrics.duration_s ?? 0,
           tokens: { input: metrics.tokens?.input ?? 0, output: metrics.tokens?.output ?? 0 },
           stamps: {
@@ -214,7 +250,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             scoring_version: scoringVersion,
             task_hash: hash,
             judge_model: config.judge.model,
-            rubric_version: config.judge.rubric_version,
+            rubric_version: rubricVersionStamp(root, judgeRefs, config.judge.rubric_version),
           },
         });
         writeFileSync(join(dir, "result.json"), JSON.stringify(result, null, 2) + "\n");

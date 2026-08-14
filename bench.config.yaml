@@ -10,10 +10,15 @@ base_repos:
     url: git@github.com:example-org/demo-app.git
 
 # LLM-as-judge: stały, mocny model — INNY niż modele oceniane.
-# Zmiana modelu lub rubric_version zamyka erę porównywalności wyników.
+# Zmiana modelu sędziego lub wersji rubryki zamyka erę porównywalności
+# (wersję deklaruje każda rubryka w swoim frontmatterze — `version`;
+# opcjonalne judge.rubric_version to tylko fallback dla rubryk legacy).
 judge:
   model: openrouter/openai/gpt-5.6-sol
-  rubric_version: "1"
+  # Budżet tokenów odpowiedzi sędziego. U modeli z rozumowaniem reasoning
+  # liczy się do tego budżetu — za niski limit ucina JSON werdyktu
+  # i zeruje składową judge z winy narzędzia, nie modelu.
+  max_tokens: 8192
 
 # Defaults runu — nadpisywalne parametrami workflow_dispatch.
 defaults:
@@ -24,3 +29,7 @@ defaults:
     - anthropic/claude-sonnet-5
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
+  # Budżet kosztu prób jednego runu (USD) — `bench run` przerywa po jego
+  # przekroczeniu. Zgoda człowieka jest potrzebna przy podnoszeniu budżetu,
+  # nie przy każdym uruchomieniu; koszt faktyczny jest w report.json.
+  max_cost_usd: 10

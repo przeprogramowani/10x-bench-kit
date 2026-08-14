@@ -14,8 +14,8 @@ SKILLS_DESIGN w repo projektowym):
   zadania (nowy pin + asercje) → PR otwierający nową erę zadania.
 - **bench-rubric** *(dostępny)* — kalibracja rubryk LLM-as-judge:
   zbiór kalibracyjny z diffów o znanej jakości, pomiar rozdzielczości
-  i stabilności sędziego (`bench judge`), iteracja kryteriów, PR
-  z podbiciem `rubric_version`.
+  i stabilności sędziego (`bench calibrate`), iteracja kryteriów, PR
+  z podbiciem wersji rubryki (frontmatter `version`).
 
 W template skille żyją pod tool-agnostycznym `.agents/skills/`;
 `10x bench-kit init` materializuje je w instancji pod ścieżką wybranego

@@ -14,6 +14,12 @@ export const ReportRowSchema = z.object({
   trials: z.number().int().positive(),
   median_total: z.number().min(0).max(1),
   median_cost_usd: z.number().min(0),
+  /**
+   * Mediana kosztu sędziego per próba — osobna kolumna, nie doklejana do
+   * kosztu modelu; null = provider sędziego nie raportuje kosztu albo
+   * wyniki sprzed wprowadzenia pola.
+   */
+  median_judge_cost_usd: z.number().min(0).nullable().optional(),
   median_duration_s: z.number().min(0),
   passed: z.number().int().min(0),
   pass_at_1: z.number().min(0).max(1),
@@ -26,6 +32,8 @@ export const ReportSchema = z.object({
   pass_threshold: z.number().min(0).max(1),
   cost_scope: z.string(),
   total_cost_usd: z.number().min(0),
+  /** Suma znanych kosztów sędziego w runie (osobno od total_cost_usd). */
+  total_judge_cost_usd: z.number().min(0).nullable().optional(),
   trials: z.number().int().positive(),
   eras: z.array(
     z.object({

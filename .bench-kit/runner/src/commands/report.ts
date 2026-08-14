@@ -114,9 +114,14 @@ export async function reportCommand(args: string[]): Promise<number> {
       generated_at: new Date().toISOString(),
       run_dir: opts.run,
       pass_threshold: threshold,
-      /** Suma kosztów prób; koszt sędziego i CI jeszcze nieuwzględniane. */
+      /** Suma kosztów prób; koszt sędziego osobno (total_judge_cost_usd). */
       cost_scope: "trials",
       total_cost_usd: results.reduce((acc, r) => acc + r.cost_usd, 0),
+      // Koszt sędziego jako osobna pozycja — nie dokleja się do kosztu
+      // modelu, ale przy tanich modelach bywa porównywalny z kosztem próby.
+      total_judge_cost_usd: results.some((r) => typeof r.judge_cost_usd === "number")
+        ? results.reduce((acc, r) => acc + (r.judge_cost_usd ?? 0), 0)
+        : null,
       trials: results.length,
       eras: [...eras.values()].map(({ stamps, cells }) => ({
         stamps,
@@ -131,6 +136,9 @@ export async function reportCommand(args: string[]): Promise<number> {
               trials: n,
               median_total: median(cellResults.map((r) => r.total)),
               median_cost_usd: median(cellResults.map((r) => r.cost_usd)),
+              median_judge_cost_usd: cellResults.every((r) => typeof r.judge_cost_usd === "number")
+                ? median(cellResults.map((r) => r.judge_cost_usd as number))
+                : null,
               median_duration_s: median(cellResults.map((r) => r.duration_s)),
               passed,
               pass_at_1: passAtK(n, passed, 1),
@@ -144,7 +152,9 @@ export async function reportCommand(args: string[]): Promise<number> {
     const outPath = opts.out ?? join(opts.run, "report.json");
     writeFileSync(outPath, JSON.stringify(report, null, 2) + "\n");
 
-    console.log(`bench report: ${results.length} prób, ${eras.size} era(y), koszt prób $${report.total_cost_usd.toFixed(4)}`);
+    const judgeCostNote =
+      report.total_judge_cost_usd !== null ? ` + sędzia $${report.total_judge_cost_usd.toFixed(4)}` : "";
+    console.log(`bench report: ${results.length} prób, ${eras.size} era(y), koszt prób $${report.total_cost_usd.toFixed(4)}${judgeCostNote}`);
     for (const era of report.eras) {
       for (const row of era.rows) {
         console.log(

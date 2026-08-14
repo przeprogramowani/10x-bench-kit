@@ -36,9 +36,10 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
    sprawdź na krotce stamps (`template_version`, `task_hash`,
    `judge_model`, `rubric_version`) — różne ery to nie regresja modelu,
    tylko zmiana miary. Leaderboard ich nie miesza; ty też nie.
-5. **Koszty jawne.** Re-judge i re-assert kosztują (wywołania sędziego,
-   kontenery) — przed serią podaj szacunek i uzyskaj zgodę, po —
-   koszt faktyczny.
+5. **Budżet zamiast rytuału zgody.** Re-judge i re-assert kosztują
+   (wywołania sędziego, kontenery), ale pilnuje ich budżet instancji —
+   po serii raportuj koszt faktyczny; zgody wymaga tylko seria wyraźnie
+   większa niż zwykle albo podnoszenie budżetu.
 6. **Materiały oceny linkuj, nie kopiuj.** W komentarzach/issue cytuj
    minimalne fragmenty potrzebne do dowodu i ścieżki w repo instancji;
    nie przeklejaj całych ukrytych testów ani rubryk.
@@ -90,6 +91,7 @@ różnica zwykle wskazuje jedną składową, nie wszystkie.
 | pusty/prawie pusty `patch.diff` | `agent.log` | model nie wywołuje narzędzi (np. literalny `<tool_code` wypisany jako tekst) → wina modelu; prompt niejasny → wina zadania |
 | `execution.json` exit 124 | `agent.log` (czy był postęp) | kręcenie się w kółko → wina modelu; robił postęp, zabrakło czasu → timeout za krótki, wina zadania |
 | istnieje `container.log` | `container.log`, `execution.json` | kontener padł przed agentem → wina infrastruktury |
+| `trial.json` z `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | przejściowa awaria providera; runner zrobił 1 retry — jeśli i on padł, wina infrastruktury (provider), nie modelu |
 | `metrics.json` incomplete | `agent.log`, storage OpenCode | adapter/wersja OpenCode → wina infrastruktury |
 | asercja 0 w `checks.json` | log asercji + `bench assert --task <t> --patch <wzorzec.diff>` | czerwona także na wzorcu → bug asercji, wina zadania; zielona na wzorcu → wina modelu |
 | judge 0 w `judge.json` | surowa odpowiedź w `judge.json` | brak poprawnego JSON-a / zły format → kontrakt rubryki, wina zadania; poprawny werdykt z uzasadnieniem → czytaj kryteria |

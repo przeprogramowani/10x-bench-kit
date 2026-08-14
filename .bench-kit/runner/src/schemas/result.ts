@@ -32,6 +32,12 @@ export const EraStamps = z.object({
   /** Hash katalogu zadania (prompt.md + task.yaml + overlay/). */
   task_hash: z.string().regex(/^[0-9a-f]{64}$/, "SHA-256 hex"),
   judge_model: z.string().min(1),
+  /**
+   * Wersje rubryk użytych przez zadanie: `<rubryka>@<wersja>` (sortowane,
+   * łączone "+"), "none" dla zadań bez składowej judge — kalibracja
+   * rubryki otwiera nową erę tylko zadaniom, które jej używają.
+   * Wyniki legacy mają tu globalne judge.rubric_version z configu.
+   */
   rubric_version: z.string().min(1),
 });
 
@@ -45,6 +51,13 @@ export const ResultSchema = z.object({
   /** Ważona suma scores wg wag z task.yaml. */
   total: z.number().min(0).max(1),
   cost_usd: z.number().min(0),
+  /**
+   * Koszt wywołań sędziego dla tej próby — osobno od cost_usd (kosztu
+   * modelu ocenianego), żeby nie zakłamywać kosztu na leaderboardzie.
+   * null = provider sędziego nie raportuje kosztu; brak pola = wynik
+   * sprzed wprowadzenia (albo próba bez składowej judge).
+   */
+  judge_cost_usd: z.number().min(0).nullable().optional(),
   duration_s: z.number().min(0),
   tokens: z.object({
     input: z.number().int().min(0),

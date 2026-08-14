@@ -6,7 +6,8 @@ Tytuł: `bench-wiring: <opis, np. "astro-starter + modele przez OpenRouter">`
 ## Decyzje
 
 <repozytoria bazowe (publiczne/prywatne, forma dostępu), modele oceniane,
-sędzia + rubric_version — każda decyzja z jednym zdaniem uzasadnienia.>
+sędzia + wersje rubryk, budżet max_cost_usd — każda decyzja z jednym
+zdaniem uzasadnienia.>
 
 ## Checklista sekretów
 
@@ -26,7 +27,7 @@ sędzia + rubric_version — każda decyzja z jednym zdaniem uzasadnienia.>
 
 ## Skutki dla porównywalności
 
-<pierwsza era instancji: sędzia <model> + rubric_version <n>. Co ją
+<pierwsza era instancji: sędzia <model> + wersje rubryk (frontmatter). Co ją
 w przyszłości zamknie: zmiana sędziego, rubryk, definicji zadań. Jeśli
 PR zmienia istniejący wiring: które dotychczasowe wyniki przestają być
 porównywalne.>

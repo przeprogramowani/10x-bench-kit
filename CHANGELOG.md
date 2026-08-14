@@ -6,6 +6,76 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.8.0 — 2026-08-15 `[scoring-breaking]`
+
+Wdrożenie safe defaults z przejścia pełnego cyklu instancji jako
+konsument template'u 0.7.0 (IDEAS.md) — cięcie ręcznej roboty
+i najdroższych błędów narzędzia. `SCORING_VERSION` 1 → 2.
+
+- **Sędzia: koniec zerowania środka skali** (najdroższy znaleziony błąd):
+  `judge.max_tokens` w bench.config.yaml (default 8192 zamiast stałych
+  2048 — u sędziów z rozumowaniem reasoning liczy się do budżetu i limit
+  ucinał JSON w połowie, systematycznie zerując diffy sporne
+  i częściowe); dla OpenRouter `reasoning: { exclude: true }` +
+  `usage: { include: true }`; **retry 1×** przy niepoprawnym JSON-ie
+  (pierwsze podejście zostaje w judge.json — audyt nie cierpi); zapis
+  `finish_reason` i `usage` w werdykcie ("model nagadał prozy" vs
+  "ucięło na limicie" widać bez sondy do API).
+- **Kontrakt zwięzłości w default-rubric (v3)**: zacznij od `{`,
+  uzasadnienie jedno zdanie ≤ 150 znaków bez cudzysłowów i nowych linii,
+  score jako pojedyncza liczba — na kalibracji 12/12 poprawnych
+  werdyktów, rozrzut 0.000; ta wiedza jest uniwersalna, więc siedzi
+  w template, nie w każdej firmie osobno.
+- **Wersja rubryki per rubryka**: frontmatter `version` w rubryce;
+  stempel `stamps.rubric_version` to `<rubryka>@<wersja>[+…]` liczone
+  z rubryk faktycznie użytych przez zadanie ("none" bez składowej
+  judge) — kalibracja rubryki otwiera nową erę tylko zadaniom, które
+  jej używają, zamiast unieważniać całą instancję. `judge.rubric_version`
+  w configu zostaje jako opcjonalny fallback legacy; `validate` zgłasza
+  brak wersji (error) i legacy fallback (warning) — rozjazd configu
+  z rubryką (0.7.0: config "1" vs rubryka v2) przestaje być możliwy.
+- **`bench calibrate`** — pomiar rozdzielczości rubryki na zbiorze
+  kalibracyjnym (`--task`, `--set`, `--repeats`, `--label`): min/med/max
+  + rozrzut per diff, mediany per kryterium, koszt sędziego z usage,
+  runda dopisywana do results.json zbioru; zastępuje bashową pętlę
+  pisaną od nowa w każdej instancji. Skill bench-rubric zostaje przy
+  osądzie (projekt zbioru, decyzja o iteracji).
+- **`bench doctor`** — deterministyczna checklista środowiska (silnik
+  kontenerów, node, zależności runnera, obecność kluczy — nigdy
+  wartości, remote, workflows, klonowalność base_repos): tabela OK/BRAK
+  z jednym zdaniem "co zrobić"; skill bench-wiring woła komendę zamiast
+  odtwarzać prozę.
+- **`bench run --smoke`** — 1 próba na pierwszym modelu z listy;
+  sprawdzenie rur po wiringu bez dobierania flag.
+- **Budżet zamiast rytuału zgody**: `defaults.max_cost_usd`
+  w bench.config.yaml — `bench run` przerywa po przekroczeniu sumy
+  kosztów prób; zgoda człowieka potrzebna przy podnoszeniu budżetu,
+  nie przed każdym runem. Skille (task/rubric/wiring/refresh/triage,
+  AGENTS.md) raportują koszt faktyczny zamiast negocjować szacunki.
+- **Koszt sędziego widoczny**: `result.json.judge_cost_usd` (osobno od
+  kosztu modelu), `report.json.total_judge_cost_usd` + kolumna
+  `median_judge_cost_usd` — przy tanich modelach sędzia bywa
+  porównywalną pozycją i "koszt na leaderboardzie" mylił.
+- **`provider_error` + retry próby**: agent exit != 0 z 5xx/429
+  w agent.log dostaje `provider_error: true` w trial.json i jeden retry
+  (artefakty pierwszego podejścia w `provider-error-attempt-1/`) —
+  awaria providera przestaje się wliczać do median jako pusta próba.
+- **`static/lint` z detekcją package managera** po lockfile'u
+  (pnpm/yarn/bun/npm) — realne monorepo nie traci składowej static
+  z winy stacku; w README puli tests wzorzec **asercji zero
+  zależności** (`node --test` z `$ASSERTION_DIR`).
+- **Skille**: wyjątek "pierwsza konfiguracja bez PR-a" w bench-wiring
+  jawnie obejmuje przepięcie zadania-demo; bench-wiring preferuje https
+  dla publicznych repo (SSH wymusza klucz tam, gdzie https nie wymaga
+  nic); bench-task ostrzega przed czytaniem `$?` po potoku; bench-triage
+  zna `provider_error`.
+- Release jest `[scoring-breaking]` (SCORING_VERSION → 2): zmienia się
+  zachowanie sędziego (budżet tokenów, retry) i format stempla
+  `rubric_version` — wyniki po adopcji otworzą nowe ery. Wsteczna
+  zgodność schematów zachowana: stare result.json/report.json parsują
+  się bez zmian (`judge_cost_usd` opcjonalne, legacy rubric_version
+  spada na config).
+
 ## 0.7.0 — 2026-08-14 `[scoring-breaking]`
 
 - **Stempel `scoring_version`** (fix

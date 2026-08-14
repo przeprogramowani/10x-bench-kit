@@ -16,8 +16,9 @@ frontmattera to stary kontrakt (`total` z odpowiedzi sędziego).
 
 Zasady:
 
-- zmiana rubryki lub modelu sędziego = zmiana `rubric_version` /
-  `judge_model` w stemplach → nowa era porównywalności,
+- zmiana rubryki = podbicie `version` w jej frontmatterze → nowa era
+  porównywalności **zadań, które jej używają** (stempel jest per
+  rubryka); zmiana modelu sędziego (`judge_model`) zamyka erę globalnie,
 - rubryki kalibruje się skillem (na znanych diffach dobrych i złych),
   zmiany przez PR,
 - szczegóły promptowania sędziego są świadomie odłożone (patrz DESIGN);
