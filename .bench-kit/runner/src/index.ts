@@ -6,6 +6,7 @@
  *   bench evaluate  — ocena artefaktów próby (static / tests / e2e / judge)
  *   bench validate  — bramka spójności instancji przed runem
  *   bench report    — agregacja result.json → dane leaderboardu
+ *   bench leaderboard — statyczny dashboard z historii report.json
  *   bench matrix    — macierz jobów dla GH Actions
  *   bench assert    — pojedyncze asercje z puli na referencji (enabler skilli)
  *   bench judge     — pojedyncze wywołanie sędziego na diffie (kalibracja rubryk)
@@ -17,6 +18,7 @@ import { runCommand } from "./commands/run.ts";
 import { evaluateCommand } from "./commands/evaluate.ts";
 import { validateCommand } from "./commands/validate.ts";
 import { reportCommand } from "./commands/report.ts";
+import { leaderboardCommand } from "./commands/leaderboard.ts";
 import { matrixCommand } from "./commands/matrix.ts";
 import { assertCommand } from "./commands/assert.ts";
 import { judgeCommand } from "./commands/judge.ts";
@@ -26,6 +28,7 @@ const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   evaluate: evaluateCommand,
   validate: validateCommand,
   report: reportCommand,
+  leaderboard: leaderboardCommand,
   matrix: matrixCommand,
   assert: assertCommand,
   judge: judgeCommand,
@@ -35,7 +38,7 @@ const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
 if (!handler) {
-  console.error("usage: bench <run|evaluate|validate|report|matrix|assert|judge> [options]");
+  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|assert|judge> [options]");
   process.exit(2);
 }
 

@@ -1,23 +1,111 @@
-# Szablon workflow publikacji leaderboardu. Instancja kopiuje go do
-# .github/workflows/ (docelowo robi to bench-kit init/update).
+# Workflow publikacji leaderboardu. `bench-kit init`/`update` kopiuje go do
+# .github/workflows/ instancji.
 #
-# Kontrakt (implementacja wraz z `bench report`):
-# - wejście: artefakty result.json z runów bench-run,
-# - generator buduje statyczny dashboard: jakość vs koszt vs czas + trendy
-#   między runami; ery NIE są mieszane — stare wyniki widoczne jako
-#   historia,
-# - publikacja na GitHub Pages; surowe JSON-y zostają jako artefakty.
+# Historia jest TRWAŁA: każdy report.json ląduje na gałęzi `bench-data`
+# (runs/<run_id>.json) — artefakty CI wygasają, gałąź nie. Dashboard buduje
+# `bench leaderboard` z całej gałęzi i publikuje na GitHub Pages (source:
+# GitHub Actions — trzeba włączyć raz w Settings → Pages).
+#
+# Triggery:
+# - workflow_run po udanym bench-run: dokłada report tego runu i przebudowuje,
+# - workflow_dispatch: backfill — dociąga raporty ze wszystkich udanych runów
+#   bench-run, których artefakty jeszcze nie wygasły, i przebudowuje.
 
 name: leaderboard
 
 on:
+  workflow_run:
+    workflows: [bench-run]
+    types: [completed]
   workflow_dispatch: {}
+
+permissions:
+  contents: write # push na gałąź bench-data
+  actions: read # pobieranie artefaktów z runów bench-run
+  pages: write
+  id-token: write
+
+concurrency:
+  group: leaderboard
+  cancel-in-progress: false
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - run: echo "leaderboard not implemented in 0.1.0" && exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+
+      # Gałąź danych jako worktree: istniejąca albo świeży orphan.
+      - name: Przygotuj gałąź bench-data
+        run: |
+          if git ls-remote --exit-code origin bench-data >/dev/null 2>&1; then
+            git fetch origin bench-data
+            git worktree add data FETCH_HEAD
+            git -C data checkout -B bench-data FETCH_HEAD
+          else
+            git worktree add --detach data
+            git -C data checkout --orphan bench-data
+            git -C data rm -rf --quiet . || true
+          fi
+          mkdir -p data/runs
+
+      - name: Zbierz report.json z runów bench-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          collect() { # <run_id> — pobiera artefakt report, jeśli jeszcze go nie mamy
+            local id="$1"
+            if [ -f "data/runs/${id}.json" ]; then return 0; fi
+            local tmp; tmp="$(mktemp -d)"
+            if gh run download "$id" --repo "$GITHUB_REPOSITORY" -n report -D "$tmp" 2>/dev/null; then
+              mv "$tmp/report.json" "data/runs/${id}.json"
+              echo "dodano runs/${id}.json"
+            else
+              echo "run ${id}: brak artefaktu report (wygasł albo run bez aggregate) — pomijam"
+            fi
+          }
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            collect "${{ github.event.workflow_run.id }}"
+          else
+            for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow bench-run \
+                --status success --limit 100 --json databaseId --jq '.[].databaseId'); do
+              collect "$id"
+            done
+          fi
+
+      - name: Wypchnij historię
+        run: |
+          cd data
+          git add runs
+          if git diff --cached --quiet; then
+            echo "historia bez zmian"
+          else
+            git -c user.name="bench-kit" -c user.email="bench-kit@users.noreply.github.com" \
+              commit -m "bench-data: raporty $(ls runs | wc -l | tr -d ' ') runów"
+            git push origin bench-data
+          fi
+
+      - name: bench leaderboard
+        run: |
+          npm run bench --prefix .bench-kit/runner --silent -- leaderboard \
+            --history "$GITHUB_WORKSPACE/data/runs" --out "$GITHUB_WORKSPACE/site" \
+            --title "${{ github.event.repository.name }} — benchmark agentów AI"
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
