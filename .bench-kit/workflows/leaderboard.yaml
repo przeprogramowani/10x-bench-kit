@@ -3,8 +3,11 @@
 #
 # Historia jest TRWAŁA: każdy report.json ląduje na gałęzi `bench-data`
 # (runs/<run_id>.json) — artefakty CI wygasają, gałąź nie. Dashboard buduje
-# `bench leaderboard` z całej gałęzi i publikuje na GitHub Pages (source:
-# GitHub Actions — trzeba włączyć raz w Settings → Pages).
+# `bench leaderboard` z całej gałęzi i publikuje na GitHub Pages.
+#
+# Pages wymaga repo publicznego albo płatnego planu (dla prywatnych).
+# Gdy Pages jest niedostępne, deploy jest pomijany z komunikatem,
+# a dashboard zawsze zostaje artefaktem `leaderboard-site`.
 #
 # Triggery:
 # - workflow_run po udanym bench-run: dokłada report tego runu i przebudowuje,
@@ -33,9 +36,6 @@ jobs:
   publish:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,11 +101,29 @@ jobs:
             --history "$GITHUB_WORKSPACE/data/runs" --out "$GITHUB_WORKSPACE/site" \
             --title "${{ github.event.repository.name }} — benchmark agentów AI"
 
-      - uses: actions/configure-pages@v5
+      # Dashboard zawsze zostaje artefaktem — Pages to publikacja, nie źródło.
+      - uses: actions/upload-artifact@v4
         with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
+          name: leaderboard-site
+          path: site
+
+      - name: Sonda dostępności Pages
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "/repos/$GITHUB_REPOSITORY/pages" >/dev/null 2>&1 ||
+             gh api -X POST "/repos/$GITHUB_REPOSITORY/pages" -f build_type=workflow >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GitHub Pages niedostępne (repo prywatne na darmowym planie?) — dashboard tylko jako artefakt leaderboard-site"
+          fi
+
+      - if: steps.pages.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site
-      - id: deploy
+      - if: steps.pages.outputs.enabled == 'true'
+        id: deploy
         uses: actions/deploy-pages@v4
