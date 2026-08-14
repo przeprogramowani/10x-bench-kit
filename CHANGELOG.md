@@ -6,6 +6,28 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.6.0 — 2026-08-14 (neutralne)
+
+- **Skille `bench-refresh` i `bench-triage`** — komplet zestawu
+  z SKILLS_DESIGN. `bench-refresh`: odświeżenie przeterminowanego
+  zadania (nowy pin → werdykt sensowności → overlay i asercje ponownie
+  na referencji → `expires` → PR = nowa era zadania; wycofanie zamiast
+  sztucznego ratowania; zakaz zmian in-place asercji współdzielonych).
+  `bench-triage`: diagnoza wyników runu (report → result → artefakty,
+  tabela objaw→ścieżka), klasyfikacja wina modelu / zadania /
+  infrastruktury, wyjście komentarz/issue — nigdy zmiana scoringu.
+  Oba przetestowane odbiorczo na instancji referencyjnej (issue #8,
+  PR #9).
+- **`AGENTS.md`** w korzeniu template'u — instrukcje dla agentów
+  pracujących w instancji: kolejność skilli (wiring → task → rubric →
+  refresh → triage), przeznaczenie high-level, zasady nadrzędne.
+  Wędruje z template'em do instancji; przy `update` synchronizowany
+  jako propozycja diffu (strefa współdzielona, wsparcie w 10x-cli od
+  PR #33).
+
+Neutralne dla scoringu: żadnych zmian w runnerze, schematach ani
+rubrykach.
+
 ## 0.5.0 — 2026-08-14 (neutralne)
 
 - **Skille przeniesione do `.agents/skills/`** — mainstreamowa,
