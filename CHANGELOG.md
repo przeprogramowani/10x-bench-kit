@@ -6,6 +6,14 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.4.2 — 2026-08-14 (neutralne)
+
+- Fix workflow `leaderboard`: przygotowanie gałęzi `bench-data` padało
+  na drugim runie (`FETCH_HEAD` jest per-worktree — fetch w głównym
+  worktree nie jest widoczny w `data/`); teraz jawny ref
+  `refs/remotes/origin/bench-data`. Pierwszy run przechodził, bo szedł
+  ścieżką orphan.
+
 ## 0.4.1 — 2026-08-14 (neutralne)
 
 - Workflow `leaderboard`: opcjonalny deploy na **Cloudflare Pages** —

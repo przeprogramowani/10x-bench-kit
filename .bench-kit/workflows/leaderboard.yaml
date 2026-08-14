@@ -59,9 +59,10 @@ jobs:
       - name: Przygotuj gałąź bench-data
         run: |
           if git ls-remote --exit-code origin bench-data >/dev/null 2>&1; then
-            git fetch origin bench-data
-            git worktree add data FETCH_HEAD
-            git -C data checkout -B bench-data FETCH_HEAD
+            # jawny ref zdalny — FETCH_HEAD jest per-worktree i nie istnieje w data/
+            git fetch origin bench-data:refs/remotes/origin/bench-data
+            git worktree add data refs/remotes/origin/bench-data
+            git -C data checkout -B bench-data refs/remotes/origin/bench-data
           else
             git worktree add --detach data
             git -C data checkout --orphan bench-data
