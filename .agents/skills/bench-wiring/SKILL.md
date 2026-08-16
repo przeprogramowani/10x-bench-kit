@@ -101,6 +101,11 @@ Wpisy w `base_repos` (`name` + `url`); placeholder `demo-app` usuń albo
 podmień. Benchmark nigdy nie modyfikuje repo bazowych — jeśli użytkownik
 proponuje zapis do nich, to nieporozumienie do wyprostowania.
 
+Dla każdego wpisu zadbaj o lokalny klon roboczy w `.repos/<nazwa>/`
+(konwencja z AGENTS.md; init zwykle zostawia tam klon wykrytego repo —
+brakujące sklonuj sam). Z niego korzystają potem bench-task
+i bench-refresh, zamiast klonować w kółko do scratchpada.
+
 ### 3. Modele i sędzia
 
 - **Modele oceniane** (`defaults.models`): identyfikatory w formacie

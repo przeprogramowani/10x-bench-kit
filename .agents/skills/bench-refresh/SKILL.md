@@ -83,7 +83,10 @@ Przeczytaj, zanim cokolwiek zmienisz:
 ### 2. Nowy pin
 
 Zaproponuj świeży, stabilny commit repo bazowego (najlepiej ostatni
-zielony na CI), pełny SHA. Obejrzyj, co zaszło w obszarze zadania:
+zielony na CI), pełny SHA. Pracuj na lokalnym klonie `.repos/<nazwa>/`
+(konwencja z AGENTS.md; brak → sklonuj tam) — po `git fetch origin`,
+bo nowy pin musi istnieć na remote. Obejrzyj, co zaszło w obszarze
+zadania:
 
 ```
 git log --oneline <stary-pin>..<nowy-pin> -- <ścieżki zadania>

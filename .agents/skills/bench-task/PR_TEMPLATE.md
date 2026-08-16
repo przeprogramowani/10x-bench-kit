@@ -6,7 +6,9 @@ Tytuł: `bench-task: <nazwa-zadania>`
 ## Co zadanie mierzy
 
 <typ: implementacja / naprawa / refaktor / dokumentacja; jedna intencja.
-Repo bazowe, pin (SHA + dlaczego ten commit), timeout i uzasadnienie.>
+Repo bazowe, pin (SHA + dlaczego ten commit), poziom naprowadzenia
+promptu (produktowy / kierunkowy / chirurgiczny — decyzja użytkownika
+z wywiadu), timeout i uzasadnienie.>
 
 ## Dowody z referencji
 

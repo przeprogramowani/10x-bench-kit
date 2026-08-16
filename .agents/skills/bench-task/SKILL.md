@@ -69,24 +69,45 @@ Uruchamiane z korzenia instancji: `node --experimental-strip-types
 
 ### 1. Wywiad
 
-Zbierz od użytkownika i zapisz sobie przed pisaniem czegokolwiek:
+Decyzje projektowe zadania należą do użytkownika — przeprowadź
+interaktywny wywiad mechanizmem pytań twojego narzędzia
+(AskUserQuestion / request_user_input; gdy brak — zwykłe pytania
+w rozmowie) i zapisz sobie odpowiedzi, zanim napiszesz cokolwiek.
+Nie zgaduj i nie przyjmuj po cichu domyślnych: źle dobrany poziom
+naprowadzenia czy timeout zmienia, **co** zadanie mierzy.
 
 - **Co zadanie mierzy**: implementacja funkcji / naprawa buga / refaktor /
   dokumentacja. Jedno zadanie = jedna intencja.
 - **Repo bazowe** (musi być w `base_repos` w bench.config.yaml — jeśli
   nie jest, to najpierw wiring, nie to zadanie).
+- **Poziom naprowadzenia promptu** — ile prompt zdradza o miejscu
+  zmiany; zadaj to jako osobne pytanie z konsekwencjami wprost:
+  - *produktowy* — sam objaw/cel ("stopka pokazuje 2025 zamiast
+    bieżącego roku"), zero plików i symboli; mierzy lokalizację
+    w kodzie + wykonanie — trudniejsze, dłuższy timeout;
+  - *kierunkowy* — nazwany obszar/moduł ("stopka we wspólnym
+    layoucie"); środek skali;
+  - *chirurgiczny* — konkretne pliki/symbole ("`Footer.astro`");
+    mierzy samo wykonanie — łatwiejsze, krótszy timeout.
 - **Poziom trudności** i **budżet czasowy próby** (`timeout_s` — typowo
-  300–900 s; za krótki timeout mierzy szybkość, nie jakość).
+  300–900 s; za krótki timeout mierzy szybkość, nie jakość; spójny
+  z poziomem naprowadzenia).
 - **Nazwa zadania**: kebab-case, mówiąca co jest do zrobienia
   (np. `fix-cart-total-rounding`), nie jak (`edit-cart-ts`).
+
+Na koniec streść decyzje w 2–3 zdaniach ("zadanie X, poziom
+naprowadzenia Y, timeout Z, bo…") i dopiero po akceptacji użytkownika
+przechodź do kroku 2.
 
 ### 2. Pin
 
 Zaproponuj konkretny commit repo bazowego: świeży, ale stabilny —
-najlepiej ostatni zielony na CI. Zweryfikuj, że zadanie ma na nim sens:
-sklonuj/przejrzyj repo na tym commicie, sprawdź że pliki, których zadanie
-dotyczy, istnieją, a projekt się buduje. Pełny SHA (40 znaków) do
-`task.yaml`.
+najlepiej ostatni zielony na CI. Repo przeglądaj w lokalnym klonie
+`.repos/<nazwa>/` (konwencja z AGENTS.md — jeśli klonu nie ma, sklonuj
+właśnie tam; przed wyborem pina `git fetch origin`, bo pin musi istnieć
+na remote). Zweryfikuj, że zadanie ma na nim sens: przejrzyj repo na tym
+commicie, sprawdź że pliki, których zadanie dotyczy, istnieją, a projekt
+się buduje. Pełny SHA (40 znaków) do `task.yaml`.
 
 ### 3. Overlay (zadania typu "napraw")
 
@@ -110,8 +131,11 @@ minimalny: seed buga, nie przebudowa projektu.
 ### 4. prompt.md
 
 Pisz jak zlecenie dla człowieka: cel, kontekst, granice ("nie zmieniaj
-niczego poza…"). Zakazane: podpowiadanie rozwiązania, wskazywanie linii
-do zmiany, jakiekolwiek przecieki z materiałów oceny (zasada 2). Prompt
+niczego poza…") — na poziomie naprowadzenia wybranym w wywiadzie:
+*produktowy* opisuje wyłącznie objaw/cel, *kierunkowy* może nazwać
+obszar, *chirurgiczny* może wskazać pliki/symbole. Niezależnie od
+poziomu zakazane: podpowiadanie rozwiązania, wskazywanie linii do
+zmiany, jakiekolwiek przecieki z materiałów oceny (zasada 2). Prompt
 to **jedyne** wejście agenta — wszystko, czego nie napiszesz, agent musi
 wywnioskować z kodu.
 

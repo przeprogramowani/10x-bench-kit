@@ -40,6 +40,23 @@ Kolejność odpowiada cyklowi życia instancji:
   `bench` (`validate` / `assert` / `judge` / `run` / `evaluate`),
   nie deklaracja.
 
+## Lokalne klony rep bazowych — `.repos/<nazwa>/`
+
+Robocze klony rep bazowych żyją w `.repos/<nazwa>/` w korzeniu instancji
+(katalog jest w `.gitignore` — nigdy nie trafia do repo instancji).
+`10x bench-kit init` zwykle zostawia tam pierwszy klon wykrytego repo.
+
+- **Zanim sklonujesz repo bazowe gdziekolwiek** (scratchpad, /tmp),
+  sprawdź `.repos/<nazwa>` — jeśli jest, użyj go; jeśli nie, sklonuj
+  właśnie tam (URL z `base_repos` w bench.config.yaml). W instancji
+  z czasów przed tą konwencją dopisz najpierw `.repos/` do `.gitignore`.
+- Klon może być nieświeży — przed decyzjami o pinie zrób
+  `git fetch origin` i wybieraj commity **istniejące na remote**
+  (runner robi własny płytki fetch z URL-a; lokalny stan nie wystarczy).
+- Klon jest read-only wobec remote'a: eksperymentuj na lokalnych
+  gałęziach/worktree, niczego nie pushuj (benchmark nigdy nie modyfikuje
+  rep bazowych).
+
 ## Gdzie są skille
 
 Katalog skilli zależy od narzędzia wybranego przy `bench-kit init`

@@ -6,6 +6,24 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.9.0 — 2026-08-16 (neutralny)
+
+Konwencja lokalnych klonów rep bazowych: `.repos/<nazwa>/` w korzeniu
+instancji (gitignorowane). `10x bench-kit init` (CLI ≥ wersji z tym
+wsparciem) klonuje tam wykryte repo produktowe od razu przy tworzeniu
+instancji, a skille bench-task / bench-refresh / bench-wiring używają
+tego klonu zamiast klonować za każdym razem do scratchpada. Zasady
+w AGENTS.md: sprawdź `.repos/` zanim sklonujesz gdziekolwiek, `git fetch
+origin` przed wyborem pina (pin musi istnieć na remote), zero pushy.
+
+Bench-task: wywiad jest teraz jawnie interaktywny (AskUserQuestion /
+request_user_input) i pyta o **poziom naprowadzenia promptu**
+(produktowy / kierunkowy / chirurgiczny) — decyzję, ile prompt zdradza
+o miejscu zmiany, podejmuje użytkownik, nie agent; krok prompt.md
+i szablon PR-a respektują wybrany poziom.
+
+Zmiany nie dotykają runnera ani scoringu istniejących zadań.
+
 ## 0.8.0 — 2026-08-15 `[scoring-breaking]`
 
 Wdrożenie safe defaults z przejścia pełnego cyklu instancji jako
