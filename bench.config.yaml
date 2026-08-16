@@ -26,7 +26,7 @@ defaults:
   trials: 3
   # Modele oceniane, gdy dispatch nie poda własnej listy.
   models:
-    - anthropic/claude-sonnet-5
+    - openrouter/anthropic/claude-sonnet-5
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
   # Budżet kosztu prób jednego runu (USD) — `bench run` przerywa po jego
