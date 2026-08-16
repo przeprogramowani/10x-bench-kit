@@ -33,7 +33,15 @@ uruchomiłeś na wersji referencyjnej** — do tego służą `bench assert`,
 4. **Runner jest twoim narzędziem.** Nie reimplementuj jego logiki, nie
    oceniaj "na oko" — wołaj komendy `bench` i czytaj ich wyjścia. Jeśli
    czegoś brakuje runnerowi, zgłoś to (issue), nie obchodź.
-5. **Nie dotykaj `.bench-kit/`** (strefa narzędzia) ani cudzych zadań.
+5. **Pracuj wyłącznie w swoim zakresie**: `tasks/<nazwa>/` tworzonego
+   zadania + nowe asercje w `evaluation-pool/`. Niczego poza tym nie
+   edytuj — w szczególności `.bench-kit/` (strefa narzędzia) i katalogów
+   innych zadań. Stan reszty repo to sprawa użytkownika: jeśli w drzewie
+   roboczym są niezacommitowane zmiany w plikach spoza twojego zakresu
+   (także skasowane pliki innych zadań), **zostaw je bez zmian** — nie
+   przywracaj, nie revertuj, nie diagnozuj i nie komentuj; po prostu nie
+   włączaj ich do swojej gałęzi/commita (dodawaj pliki po ścieżkach,
+   nigdy `git add -A`/`git add .`).
 6. **Budżet zamiast rytuału zgody.** Kosztów pilnuje
    `defaults.max_cost_usd` w bench.config.yaml (runner przerywa run po
    przekroczeniu) — nie pytaj o zgodę przed każdym próbnym runem czy
@@ -176,6 +184,10 @@ albo wylatuje z `evaluation[]`. Suma wag = 1.
 Kolejno, każde musi przejść zanim pójdziesz dalej:
 
 1. `bench validate --assert` — zielone (deklaracje `reference` zgodne).
+   Bramka obejmuje całą instancję — jeśli czerwień pochodzi z plików
+   spoza twojego zakresu (zasada 5), zgłoś to użytkownikowi jednym
+   zdaniem i czekaj na jego decyzję; nie "naprawiaj" cudzych plików,
+   żeby uzyskać zieleń.
 2. `bench assert --task <nazwa> --patch <wzorzec.diff>` — exit 0
    (zadanie jest wykonalne).
 3. Pusty diff **nie może** dawać wyniku ≥ progu zaliczenia: stan startowy
