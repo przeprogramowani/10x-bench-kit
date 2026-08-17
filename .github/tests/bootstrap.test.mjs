@@ -22,6 +22,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -476,6 +477,28 @@ test("kontrakt: niedopasowana contractVersion → ok:false, kod contract_mismatc
   assert.equal(response.code, "contract_mismatch");
   assert.ok(response.hint.length > 0);
   assert.equal(existsSync(target), false);
+});
+
+test("kontrakt: wywołanie przez symlinkowaną ścieżkę → main() startuje (macOS tmpdir)", () => {
+  // CLI klonuje template do mkdtemp(tmpdir()), a na macOS tmpdir to
+  // /var/folders → symlink do /private/var. Node rozwiązuje symlinki w
+  // ścieżce entry (import.meta.url), argv[1] zostaje surowe — bez
+  // realpath w guardzie main() cicho nie startował (pusty stdout).
+  const linkParent = tempDir("bootstrap-symlink-");
+  const link = join(linkParent, "repo-via-symlink");
+  symlinkSync(REPO_ROOT, link);
+  const entry = join(link, ".bench-kit", "bootstrap", "index.mjs");
+
+  const result = spawnSync(process.execPath, [entry], {
+    input: JSON.stringify({ contractVersion: 999 }),
+    encoding: "utf8",
+  });
+
+  const lines = result.stdout.trim().split("\n");
+  assert.notEqual(lines[lines.length - 1], "", "bootstrap nie odpowiedział na stdout");
+  const response = JSON.parse(lines[lines.length - 1]);
+  assert.equal(response.ok, false);
+  assert.equal(response.code, "contract_mismatch");
 });
 
 test("kontrakt: niekompletny template (brak VERSION) → template_incomplete", () => {

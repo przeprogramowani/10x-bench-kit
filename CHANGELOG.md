@@ -6,6 +6,16 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.10.1 — 2026-08-17 (neutralny)
+
+Naprawa bootstrapu na macOS: CLI klonuje template do `mkdtemp(tmpdir())`,
+a tam `/var/folders` jest symlinkiem do `/private/var` — Node rozwiązuje
+symlinki w ścieżce entry (`import.meta.url`), więc guard „uruchomiony
+jako skrypt" nie trafiał w surowe `argv[1]` i `main()` cicho nie
+startował (pusty stdout → `bootstrap_failed: no parsable response`
+w CLI). Guard porównuje teraz realpath obu stron; regresja pokryta
+testem spawnu przez symlinkowaną ścieżkę.
+
 ## 0.10.0 — 2026-08-17 (neutralny)
 
 Logika instancji przeniesiona z 10x-cli do kitu: nowy katalog

@@ -29,6 +29,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -446,7 +447,18 @@ async function main() {
 }
 
 // Uruchomiony jako skrypt (nie zaimportowany w testach) — czytaj stdin.
+// realpathSync po obu stronach: node rozwiązuje symlinki w ścieżce entry
+// (import.meta.url), argv[1] zostaje surowe — bez tego wywołanie z klonu
+// w macOS-owym tmpdir (/var/folders → /private/var) cicho pomija main().
 const { pathToFileURL } = await import("node:url");
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  await main();
+if (process.argv[1]) {
+  let invoked = resolve(process.argv[1]);
+  try {
+    invoked = realpathSync(invoked);
+  } catch {
+    // Ścieżka nie istnieje — porównanie i tak nie trafi.
+  }
+  if (import.meta.url === pathToFileURL(invoked).href) {
+    await main();
+  }
 }
