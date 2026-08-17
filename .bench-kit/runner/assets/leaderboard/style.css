@@ -1,0 +1,94 @@
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb; --page: #f9f9f7;
+  --ink-1: #0b0b0b; --ink-2: #52514e; --ink-muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --good-text: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --page: #0d0d0d;
+    --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --good-text: #0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19; --page: #0d0d0d;
+  --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --good-text: #0ca30c;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--page); color: var(--ink-1);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: 32px 20px 64px;
+}
+main { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 24px; font-weight: 650; }
+.sub { color: var(--ink-2); margin-top: 4px; font-size: 13px; }
+.tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0 8px; }
+.tile {
+  background: var(--surface-1); border: 1px solid var(--ring); border-radius: 10px;
+  padding: 12px 18px; min-width: 130px; flex: 0 1 auto;
+}
+.tile .v { font-size: 22px; font-weight: 650; }
+.tile .l { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+section.task { margin-top: 36px; }
+h2 { font-size: 18px; font-weight: 650; }
+.era-meta { font-size: 12px; color: var(--ink-muted); margin: 4px 0 12px; }
+.era-meta code { font-family: ui-monospace, monospace; font-size: 11px; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--ring); border-radius: 10px;
+  padding: 16px 18px; margin-bottom: 14px; overflow-x: auto;
+}
+table { border-collapse: collapse; width: 100%; min-width: 640px; }
+th {
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--ink-2);
+  padding: 6px 12px 6px 0; border-bottom: 1px solid var(--axis); white-space: nowrap;
+}
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+.model { font-weight: 600; white-space: nowrap; }
+.model .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+  margin-right: 8px; vertical-align: baseline;
+}
+.model .full { display: block; font-weight: 400; font-size: 11px; color: var(--ink-muted); margin-left: 18px; }
+.scorebar { position: relative; width: 140px; height: 4px; background: var(--grid); border-radius: 4px; }
+.scorebar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--s1); }
+.scorebar .thresh { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--axis); }
+.scorecell { display: flex; align-items: center; gap: 10px; }
+.scorecell .n { font-variant-numeric: tabular-nums; min-width: 44px; }
+.pass { color: var(--good-text); font-weight: 600; }
+h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
+.charts { display: flex; flex-wrap: wrap; gap: 14px; }
+.charts .card { flex: 1 1 380px; margin-bottom: 0; }
+.charts svg { display: block; width: 100%; height: auto; max-width: 460px; }
+svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-muted); }
+svg text.dl { fill: var(--ink-1); font-weight: 600; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+details .card { margin-top: 10px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.legend span::before {
+  content: ""; display: inline-block; width: 10px; height: 10px;
+  border-radius: 3px; margin-right: 6px; background: var(--c);
+}
+#tooltip {
+  position: fixed; pointer-events: none; display: none; z-index: 10;
+  background: var(--surface-1); border: 1px solid var(--ring); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.12);
+}
+#tooltip b { display: block; }
+footer { margin-top: 40px; font-size: 12px; color: var(--ink-muted); }

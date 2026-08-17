@@ -6,6 +6,18 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.14.2 — 2026-08-17 (neutralny)
+
+Refactor DX — artefakt dashboardu bajt w bajt bez zmian (poza źródłem).
+
+**Frontend leaderboardu jako osobne pliki** — HTML/CSS/JS dashboardu
+przeniesione z template literala w `leaderboard.ts` do
+`runner/assets/leaderboard/` (`template.html`, `style.css`, `app.js`);
+komenda skleja je w samowystarczalny `index.html` przez placeholdery.
+Normalne podświetlanie i lintowanie frontendu, `app.js` testowalny
+bezpośrednio w node. Tytuł strony jest teraz escapowany. Zero nowych
+zależności; działa i z `src` (strip-types), i z `dist`.
+
 ## 0.14.1 — 2026-08-17 (neutralny)
 
 Fix UI dashboardu — bez wpływu na scoring i schematy.
