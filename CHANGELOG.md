@@ -6,6 +6,26 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.10.0 — 2026-08-17 (neutralny)
+
+Logika instancji przeniesiona z 10x-cli do kitu: nowy katalog
+`.bench-kit/bootstrap/` (kontrakt v1) wykonuje `init`/`update`/`repair`
+— żądanie JSON na stdin, odpowiedź JSON w ostatniej linii stdout.
+Zasada podziału: **kit zna siebie, CLI zna maszynę użytkownika** —
+CLI zostaje przy klonie template'u, wykryciu repo bazowego i profilu
+narzędzia; strefy plików, manifest, rejestracja repo, pinowanie
+zadań-demo i `git init` żyją w kicie. Najważniejszy skutek: `update`
+wykonuje bootstrap z NOWEJ wersji kitu, więc template zmieniający układ
+przywozi ze sobą własną migrację.
+
+Przy okazji domknięty przeciek plików template-only: `.github/`
+(self-test template'u), `benchkit.png` i `docs/` nigdy nie trafiają do
+instancji — broni tego test w kicie (`.github/tests/`), nie w CLI.
+
+Wymaga 10x-cli z obsługą kontraktu bootstrapu (starsze CLI init/update
+nadal działa po staremu na starszych tagach). Zmiany nie dotykają
+runnera ani scoringu istniejących zadań.
+
 ## 0.9.0 — 2026-08-16 (neutralny)
 
 Konwencja lokalnych klonów rep bazowych: `.repos/<nazwa>/` w korzeniu

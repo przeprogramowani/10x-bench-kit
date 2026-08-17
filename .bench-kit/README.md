@@ -15,3 +15,9 @@ Zawartość:
   (`opencode.version`), adapter metryk, skrypty cyklu próby i oceny.
 - `workflows/` — workflows GitHub Actions (run benchmarku, leaderboard).
   `bench-kit init`/`update` kopiuje je do `.github/workflows/`.
+- `bootstrap/` — logika instancji (`init`/`update`/`repair`) wykonywana
+  przez `10x bench-kit` z klonu template'u: żądanie JSON na stdin,
+  odpowiedź JSON w ostatniej linii stdout. Zasada podziału: kit zna
+  siebie (układ plików, strefy, manifest), CLI zna maszynę użytkownika
+  (sieć, profil narzędzia). Dzięki temu `update` wykonuje migrację
+  z NOWEJ wersji kitu. Testy: `.github/tests/` (strefa template-only).
