@@ -293,7 +293,7 @@ function runInit(request) {
     warnings,
     nextSteps: repair
       ? ["Przejrzyj przywrócone pliki; zadania, evaluation-pool i config zostały nietknięte."]
-      : ["Podepnij sekrety, potem uruchom 'bench validate' przed pierwszym runem."],
+      : ["Podepnij sekrety, potem uruchom 'npm run bench --prefix .bench-kit/runner -- validate' przed pierwszym runem."],
   };
 }
 
@@ -411,7 +411,7 @@ function runUpdate(request) {
     ],
     warnings,
     nextSteps: [
-      "Przejrzyj 'git diff', uruchom 'bench validate' (wyłapie zmiany schematu), potem commit przez PR.",
+      "Przejrzyj 'git diff', uruchom 'npm run bench --prefix .bench-kit/runner -- validate' (wyłapie zmiany schematu), potem commit przez PR.",
     ],
   };
 }
