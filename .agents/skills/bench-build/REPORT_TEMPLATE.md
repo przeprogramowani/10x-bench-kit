@@ -1,18 +1,28 @@
-# Szablon PR-a dla nowego zadania (bench-task)
+# Szablon raportu zadania (bench-build)
 
-Tytuł: `bench-task: <nazwa-zadania>`
+Zadanie zostaje jako **pliki w drzewie roboczym** — subagent nie robi
+nic w gicie. Raport przejmuje rolę opisu zmiany: to on niesie dowody
+i to z niego użytkownik zbuduje ewentualny komunikat commita czy opis
+PR-a, gdy zdecyduje, co dalej. Sekcje poniżej są obowiązkowe — wklejaj
+wyniki komend, nie deklaracje.
 
 ```markdown
+# <nazwa-zadania>
+
+## Pliki
+
+<pełna lista utworzonych/zmienionych ścieżek: tasks/<nazwa>/…, nowe
+asercje w evaluation-pool/…, zbiór kalibracyjny
+w evaluation-pool/judge/<zadanie>-calibration/…>
+
 ## Co zadanie mierzy
 
 <typ: implementacja / naprawa / refaktor / dokumentacja; jedna intencja.
 Repo bazowe, pin (SHA + dlaczego ten commit), poziom naprowadzenia
 promptu (produktowy / kierunkowy / chirurgiczny — decyzja użytkownika
-z wywiadu), timeout i uzasadnienie.>
+ze zlecenia w backlogu), timeout i uzasadnienie.>
 
 ## Dowody z referencji
-
-<wklej wyniki komend — nie deklaracje:>
 
 - stan startowy: `bench assert --task <nazwa>` → <wynik per asercja>
 - czysta referencja (zadania z overlayem): `bench assert --task <nazwa>
@@ -29,9 +39,9 @@ i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia.>
 
 ## Skutki dla porównywalności
 
-<nowe zadanie = nowa era tego zadania (task_hash). Jeśli PR zmienia też
-istniejące asercje w puli lub rubryki: które dotychczasowe wyniki
-przestają być porównywalne.>
+<nowe zadanie = nowa era tego zadania (task_hash). Jeśli zmiany
+obejmują też istniejące asercje w puli lub rubryki: które dotychczasowe
+wyniki przestają być porównywalne.>
 
 ## Koszt samosprawdzenia
 

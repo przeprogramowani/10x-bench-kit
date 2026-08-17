@@ -13,13 +13,25 @@ Strefa nietykalna przy `bench-kit update`.
 Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Przykład
 wszystkich pól: `demo-hello-bench/task.yaml`.
 
+## Backlog zleceń — `tasks/backlog.md`
+
+Stanowy dokument koordynacji: skill **bench-new-task** dopisuje do
+niego zlecenia zadań po krótkim wywiadzie, skill **bench-build**
+zamienia oczekujące zlecenia w prawdziwe zadania (subagent per
+zlecenie). Runner ignoruje pliki w `tasks/` niebędące katalogami,
+więc backlog nie wpływa na scoring. Skille wyłącznie edytują ten
+plik — gitem zarządza użytkownik.
+
 ## Zasady
 
 - Materiały oceny (testy, rubryki) NIGDY nie leżą w katalogu zadania —
   wyłącznie referencje `evaluation: [...]` do `evaluation-pool/`.
   Izolacja z konstrukcji, nie ze starannego wycinania.
-- Zadania powstają i są odświeżane skillem, ale zawsze przechodzą przez
-  PR i ludzkie review.
+- Zadania powstają i są odświeżane skillami, ale skille nie dotykają
+  gita. Nowe zadania bench-build zostawia jako pliki w drzewie
+  roboczym z raportem dowodów z referencji per zadanie — commit, PR
+  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh)
+  i rubryki (bench-rubric) przechodzą przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,
   aktualizacja asercji) otwiera nową erę dla tego zadania.

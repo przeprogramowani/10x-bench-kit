@@ -35,13 +35,14 @@ nie sztuczne ratowanie.
    `bench assert` / `bench judge` / `bench validate --assert`.
 4. **Refresh zachowuje intencję.** Adaptujesz prompt/overlay/asercje do
    nowego kodu minimalnie; zmiana tego, CO zadanie mierzy, to nowe
-   zadanie (skill bench-task), nie refresh.
+   zadanie (zlecenie przez bench-new-task, budowa przez bench-build),
+   nie refresh.
 5. **Nie zmieniaj in-place asercji współdzielonych.** Asercja z puli
    używana przez inne zadania zmienia ich scoring bez śladu w stemplach
    (`task_hash` obejmuje tylko katalog zadania). Jeśli asercja wymaga
    zmiany, a używa jej ktoś jeszcze: nowa wersja w puli (np.
    `tests/<nazwa>-v2`) + podmiana w `evaluation[]` tego zadania.
-6. **Izolacja materiałów oceny.** Jak w bench-task: nic z
+6. **Izolacja materiałów oceny.** Jak w bench-build: nic z
    `evaluation-pool/` nie trafia do `tasks/<nazwa>/`; wzorcowe
    rozwiązanie żyje w `evaluation-pool/judge/<zadanie>-calibration/`,
    nigdy w `tasks/`.
@@ -134,7 +135,8 @@ pliku overlaya względem jego odpowiednika na nowym pinie: overlay ma
 się różnić od nowej referencji **wyłącznie seedem buga**. Jeśli plik
 w repo odjechał — przenieś seed buga na jego nową wersję.
 
-Potem dowód obserwowalności od nowa, jak w bench-task:
+Potem dowód obserwowalności od nowa, jak w bench-build
+(TASK_AUTHORING.md):
 
 - stan startowy (nowy pin + overlay): miara pracy czerwona —
   `bench assert <ref> --task <nazwa>` → exit 1,

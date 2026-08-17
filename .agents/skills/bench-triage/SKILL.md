@@ -24,8 +24,9 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
 1. **Nigdy nie zmieniasz scoringu.** Żadnych edycji `result.json`,
    `report.json`, gałęzi `bench-data`, zadań, asercji, rubryk ani
    `bench.config.yaml`. Nawet gdy bug asercji jest oczywisty: diagnoza
-   → issue → naprawa osobnym skillem (bench-task / bench-refresh /
-   bench-rubric) przez PR. Artefakty prób są read-only.
+   → issue → naprawa osobnym skillem (bench-build / bench-refresh /
+   bench-rubric), nigdy edycją w ramach triage. Artefakty prób są
+   read-only.
 2. **Hipoteza → dowód komendą.** Podejrzenie wobec asercji lub sędziego
    weryfikujesz runnerem (`bench assert`, `bench judge`), nie "na oko".
    Diagnoza bez reprodukcji to spekulacja — oznacz ją jako taką.
@@ -132,8 +133,9 @@ ten sam triage co run.
   opisz wzorzec zachowania (to cenniejsze niż liczba: "gubi tool
   calling", "nie trzyma zakresu").
 - **Wina zadania** — issue w repo instancji + delegacja: asercja /
-  overlay / prompt / timeout → bench-refresh (lub bench-task dla
-  nowego zadania), rubryka → bench-rubric. Zaznacz w issue, które
+  overlay / prompt / timeout → bench-refresh (lub bench-new-task +
+  bench-build dla nowego zadania), rubryka → bench-rubric. Zaznacz
+  w issue, które
   wyniki bieżącej ery są skażone — era i tak zamknie się przy naprawie.
 - **Wina infrastruktury** — issue w repo template'u (runner / workflow /
   obraz) z `container.log` / `execution.json`; wyniki dotkniętych prób
@@ -155,8 +157,8 @@ z jednozdaniowym uzasadnieniem, maksymalnie dwie alternatywy z ceną,
 oraz — oddzielnie — to, co czeka na decyzję człowieka. Typowe przejścia
 wg klasy:
 
-- **wina zadania** → bench-refresh albo bench-task — zależnie od tego,
-  czy naprawa zachowuje intencję zadania;
+- **wina zadania** → bench-refresh albo bench-new-task + bench-build —
+  zależnie od tego, czy naprawa zachowuje intencję zadania;
 - **wina rubryki** → bench-rubric;
 - **wina infrastruktury** → run do powtórzenia po naprawie — wyniki
   dotkniętych prób są nieinterpretowalne;

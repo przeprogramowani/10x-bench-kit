@@ -17,19 +17,23 @@ Kolejność odpowiada cyklowi życia instancji:
 | Kolejność | Skill | Przeznaczenie | Kiedy |
 |---|---|---|---|
 | 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate`: repo bazowe, modele, sędzia, sekrety, smoke run | raz, przy powstaniu instancji (i przy zmianach wiringu) |
-| 2 | **bench-task** | Nowe zadanie: prompt + pin + overlay + asercje + wagi, wszystko udowodnione na referencji | cyklicznie, gdy powstaje zadanie |
-| 3 | **bench-rubric** | Kalibracja rubryki LLM-as-judge na diffach o znanej jakości | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
-| 4 | **bench-refresh** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
-| 5 | **bench-triage** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
+| 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
+| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na referencji; gotowe pliki + raport w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
+| 4 | **bench-rubric** | Kalibracja rubryki LLM-as-judge na diffach o znanej jakości | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
+| 5 | **bench-refresh** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
+| 6 | **bench-triage** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
-- **Zmiany scoringu wyłącznie przez PR** — zadania, asercje, rubryki
-  i `bench.config.yaml` nigdy prosto na master.
+- **Zmiany scoringu z dowodem i śladem** — rubryki i
+  `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania buduje
+  bench-build jako pliki w drzewie roboczym z dowodami z referencji
+  w raporcie (REPORT_TEMPLATE.md skilla) — **do gita wnosi je
+  użytkownik**, skille nie commitują i nie pushują niczego.
 - **Testuj na referencji, zanim zaproponujesz** — asercja czy overlay
-  bez dowodu z `bench assert` nie wchodzi do PR-a.
+  bez dowodu z `bench assert` nie zostaje oddana (raport/PR).
 - **Świadomość er** — zmiany `task_hash`, rubryki lub sędziego zamykają
-  erę porównywalności; PR mówi to wprost, przed mergem.
+  erę porównywalności; raport/PR mówi to wprost.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje

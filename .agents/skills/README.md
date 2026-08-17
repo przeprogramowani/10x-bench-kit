@@ -4,10 +4,16 @@ Wszystko, co wymaga osądu, robi rozmowa z agentem — nie CLI. Tu żyją
 skille wspierające cykl życia instancji. Zestaw docelowy (koncepcja:
 SKILLS_DESIGN w repo projektowym):
 
-- **bench-task** *(dostępny)* — tworzy nowe zadanie: prompt + pin +
-  overlay + asercje z deklaracjami `reference` + wagi, wszystko
-  sprawdzone na referencji (`bench assert` / `bench judge` /
-  `bench validate --assert`), wyjście przez PR.
+- **bench-new-task** *(dostępny)* — krótki wywiad → zlecenie nowego
+  zadania w stanowym backlogu `tasks/backlog.md`; w jednej sesji można
+  zdefiniować 5–10 zleceń, bez budowania czegokolwiek.
+- **bench-build** *(dostępny)* — buduje zadania z oczekujących zleceń
+  backlogu: rozdziela je na subagentów, każdy wykonuje pełne autorstwo
+  (prompt + pin + overlay + asercje z deklaracjami `reference` + wagi,
+  wszystko sprawdzone na referencji przez `bench assert` /
+  `bench judge` / `bench validate --assert`); wynik zostaje jako pliki
+  w drzewie roboczym z raportem dowodów per zadanie — git po stronie
+  użytkownika.
 - **bench-wiring** *(dostępny)* — od świeżego `init` do zielonego
   `validate`: repo bazowe, modele, sekrety, obraz pod stack firmy.
 - **bench-refresh** *(planowany)* — odświeżenie przeterminowanego

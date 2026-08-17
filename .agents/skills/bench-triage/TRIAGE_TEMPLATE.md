@@ -25,7 +25,7 @@ starcza: "nierozstrzygnięte" + czego zabrakło.>
 
 <wina modelu → wynik zostaje, opisany wzorzec zachowania;
 wina zadania → co naprawić i którym skillem (bench-refresh /
-bench-task / bench-rubric), które wyniki ery są skażone;
+bench-build / bench-rubric), które wyniki ery są skażone;
 wina infrastruktury → issue w repo template'u, które próby
 nieinterpretowalne, czy run powtórzyć.>
 
