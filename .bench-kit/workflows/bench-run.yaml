@@ -4,6 +4,12 @@
 # Rytuał: nowy model na rynku → dispatch z jego ID → nowy wiersz w tabeli.
 # Wszystkie parametry mają defaults z bench.config.yaml.
 #
+# Skip-logic: run jest stateless w obrębie ery scoringu — komórki
+# (model × zadanie) z żądaną liczbą prób w historii (gałąź bench-data)
+# wypadają z macierzy, więc dispatch bez parametrów dogania tylko braki
+# (nowe modele, nowe zadania, nowe ery). Input `force` wymusza pełny
+# re-run; więcej prób niż w historii = re-run komórki od zera.
+#
 # Wymagane sekrety instancji:
 # - klucze API providerów używanych przez oceniane modele i sędziego
 #   (np. OPENROUTER_API_KEY),
@@ -37,12 +43,18 @@ on:
         description: "Prób na (model × zadanie). Puste = defaults.trials"
         required: false
         type: string
+      force:
+        description: "Wymuś re-run: ignoruj wyniki z bench-data (skip-logic)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   # Parametry dispatch dokładane do komend tylko, gdy podane.
   MODELS_ARG: ${{ inputs.models != '' && format('--models {0}', inputs.models) || '' }}
   TASKS_ARG: ${{ inputs.tasks != '' && format('--tasks {0}', inputs.tasks) || '' }}
   TRIALS_ARG: ${{ inputs.trials != '' && format('--trials {0}', inputs.trials) || '' }}
+  FORCE_ARG: ${{ inputs.force == true && '--force' || '' }}
 
 jobs:
   # Bramka + macierz: validate musi przejść, zanim wydamy centa na próby.
@@ -50,6 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
     env:
       BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
@@ -67,10 +80,40 @@ jobs:
       - run: npm ci --prefix .bench-kit/runner
       - name: bench validate
         run: npm run bench --prefix .bench-kit/runner --silent -- validate --root "$GITHUB_WORKSPACE"
+
+      # Skip-logic: benchmark jest stateless w obrębie ery scoringu. Historia
+      # raportów z gałęzi bench-data pozwala `bench matrix` wyciąć komórki
+      # (model × zadanie), które w bieżącej erze mają już żądaną liczbę prób —
+      # dispatch bez parametrów dogania tylko braki. Input `force` = pełny
+      # re-run; brak gałęzi (pierwszy run) = bez skip-logic.
+      - name: Historia wyników (bench-data)
+        id: history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/branches/bench-data" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "gałąź bench-data nie istnieje — macierz bez skip-logic"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.history.outputs.exists == 'true'
+        with:
+          ref: bench-data
+          path: bench-data
+          persist-credentials: false
+
       - name: bench matrix
         id: matrix
         run: |
-          echo "matrix=$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG)" >> "$GITHUB_OUTPUT"
+          HISTORY_ARG=""
+          if [ "${{ steps.history.outputs.exists }}" = "true" ]; then
+            HISTORY_ARG="--history $GITHUB_WORKSPACE/bench-data/runs"
+          fi
+          MATRIX="$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG $HISTORY_ARG $FORCE_ARG)"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$MATRIX" | jq '.include | length')" >> "$GITHUB_OUTPUT"
 
   # Jeden job = model × zadanie × próba — próby biegną RÓWNOLEGLE, więc
   # wall-clock runu ≈ najdłuższa pojedyncza próba, nie trials × próba
@@ -79,6 +122,9 @@ jobs:
   # ściągają — rozmnożenie jobów nie mnoży budowań w ciepłym runie.
   trial:
     needs: plan
+    # count 0 = wszystko już zmierzone w bieżącej erze (skip-logic) — job
+    # pominięty zamiast wywrotki na pustej macierzy.
+    if: needs.plan.outputs.count != '0'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -186,8 +232,8 @@ jobs:
   # Agregacja: mediana, pass@k, koszt runu → report.json jako artefakt.
   # (Leaderboard/dashboard celowo później — surowe JSON-y wystarczą.)
   aggregate:
-    needs: trial
-    if: always() && needs.plan.result == 'success'
+    needs: [plan, trial]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.count != '0'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

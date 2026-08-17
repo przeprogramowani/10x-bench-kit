@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig } from "../lib/instance.ts";
+import { eraKey } from "../lib/era.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
 
 interface Options {
@@ -89,22 +90,15 @@ export async function reportCommand(args: string[]): Promise<number> {
     const results = findResults(opts.run);
     if (results.length === 0) throw new Error(`brak result.json w ${opts.run} — najpierw \`bench evaluate\``);
 
-    // grupowanie: era (krotka stamps) → (model × zadanie) → próby.
-    // Klucz używa scoring_version (podbijanej tylko przy scoring-breaking),
-    // nie template_version — neutralny release nie rozdziela er; wyniki
-    // legacy (bez scoring_version) spadają na template_version.
+    // grupowanie: era (krotka stamps, klucz z lib/era.ts) →
+    // (model × zadanie) → próby.
     const eras = new Map<string, { stamps: Result["stamps"]; cells: Map<string, Result[]> }>();
     for (const result of results) {
-      const eraKey = JSON.stringify([
-        result.stamps.scoring_version ?? result.stamps.template_version,
-        result.stamps.task_hash,
-        result.stamps.judge_model,
-        result.stamps.rubric_version,
-      ]);
-      let era = eras.get(eraKey);
+      const key = eraKey(result.stamps);
+      let era = eras.get(key);
       if (!era) {
         era = { stamps: result.stamps, cells: new Map() };
-        eras.set(eraKey, era);
+        eras.set(key, era);
       }
       const cellKey = `${result.model}\0${result.task}`;
       era.cells.set(cellKey, [...(era.cells.get(cellKey) ?? []), result]);

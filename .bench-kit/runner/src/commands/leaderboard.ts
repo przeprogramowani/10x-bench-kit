@@ -9,19 +9,26 @@
  * - wyjście: --out/index.html (samowystarczalny HTML — zero zależności
  *   sieciowych, dane wbudowane) + data.json (sklejona historia do
  *   własnych analiz),
- * - komenda nie wymaga instancji: pass_threshold i stemple są w raportach.
+ * - komenda nie wymaga instancji: pass_threshold i stemple są w raportach;
+ *   opcjonalny --root <instancja> ogranicza dashboard do zadań, które
+ *   nadal istnieją w tasks/ (historia zadań usuniętych z instancji
+ *   zostaje na gałęzi bench-data, ale nie zaśmieca UI).
  *
  * Użycie: bench leaderboard --history <dir> [--out <dir>] [--title <s>]
+ *                           [--root <dir>]
  */
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { findInstanceRoot, listTaskNames } from "../lib/instance.ts";
 import { ReportSchema, type Report, type ReportRow } from "../schemas/report.ts";
+import { eraKey } from "../lib/era.ts";
 import type { Result } from "../schemas/result.ts";
 
 interface Options {
   history: string | null;
   out: string;
   title: string;
+  root: string | null;
 }
 
 interface EraRun {
@@ -45,13 +52,14 @@ interface SiteData {
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { history: null, out: resolve("leaderboard-site"), title: "Benchmark agentów AI" };
+  const opts: Options = { history: null, out: resolve("leaderboard-site"), title: "Benchmark agentów AI", root: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
     if (arg === "--history") opts.history = resolve(value() ?? "");
     else if (arg === "--out") opts.out = resolve(value() ?? "");
     else if (arg === "--title") opts.title = value() ?? opts.title;
+    else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
   if (!opts.history) return null;
@@ -82,20 +90,16 @@ function findReports(dir: string): { run_id: string; report: Report }[] {
   return found.sort((a, b) => a.report.generated_at.localeCompare(b.report.generated_at));
 }
 
-function buildSiteData(title: string, reports: { run_id: string; report: Report }[]): SiteData {
+function buildSiteData(
+  title: string,
+  reports: { run_id: string; report: Report }[],
+  existingTasks: Set<string> | null,
+): SiteData {
   // era = krotka stamps; zbieramy runy per era, potem grupujemy ery po zadaniu
   const eras = new Map<string, { stamps: Result["stamps"]; runs: EraRun[] }>();
   for (const { run_id, report } of reports) {
     for (const era of report.eras) {
-      // scoring_version (tylko scoring-breaking podbija) zamiast
-      // template_version — neutralny release template'u nie rozdziela er;
-      // raporty legacy bez scoring_version zachowują stary klucz.
-      const key = JSON.stringify([
-        era.stamps.scoring_version ?? era.stamps.template_version,
-        era.stamps.task_hash,
-        era.stamps.judge_model,
-        era.stamps.rubric_version,
-      ]);
+      const key = eraKey(era.stamps);
       let entry = eras.get(key);
       if (!entry) {
         entry = { stamps: era.stamps, runs: [] };
@@ -109,6 +113,12 @@ function buildSiteData(title: string, reports: { run_id: string; report: Report 
   for (const { stamps, runs } of eras.values()) {
     // task_hash jednoznacznie wskazuje zadanie, więc era ma dokładnie jedno
     const task = runs[0]?.rows[0]?.task ?? "(nieznane zadanie)";
+    // zadania usunięte z instancji zostają w historii (bench-data), ale
+    // nie na dashboardzie — filtr tylko przy podanym --root
+    if (existingTasks && !existingTasks.has(task)) {
+      console.error(`info:  pomijam zadanie spoza instancji: ${task}`);
+      continue;
+    }
     const list = tasks.get(task) ?? [];
     list.push({ stamps, current: false, runs });
     tasks.set(task, list);
@@ -378,6 +388,52 @@ function trendSvg(runs, threshold) {
   return s + "</svg>";
 }
 
+// ranking przekrojowy: bieżąca era każdego zadania, najświeższy wynik per
+// model (latestRowsPerModel), średnie nieważone po zadaniach — model bez
+// wyniku w części zadań ma jawną kolumnę pokrycia zamiast cichej kary
+function overallRows() {
+  const perModel = new Map();
+  for (const t of DATA.tasks) {
+    const era = t.eras.find(e => e.current);
+    if (!era) continue;
+    for (const r of latestRowsPerModel(era)) {
+      const acc = perModel.get(r.model) ?? { model: r.model, tasks: 0, sumTotal: 0, sumP1: 0, sumCost: 0, passed: 0 };
+      acc.tasks++;
+      acc.sumTotal += r.median_total;
+      acc.sumP1 += r.pass_at_1;
+      acc.sumCost += r.median_cost_usd;
+      if (r.median_total >= DATA.pass_threshold) acc.passed++;
+      perModel.set(r.model, acc);
+    }
+  }
+  return [...perModel.values()]
+    .map(a => ({ ...a, mean: a.sumTotal / a.tasks, meanP1: a.sumP1 / a.tasks }))
+    .sort((a, b) => b.mean - a.mean || b.tasks - a.tasks);
+}
+
+function overallHtml() {
+  const rows = overallRows();
+  if (!rows.length) return "";
+  const total = DATA.tasks.length;
+  const threshold = DATA.pass_threshold;
+  return '<section class="task"><h2>Ranking modeli — wszystkie zadania</h2>' +
+    '<p class="era-meta">Średnie nieważone z median po bieżących erach zadań; przekrój przez ery, więc traktuj jako orientację, nie pomiar.</p>' +
+    '<div class="card"><table><thead><tr><th>Model</th><th>Średni wynik</th>' +
+    '<th class="num">śr. pass@1</th><th class="num">Zaliczone zadania</th><th class="num">Pokrycie</th>' +
+    '<th class="num">Koszt przebiegu</th></tr></thead><tbody>' +
+    rows.map(r => '<tr>' +
+      '<td class="model"><span class="swatch" style="background:' + colorOf(r.model) + '"></span>' +
+        esc(short(r.model)) + '<span class="full">' + esc(r.model) + '</span></td>' +
+      '<td><div class="scorecell"><span class="n' + (r.mean >= threshold ? ' pass' : '') + '">' + fmt.score(r.mean) + '</span>' +
+        '<div class="scorebar"><div class="fill" style="width:' + (r.mean * 100) + '%"></div>' +
+        '<div class="thresh" style="left:' + (threshold * 100) + '%"></div></div></div></td>' +
+      '<td class="num">' + fmt.score(r.meanP1) + '</td>' +
+      '<td class="num">' + r.passed + "/" + r.tasks + '</td>' +
+      '<td class="num">' + r.tasks + "/" + total + '</td>' +
+      '<td class="num">' + fmt.cost(r.sumCost) + '</td></tr>').join("") +
+    "</tbody></table></div></section>";
+}
+
 function eraMeta(stamps, runs) {
   // Era scoringowa może obejmować wiele wersji template'u (neutralne
   // release'y) — pokazujemy stempel, który faktycznie wyznacza erę.
@@ -420,7 +476,7 @@ function render() {
     '<div class="tile"><div class="v">' + DATA.tasks.length + '</div><div class="l">zadań</div></div>' +
     '<div class="tile"><div class="v">' + models.length + '</div><div class="l">modeli</div></div>' +
     (lastRun ? '<div class="tile"><div class="v">' + fmt.cost(lastRun.total_cost_usd) + '</div><div class="l">koszt prób ostatniego runu</div></div>' : "") +
-    "</div>";
+    "</div>" + overallHtml();
   for (const task of DATA.tasks) {
     const current = task.eras.find(e => e.current);
     const history = task.eras.filter(e => !e.current);
@@ -456,17 +512,23 @@ render();
 export async function leaderboardCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts || !opts.history) {
-    console.error("usage: bench leaderboard --history <dir> [--out <dir>] [--title <s>]");
+    console.error("usage: bench leaderboard --history <dir> [--out <dir>] [--title <s>] [--root <dir>]");
     return 2;
   }
   try {
     if (!statSync(opts.history, { throwIfNoEntry: false })?.isDirectory()) {
       throw new Error(`katalog historii nie istnieje: ${opts.history}`);
     }
+    let existingTasks: Set<string> | null = null;
+    if (opts.root) {
+      const root = findInstanceRoot(opts.root);
+      if (!root) throw new Error(`nie znaleziono bench.config.yaml od ${opts.root} w górę — to nie jest instancja benchmarku`);
+      existingTasks = new Set(listTaskNames(root));
+    }
     const reports = findReports(opts.history);
     if (reports.length === 0) throw new Error(`brak raportów w ${opts.history} — najpierw \`bench report\``);
 
-    const data = buildSiteData(opts.title, reports);
+    const data = buildSiteData(opts.title, reports, existingTasks);
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "index.html"), renderHtml(data));
     writeFileSync(join(opts.out, "data.json"), JSON.stringify(data, null, 2) + "\n");

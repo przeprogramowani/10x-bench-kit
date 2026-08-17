@@ -106,10 +106,14 @@ jobs:
             git push origin bench-data
           fi
 
+      # --root: dashboard pokazuje wyłącznie zadania istniejące w tasks/
+      # instancji — historia zadań usuniętych zostaje na bench-data, ale
+      # nie zaśmieca UI.
       - name: bench leaderboard
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- leaderboard \
             --history "$GITHUB_WORKSPACE/data/runs" --out "$GITHUB_WORKSPACE/site" \
+            --root "$GITHUB_WORKSPACE" \
             --title "${{ github.event.repository.name }} — benchmark agentów AI"
 
       # Dashboard zawsze zostaje artefaktem — Pages to publikacja, nie źródło.

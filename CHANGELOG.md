@@ -6,6 +6,37 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.14.0 — 2026-08-17 (neutralny)
+
+Benchmark stateless w obrębie ery scoringu + porządki na dashboardzie.
+Scoring, stemple i schematy bez zmian — zmienia się tylko to, KTÓRE
+komórki biegną i CO pokazuje dashboard.
+
+**Skip-logic w `bench matrix`** — nowe flagi `--history <dir>`
+(katalog raportów z gałęzi bench-data) i `--force`. Komórka
+(model × zadanie), która w bieżącej — prospektywnej — erze ma już
+w historii >= żądanej liczby prób, wypada z macierzy: dispatch
+bench-run bez parametrów dogania tylko braki (nowe modele, zadania,
+ery), zamiast palić budżet na re-runy. Prospektywny klucz ery liczy
+się PRZED próbami z tych samych źródeł co stemple `bench evaluate`
+(wspólny moduł `lib/era.ts` — jedno źródło prawdy dla evaluate,
+report, leaderboard i matrix). Więcej prób niż w historii (top-up,
+np. 3 → 5) = pełny re-run komórki od zera — próby między runami nie
+są scalane. Workflow bench-run: nowy input `force`, job `plan`
+pobiera gałąź bench-data (gdy istnieje), pusta macierz po
+odfiltrowaniu pomija joby prób zamiast wywracać run.
+
+**Dashboard tylko dla istniejących zadań** — `bench leaderboard`
+dostał opcjonalny `--root <instancja>`: zadania nieobecne w `tasks/`
+znikają z UI (historia zostaje na bench-data). Workflow leaderboard
+przekazuje `--root` z workspace'u.
+
+**Ranking przekrojowy modeli** — nad listą zadań zbiorcza tabela:
+średnia nieważona median po bieżących erach zadań, śr. pass@1,
+zaliczone zadania, pokrycie (X/Y zadań) i koszt pełnego przebiegu.
+Przekrój idzie przez ery różnych zadań, więc UI opisuje go jako
+orientację, nie pomiar.
+
 ## 0.13.0 — 2026-08-17 (neutralny)
 
 Przyspieszenie runów CI ~3×: równoległe próby + obrazy przez GHCR.

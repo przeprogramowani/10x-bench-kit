@@ -19,12 +19,12 @@
  *
  * Użycie: bench evaluate --run <dir> [--engine docker|podman] [--root <dir>]
  */
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join, resolve, relative } from "node:path";
+import { join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
-import { judgeTrial, parseRubric } from "../lib/judge.ts";
+import { hashTaskDir, rubricVersionStamp } from "../lib/era.ts";
+import { judgeTrial } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
 import { depsCacheArgs, detectEngine, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
@@ -50,25 +50,6 @@ function parseArgs(args: string[]): Options | null {
   }
   if (!opts.run) return null;
   return opts;
-}
-
-/** SHA-256 katalogu zadania: posortowane ścieżki względne + treści plików. */
-function hashTaskDir(taskDir: string): string {
-  const hash = createHash("sha256");
-  const walk = (dir: string): string[] =>
-    readdirSync(dir)
-      .sort()
-      .flatMap((name) => {
-        const full = join(dir, name);
-        return statSync(full).isDirectory() ? walk(full) : [full];
-      });
-  for (const file of walk(taskDir)) {
-    hash.update(relative(taskDir, file));
-    hash.update("\0");
-    hash.update(readFileSync(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
 }
 
 interface TrialRef {
@@ -101,31 +82,6 @@ function findTrials(runDir: string): TrialRef[] {
 
 const NON_JUDGE = ["static", "tests", "e2e"] as const;
 type Component = (typeof NON_JUDGE)[number] | "judge";
-
-/**
- * Stempel wersji rubryk zadania: per rubryka (`<nazwa>@<wersja>`, sortowane,
- * łączone "+"), więc kalibracja jednej rubryki otwiera nową erę tylko
- * zadaniom, które jej używają. Wersja z frontmattera rubryki; fallback:
- * judge.rubric_version z configu (kontrakt legacy). Zadanie bez składowej
- * judge dostaje "none" — rubryki nie wpływają na jego wynik.
- */
-function rubricVersionStamp(root: string, judgeRefs: string[], fallback: string | undefined): string {
-  if (judgeRefs.length === 0) return "none";
-  return judgeRefs
-    .map((ref) => {
-      const name = ref.split("/")[1] as string;
-      const rubric = parseRubric(readFileSync(join(root, "evaluation-pool", "judge", `${name}.md`), "utf8"));
-      const version = rubric.version ?? fallback;
-      if (!version) {
-        throw new Error(
-          `rubryka "${ref}" bez \`version\` we frontmatterze, a config nie ma judge.rubric_version — uruchom \`bench validate\``,
-        );
-      }
-      return `${name}@${version}`;
-    })
-    .sort()
-    .join("+");
-}
 
 /** Ocena asercji nie-LLM-owych w kontenerze; zwraca score per ref. */
 function runChecksContainer(
