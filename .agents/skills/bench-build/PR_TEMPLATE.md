@@ -1,6 +1,6 @@
-# Szablon PR-a dla nowego zadania (bench-task)
+# Szablon PR-a dla nowego zadania (bench-build)
 
-Tytuł: `bench-task: <nazwa-zadania>`
+Tytuł: `bench-build: <nazwa-zadania>`
 
 ```markdown
 ## Co zadanie mierzy
@@ -8,7 +8,7 @@ Tytuł: `bench-task: <nazwa-zadania>`
 <typ: implementacja / naprawa / refaktor / dokumentacja; jedna intencja.
 Repo bazowe, pin (SHA + dlaczego ten commit), poziom naprowadzenia
 promptu (produktowy / kierunkowy / chirurgiczny — decyzja użytkownika
-z wywiadu), timeout i uzasadnienie.>
+ze zlecenia w backlogu), timeout i uzasadnienie.>
 
 ## Dowody z referencji
 

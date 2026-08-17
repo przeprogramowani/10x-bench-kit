@@ -13,6 +13,15 @@ Strefa nietykalna przy `bench-kit update`.
 Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Przykład
 wszystkich pól: `demo-hello-bench/task.yaml`.
 
+## Backlog zleceń — `tasks/backlog.md`
+
+Stanowy dokument koordynacji: skill **bench-new-task** dopisuje do
+niego zlecenia zadań po krótkim wywiadzie, skill **bench-build**
+zamienia oczekujące zlecenia w prawdziwe zadania (subagent per
+zlecenie, PR per zadanie). Runner ignoruje pliki w `tasks/` niebędące
+katalogami, więc backlog nie wpływa na scoring i — w odróżnieniu od
+wszystkiego poniżej — może być commitowany prosto na master.
+
 ## Zasady
 
 - Materiały oceny (testy, rubryki) NIGDY nie leżą w katalogu zadania —

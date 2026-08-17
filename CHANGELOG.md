@@ -6,6 +6,32 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.12.0 — 2026-08-17 (neutralny)
+
+Przebudowa workflow autorstwa zadań: skill bench-task rozdzielony na
+**bench-new-task** i **bench-build**; scoring i kontrakt asercji bez
+zmian.
+
+**bench-new-task** — krótki wywiad (jeden blok pytań na paczkę
+pomysłów) kończy się zleceniem w stanowym backlogu `tasks/backlog.md`
+zamiast pełną budową zadania: w jednej sesji można zdefiniować 5–10
+zleceń bez czekania na piny, kontenery i samosprawdzenia. Backlog nie
+wpływa na scoring (runner czyta w `tasks/` wyłącznie katalogi), więc
+jako jedyny artefakt wolno go commitować prosto na master. Format
+wpisu i cykl statusów (`pending` → `in-progress` → `done (PR #N)` /
+`dropped`): BACKLOG_TEMPLATE.md w skillu.
+
+**bench-build** — zamienia oczekujące zlecenia backlogu w zadania:
+rozdziela je na subagentów (równolegle tylko przy izolowanych kopiach
+repo, inaczej sekwencyjnie; wspólny fetch `.repos/` raz, przed
+fan-outem), a każdy subagent wykonuje pełne dotychczasowe autorstwo —
+pin, overlay, prompt, asercje, wagi, samosprawdzenie na referencji,
+PR per zadanie — wg TASK_AUTHORING.md (dawna procedura bench-task,
+kroki po wywiadzie). Orkiestrator pilnuje statusów w backlogu
+i raportuje zbiorczo; przy pustym backlogu odsyła do bench-new-task.
+Gałęzie zadań: `bench-build/<nazwa>` (dawniej `bench-task/<nazwa>` —
+konwencja nazewnicza, bez wpływu na scoring).
+
 ## 0.11.0 — 2026-08-17 (neutralny)
 
 Warstwa narzędzia z OPTIMIZATION.md (N1–N3) — cięcie kosztu cyklu

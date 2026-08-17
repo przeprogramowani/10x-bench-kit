@@ -33,7 +33,7 @@ werdyktu ad hoc (np. porównanie sędziów) zostaje `bench judge --task
    rubryka, więc podbicie unieważnia porównywalność wyłącznie zadań
    z tą rubryką w `evaluation[]` — PR wymienia je wprost. Kalibracja
    świeżo utworzonej rubryki przed jej pierwszym użyciem ery nie
-   zamyka — dlatego kalibruj Z zadaniem (PR bench-task), nie po nim.
+   zamyka — dlatego kalibruj Z zadaniem (PR z bench-build), nie po nim.
    (Globalne `judge.rubric_version` w configu to kontrakt legacy dla
    rubryk bez frontmattera — migruj je przy pierwszej kalibracji.)
 3. **Zbiór kalibracyjny to materiał oceny.** Żyje w
@@ -69,7 +69,7 @@ wyniku. Kanoniczny zestaw:
 
 | Diff | Skąd | Oczekiwanie |
 |---|---|---|
-| wzorcowe rozwiązanie | autor zadania (bench-task, krok 5) | wysoki (≈1) |
+| wzorcowe rozwiązanie | autor zadania (bench-build, krok "Asercje") | wysoki (≈1) |
 | rozwiązanie częściowe | wzorzec z wyciętą częścią naprawy | środek, wyraźnie < wzorca |
 | poza zakresem | wzorzec + zmiany, o które nikt nie prosił | niżej niż wzorzec (kara za scope) |
 | pusty diff | `: > pusty.diff` | ≈0 |
@@ -82,7 +82,7 @@ wraz z `expected.md` (oczekiwania + uzasadnienie).
 "Aplikuje się" nie znaczy "działa" — nie mierz materiału, którego nie
 sprawdziłeś. Checklista wejściowa, **przed pierwszym pomiarem**:
 
-- [ ] Zbiór pochodzi z bench-task (wytworzony przy zadaniu, gdy kontekst
+- [ ] Zbiór pochodzi z bench-build (wytworzony przy zadaniu, gdy kontekst
       repo był świeży) — jeśli go nie ma, wytwórz komplet za jednym
       posiedzeniem w repo, nie diff po diffie.
 - [ ] Każdy diff aplikuje się na stan startowy zadania.

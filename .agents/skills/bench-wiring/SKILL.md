@@ -104,7 +104,7 @@ proponuje zapis do nich, to nieporozumienie do wyprostowania.
 
 Dla każdego wpisu zadbaj o lokalny klon roboczy w `.repos/<nazwa>/`
 (konwencja z AGENTS.md; init zwykle zostawia tam klon wykrytego repo —
-brakujące sklonuj sam). Z niego korzystają potem bench-task
+brakujące sklonuj sam). Z niego korzystają potem bench-build
 i bench-refresh, zamiast klonować w kółko do scratchpada.
 
 ### 3. Modele i sędzia
@@ -184,7 +184,7 @@ odkrycie:
 - [ ] **Ustal domyślną politykę weryfikacji dla promptów** tej
       instancji: czy agent ma weryfikować pracę uruchomieniem projektu,
       czy ma tego nie robić. Cokolwiek wybierzecie, autorzy zadań piszą
-      to w `prompt.md` (skill bench-task) zamiast zostawiać agentowi
+      to w `prompt.md` (skill bench-build) zamiast zostawiać agentowi
       zgadywanie.
 
 ### 6. Bramka: validate
@@ -233,5 +233,5 @@ jednym zdaniem (co skonfigurowane, co czeka na przegląd), **jedna**
 rekomendacja z jednozdaniowym uzasadnieniem, maksymalnie dwie
 alternatywy z ceną, oraz — oddzielnie — to, co czeka na decyzję
 człowieka (merge PR-a, ustawienie sekretów). Typowe przejście: instancja
-skonfigurowana, smoke przeszedł → **bench-task** — instancja bez zadań
-nic nie mierzy.
+skonfigurowana, smoke przeszedł → **bench-new-task** (zlecenia do
+backlogu), potem **bench-build** — instancja bez zadań nic nie mierzy.
