@@ -17,20 +17,29 @@ pomysłów) kończy się zleceniem w stanowym backlogu `tasks/backlog.md`
 zamiast pełną budową zadania: w jednej sesji można zdefiniować 5–10
 zleceń bez czekania na piny, kontenery i samosprawdzenia. Backlog nie
 wpływa na scoring (runner czyta w `tasks/` wyłącznie katalogi), więc
-jako jedyny artefakt wolno go commitować prosto na master. Format
-wpisu i cykl statusów (`pending` → `in-progress` → `done (PR #N)` /
-`dropped`): BACKLOG_TEMPLATE.md w skillu.
+wolno go commitować prosto na master. Format wpisu i cykl statusów
+(`pending` → `in-progress` → `done (commit <sha>)` / `dropped`):
+BACKLOG_TEMPLATE.md w skillu.
 
 **bench-build** — zamienia oczekujące zlecenia backlogu w zadania:
 rozdziela je na subagentów (równolegle tylko przy izolowanych kopiach
 repo, inaczej sekwencyjnie; wspólny fetch `.repos/` raz, przed
 fan-outem), a każdy subagent wykonuje pełne dotychczasowe autorstwo —
-pin, overlay, prompt, asercje, wagi, samosprawdzenie na referencji,
-PR per zadanie — wg TASK_AUTHORING.md (dawna procedura bench-task,
-kroki po wywiadzie). Orkiestrator pilnuje statusów w backlogu
-i raportuje zbiorczo; przy pustym backlogu odsyła do bench-new-task.
-Gałęzie zadań: `bench-build/<nazwa>` (dawniej `bench-task/<nazwa>` —
-konwencja nazewnicza, bez wpływu na scoring).
+pin, overlay, prompt, asercje, wagi, samosprawdzenie na referencji —
+wg TASK_AUTHORING.md (dawna procedura bench-task, kroki po wywiadzie).
+Orkiestrator pilnuje statusów w backlogu i raportuje zbiorczo; przy
+pustym backlogu odsyła do bench-new-task.
+
+**Zmiana zasady wyjścia dla nowych zadań.** Zadanie z bench-build
+wychodzi **jednym commitem per zadanie prosto na master** — bez gałęzi
+i bez PR-a; komunikat commita przejmuje rolę opisu PR-a (sekcje
+i dowody z referencji: COMMIT_TEMPLATE.md w skillu, dawny
+PR_TEMPLATE.md). Commit nie wychodzi przed zielonym samosprawdzeniem,
+a review odbywa się po fakcie, po SHA ze statusu w backlogu. Rubryki
+(bench-rubric), wiring i odświeżenia zadań (bench-refresh) dalej
+wychodzą wyłącznie przez PR — zasada nadrzędna w AGENTS.md
+przeredagowana z "zmiany scoringu wyłącznie przez PR" na "zmiany
+scoringu z dowodem i śladem".
 
 ## 0.11.0 — 2026-08-17 (neutralny)
 

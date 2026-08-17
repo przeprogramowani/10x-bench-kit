@@ -8,8 +8,8 @@ i wolno go commitować prosto na master.
 Cykl statusów wpisu:
 
 `pending` → `in-progress` (bench-build wystartował subagenta) →
-`done (PR #N)` (PR z zadaniem otwarty) albo z powrotem `pending`
-z notatką, gdy budowa się nie powiodła. Zlecenia porzucone oznaczaj
+`done (commit <sha>)` (zadanie zacommitowane na master) albo z powrotem
+`pending` z notatką, gdy budowa się nie powiodła. Zlecenia porzucone oznaczaj
 `dropped` z jednozdaniowym powodem — nie kasuj wpisów, historia decyzji
 zostaje.
 
@@ -19,7 +19,7 @@ Szablon dokumentu:
 # Backlog zleceń zadań
 
 Zlecenia tworzy skill **bench-new-task**, buduje je skill
-**bench-build**. Statusy: pending / in-progress / done (PR #N) /
+**bench-build**. Statusy: pending / in-progress / done (commit <sha>) /
 dropped. Ten plik nie wpływa na scoring — commit prosto na master
 jest OK.
 

@@ -18,19 +18,22 @@ Kolejność odpowiada cyklowi życia instancji:
 |---|---|---|---|
 | 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate`: repo bazowe, modele, sędzia, sekrety, smoke run | raz, przy powstaniu instancji (i przy zmianach wiringu) |
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
-| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na referencji, PR per zadanie | gdy w backlogu czeka paczka zleceń |
+| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na referencji, commit per zadanie | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Kalibracja rubryki LLM-as-judge na diffach o znanej jakości | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
 | 5 | **bench-refresh** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
 | 6 | **bench-triage** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
-- **Zmiany scoringu wyłącznie przez PR** — zadania, asercje, rubryki
-  i `bench.config.yaml` nigdy prosto na master.
+- **Zmiany scoringu z dowodem i śladem** — rubryki i
+  `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania
+  (z asercjami) wychodzą z bench-build commitem per zadanie prosto na
+  master, z dowodami z referencji w komunikacie commita
+  (COMMIT_TEMPLATE.md skilla).
 - **Testuj na referencji, zanim zaproponujesz** — asercja czy overlay
-  bez dowodu z `bench assert` nie wchodzi do PR-a.
+  bez dowodu z `bench assert` nie wchodzi do commita ani PR-a.
 - **Świadomość er** — zmiany `task_hash`, rubryki lub sędziego zamykają
-  erę porównywalności; PR mówi to wprost, przed mergem.
+  erę porównywalności; commit/PR mówi to wprost.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje

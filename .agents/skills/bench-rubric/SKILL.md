@@ -33,7 +33,8 @@ werdyktu ad hoc (np. porównanie sędziów) zostaje `bench judge --task
    rubryka, więc podbicie unieważnia porównywalność wyłącznie zadań
    z tą rubryką w `evaluation[]` — PR wymienia je wprost. Kalibracja
    świeżo utworzonej rubryki przed jej pierwszym użyciem ery nie
-   zamyka — dlatego kalibruj Z zadaniem (PR z bench-build), nie po nim.
+   zamyka — dlatego kalibruj zaraz po commicie zadania z bench-build,
+   przed jego pierwszym runem, nie po policzonych wynikach.
    (Globalne `judge.rubric_version` w configu to kontrakt legacy dla
    rubryk bez frontmattera — migruj je przy pierwszej kalibracji.)
 3. **Zbiór kalibracyjny to materiał oceny.** Żyje w

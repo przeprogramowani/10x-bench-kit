@@ -5,8 +5,8 @@ z `tasks/backlog.md` z podjętymi decyzjami projektowymi (typ, repo
 bazowe, poziom naprowadzenia, trudność/timeout, opis, notatki).
 Budujesz z niego katalog `tasks/<nazwa>/` w instancji benchmarku.
 Zadanie ma być mierzalne, nieprzechodzalne pustym diffem i sprawdzone
-na referencji przed zaproponowaniem. Naczelna zasada: **niczego nie
-proponujesz, czego sam nie uruchomiłeś na wersji referencyjnej** — do
+na referencji przed commitem. Naczelna zasada: **niczego nie
+commitujesz, czego sam nie uruchomiłeś na wersji referencyjnej** — do
 tego służą `bench assert`, `bench judge` i `bench validate --assert`
 (patrz "Narzędzia" niżej).
 
@@ -19,9 +19,12 @@ zbudowane na domysłach.
 
 ## Twarde zasady
 
-1. **Wyjście wyłącznie przez PR.** Nigdy nie commituj do mastera
-   instancji niczego, co wpływa na scoring (zadania, asercje, rubryki,
-   `bench.config.yaml`). Gałąź + PR wg [PR_TEMPLATE.md](PR_TEMPLATE.md).
+1. **Wyjście jednym commitem per zadanie, prosto na master.** Bez
+   gałęzi i bez PR-a — commit obejmuje wyłącznie twój zakres (zasada 5)
+   i nie wychodzi, dopóki samosprawdzenie nie jest zielone; komunikat
+   wg [COMMIT_TEMPLATE.md](COMMIT_TEMPLATE.md) niesie dowody
+   z referencji. Rubryki i `bench.config.yaml` to NIE twój zakres —
+   one dalej wychodzą wyłącznie przez PR (bench-rubric / bench-wiring).
    Backlogu (`tasks/backlog.md`) nie dotykasz w ogóle — statusami
    zarządza orkiestrator.
 2. **Izolacja materiałów oceny.** Nic z `evaluation-pool/` nie może być
@@ -29,7 +32,7 @@ zbudowane na domysłach.
    `evaluation: [...]` w task.yaml). `prompt.md` nie może zdradzać, jak
    zadanie będzie oceniane, ani cytować ukrytych testów.
 3. **Testuj na referencji, zanim zaproponujesz.** Każda asercja przed
-   wejściem do PR-a musi być uruchomiona przez `bench assert` i zachować
+   wejściem do commita musi być uruchomiona przez `bench assert` i zachować
    się zgodnie z intencją — na stanie startowym ORAZ na wzorcowym
    rozwiązaniu. Deklarujesz to w `reference` w task.yaml.
 4. **Runner jest twoim narzędziem.** Nie reimplementuj jego logiki, nie
@@ -42,8 +45,8 @@ zbudowane na domysłach.
    obok ciebie). Stan reszty repo to nie twoja sprawa: jeśli w drzewie
    roboczym są niezacommitowane zmiany w plikach spoza twojego zakresu,
    **zostaw je bez zmian** — nie przywracaj, nie revertuj, nie
-   diagnozuj i nie komentuj; po prostu nie włączaj ich do swojej
-   gałęzi/commita (dodawaj pliki po ścieżkach, nigdy
+   diagnozuj i nie komentuj; po prostu nie włączaj ich do swojego
+   commita (dodawaj pliki po ścieżkach, nigdy
    `git add -A`/`git add .`).
 6. **Budżet zamiast rytuału zgody.** Kosztów pilnuje
    `defaults.max_cost_usd` w bench.config.yaml (runner przerywa run po
@@ -51,8 +54,8 @@ zbudowane na domysłach.
    wywołaniem sędziego; koszt faktyczny (z `metrics.json` / usage
    sędziego) podasz w raporcie końcowym.
 7. **Świadomość er.** Każda zmiana `tasks/<nazwa>/` zmienia `task_hash`
-   tego zadania (nowa era). PR musi to mówić wprost — sekcja "Skutki
-   dla porównywalności" w szablonie.
+   tego zadania (nowa era). Commit musi to mówić wprost — sekcja
+   "Skutki dla porównywalności" w szablonie komunikatu.
 8. **`.repos/` bez fetchowania.** Klony przygotował orkiestrator przed
    fan-outem; równoległe fetche ścigają się o locki gita. Korzystasz
    z klonu read-only (lokalne gałęzie/worktree do eksperymentów są OK);
@@ -216,13 +219,17 @@ przejść zanim pójdziesz dalej:
    Zadanie, którego nie da się przejść, albo które przechodzi się pustym
    diffem, wraca do kroku 2/4.
 
-### 7. PR
+### 7. Commit
 
-Gałąź `bench-build/<nazwa>`, commit z katalogiem zadania + ewentualnymi
-nowymi asercjami w puli. Opis PR-a wg [PR_TEMPLATE.md](PR_TEMPLATE.md) —
-obowiązkowo sekcje: co zadanie mierzy, dowody z referencji (wyniki komend
-z kroków 2/4/6), skutki dla porównywalności (zasada 7), koszt
-samosprawdzenia. Wzorcowego rozwiązania **nie** commituj do `tasks/`
+Jeden commit prosto na master: katalog zadania + ewentualne nowe
+asercje w puli + zbiór kalibracyjny — pliki dodawaj po ścieżkach
+(zasada 5). Komunikat wg [COMMIT_TEMPLATE.md](COMMIT_TEMPLATE.md) —
+obowiązkowo sekcje: co zadanie mierzy, dowody z referencji (wyniki
+komend z kroków 2/4/6), skutki dla porównywalności (zasada 7), koszt
+samosprawdzenia. Jeśli pracujesz w izolowanej kopii repo i nie masz jak
+commitować do mastera instancji, zrób commit u siebie (ten sam zakres,
+ten sam komunikat) — do mastera wniesie go orkiestrator bez zmiany
+treści. Wzorcowego rozwiązania **nie** commituj do `tasks/`
 (przeciekłoby do workspace'u agenta) — jeśli ma zostać w repo, jego
 miejsce to `evaluation-pool/judge/<zadanie>-calibration/`.
 
@@ -231,7 +238,7 @@ miejsce to `evaluation-pool/judge/<zadanie>-calibration/`.
 Twoje wyjście czyta orkiestrator bench-build, nie użytkownik. Zwróć
 zwięźle:
 
-- nazwa zadania, gałąź, URL PR-a (albo **odmowa** + powód);
+- nazwa zadania, SHA commita (albo **odmowa** + powód);
 - skrót dowodów z referencji: wyniki komend z samosprawdzenia
   (per punkt: komenda → wynik);
 - czy zadanie ma składową `judge/*` (orkiestrator zarekomenduje

@@ -18,17 +18,20 @@ wszystkich pól: `demo-hello-bench/task.yaml`.
 Stanowy dokument koordynacji: skill **bench-new-task** dopisuje do
 niego zlecenia zadań po krótkim wywiadzie, skill **bench-build**
 zamienia oczekujące zlecenia w prawdziwe zadania (subagent per
-zlecenie, PR per zadanie). Runner ignoruje pliki w `tasks/` niebędące
-katalogami, więc backlog nie wpływa na scoring i — w odróżnieniu od
-wszystkiego poniżej — może być commitowany prosto na master.
+zlecenie, commit per zadanie). Runner ignoruje pliki w `tasks/`
+niebędące katalogami, więc backlog nie wpływa na scoring i może być
+commitowany prosto na master.
 
 ## Zasady
 
 - Materiały oceny (testy, rubryki) NIGDY nie leżą w katalogu zadania —
   wyłącznie referencje `evaluation: [...]` do `evaluation-pool/`.
   Izolacja z konstrukcji, nie ze starannego wycinania.
-- Zadania powstają i są odświeżane skillem, ale zawsze przechodzą przez
-  PR i ludzkie review.
+- Zadania powstają i są odświeżane skillami. Nowe zadania wychodzą
+  z bench-build commitem per zadanie prosto na master — dowody
+  z referencji niesie komunikat commita (review po fakcie, po SHA
+  ze statusu w backlogu). Odświeżenia (bench-refresh) i rubryki
+  (bench-rubric) przechodzą przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,
   aktualizacja asercji) otwiera nową erę dla tego zadania.

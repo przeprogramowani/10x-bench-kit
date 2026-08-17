@@ -1,8 +1,15 @@
-# Szablon PR-a dla nowego zadania (bench-build)
+# Szablon commita dla nowego zadania (bench-build)
 
-Tytuł: `bench-build: <nazwa-zadania>`
+Zadanie wychodzi **jednym commitem prosto na master** — bez gałęzi
+i PR-a. Komunikat commita przejmuje rolę opisu PR-a: to on niesie
+dowody, więc sekcje poniżej są obowiązkowe. Wklejaj wyniki komend,
+nie deklaracje.
+
+Pierwsza linia: `bench-build: <nazwa-zadania>`
 
 ```markdown
+bench-build: <nazwa-zadania>
+
 ## Co zadanie mierzy
 
 <typ: implementacja / naprawa / refaktor / dokumentacja; jedna intencja.
@@ -11,8 +18,6 @@ promptu (produktowy / kierunkowy / chirurgiczny — decyzja użytkownika
 ze zlecenia w backlogu), timeout i uzasadnienie.>
 
 ## Dowody z referencji
-
-<wklej wyniki komend — nie deklaracje:>
 
 - stan startowy: `bench assert --task <nazwa>` → <wynik per asercja>
 - czysta referencja (zadania z overlayem): `bench assert --task <nazwa>
@@ -29,8 +34,8 @@ i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia.>
 
 ## Skutki dla porównywalności
 
-<nowe zadanie = nowa era tego zadania (task_hash). Jeśli PR zmienia też
-istniejące asercje w puli lub rubryki: które dotychczasowe wyniki
+<nowe zadanie = nowa era tego zadania (task_hash). Jeśli commit zmienia
+też istniejące asercje w puli lub rubryki: które dotychczasowe wyniki
 przestają być porównywalne.>
 
 ## Koszt samosprawdzenia

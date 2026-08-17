@@ -25,9 +25,7 @@ klonowania rep, kontenerów ani komend runnera.
    i wskaż bench-build — nie buduj w ramach tego skilla.
 2. **Backlog nie jest scoringiem.** `tasks/backlog.md` to stan
    koordynacji (runner ignoruje pliki w `tasks/` niebędące katalogami
-   zadań) — wolno go commitować prosto na master, bez PR-a. To jedyny
-   plik, którego to dotyczy; wszystko, co wpływa na scoring, dalej
-   wychodzi wyłącznie przez PR.
+   zadań) — wolno go commitować prosto na master, bez PR-a.
 3. **Decyzje należą do użytkownika.** Pola zlecenia rozstrzyga wywiad,
    nie twoje domysły — źle dobrany poziom naprowadzenia czy timeout
    zmienia, co zadanie mierzy. Wnioski z opisu użytkownika to

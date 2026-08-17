@@ -25,7 +25,8 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
    `report.json`, gałęzi `bench-data`, zadań, asercji, rubryk ani
    `bench.config.yaml`. Nawet gdy bug asercji jest oczywisty: diagnoza
    → issue → naprawa osobnym skillem (bench-build / bench-refresh /
-   bench-rubric) przez PR. Artefakty prób są read-only.
+   bench-rubric), nigdy edycją w ramach triage. Artefakty prób są
+   read-only.
 2. **Hipoteza → dowód komendą.** Podejrzenie wobec asercji lub sędziego
    weryfikujesz runnerem (`bench assert`, `bench judge`), nie "na oko".
    Diagnoza bez reprodukcji to spekulacja — oznacz ją jako taką.
