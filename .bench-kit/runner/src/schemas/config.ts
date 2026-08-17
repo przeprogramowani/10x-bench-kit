@@ -54,6 +54,34 @@ export const BenchConfigSchema = z.object({
      */
     max_cost_usd: z.number().positive().optional(),
   }),
+  /**
+   * Polityka środowiska oceny (decyzja wiringu instancji).
+   * deps_cache: trwały wolumen `bench-deps-cache` z cache'ami menedżerów
+   * pakietów, montowany do kontenerów asercji — przyspiesza każde
+   * `assert` / `validate --assert` / `evaluate` bez zmiany kontraktu
+   * asercji. Wyłącz, gdy instancja wymaga w pełni hermetycznych ocen.
+   */
+  evaluation: z
+    .object({
+      deps_cache: z.boolean().default(true),
+    })
+    .default({ deps_cache: true }),
+  /**
+   * Jawne limity zasobów kontenerów (próby agenta ORAZ oceny) — OOM.md,
+   * warstwa 2. Bez limitu kontener bierze tyle, ile ma maszyna silnika,
+   * a przy braku OOM killer jądra zabija proces bez śladu w metadanych;
+   * z limitem sufit jest częścią definicji pomiaru (stempel ery
+   * memory_limit_mb w result.json) i przerwanie jest atrybuowalne.
+   * Dobierz do najcięższej operacji stacku (instalacja + build) z zapasem.
+   */
+  resources: z
+    .object({
+      /** Limit pamięci kontenera w MiB (--memory, swap = memory). */
+      memory_mb: z.number().int().positive().optional(),
+      /** Limit liczby procesów kontenera (--pids-limit). */
+      pids_limit: z.number().int().positive().optional(),
+    })
+    .default({}),
 });
 
 export type BenchConfig = z.infer<typeof BenchConfigSchema>;

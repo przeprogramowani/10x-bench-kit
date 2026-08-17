@@ -395,7 +395,11 @@ export async function validateCommand(args: string[]): Promise<number> {
           const overlay = join(root, "tasks", name, "overlay");
           const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null);
           try {
-            const outcomes = runAssertions(engine, root, image, workspace, refs, null);
+            const outcomes = runAssertions(engine, root, image, workspace, refs, null, {
+              depsCache: config.evaluation.deps_cache,
+              memoryMb: task.memory_mb ?? config.resources.memory_mb ?? null,
+              pidsLimit: config.resources.pids_limit ?? null,
+            });
             for (const ref of refs) {
               const expectation = (task.reference ?? {})[ref];
               const outcome = outcomes[ref];

@@ -77,6 +77,9 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
+      # Cache zależności ocen (N1) na katalogu hosta zamiast wolumenu —
+      # wolumen żyje tylko przez czas joba, katalog przenosi actions/cache.
+      BENCH_DEPS_CACHE_DIR: /tmp/bench-deps-cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -87,6 +90,32 @@ jobs:
           cache: npm
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - run: npm ci --prefix .bench-kit/runner
+
+      # Ciepły cache zależności między RUNAMI: klucz zawsze świeży (run_id),
+      # restore-keys dociąga najnowszy zapis — cache akumuluje się w czasie.
+      - name: Cache zależności ocen (bench-deps-cache)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bench-deps-cache
+          key: bench-deps-${{ runner.os }}-${{ github.run_id }}-${{ matrix.slug }}
+          restore-keys: |
+            bench-deps-${{ runner.os }}-
+
+      # Obraz bazowy (apt + npm install -g opencode) budowany raz per zmiana
+      # .bench-kit/docker/**, nie raz per job macierzy. Przy trafieniu
+      # BENCH_REUSE_BASE_IMAGE=1 każe runnerowi pominąć rebuild.
+      - name: Cache obrazu bazowego
+        id: base-image
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bench-base-image
+          key: bench-base-${{ runner.os }}-${{ hashFiles('.bench-kit/docker/**') }}
+      - name: Wczytaj obraz bazowy z cache
+        if: steps.base-image.outputs.cache-hit == 'true'
+        run: |
+          docker load -i /tmp/bench-base-image/bench-base.tar
+          echo "BENCH_REUSE_BASE_IMAGE=1" >> "$GITHUB_ENV"
+
       - name: bench run
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- run \
@@ -97,6 +126,16 @@ jobs:
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- evaluate \
             --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
+
+      # Zrzut obrazu do cache tylko przy chybieniu (post-step actions/cache
+      # zapisze katalog na koniec joba; przy trafieniu nic nie zapisuje).
+      - name: Zrzuć obraz bazowy do cache
+        if: steps.base-image.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/bench-base-image
+          docker save "bench-base:$(cat .bench-kit/docker/opencode.version | tr -d '[:space:]')" \
+            -o /tmp/bench-base-image/bench-base.tar
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

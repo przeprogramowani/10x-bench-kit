@@ -58,8 +58,9 @@ Z korzenia instancji: `node --experimental-strip-types
 
 - `bench validate` — warning `zadanie przeterminowane (expires: …)` to
   kanoniczny trigger tego skilla; po refreshu bramka z `--assert`.
-- `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]`
-  — dowody obserwowalności i wykonalności na nowym pinie.
+- `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]...`
+  — dowody obserwowalności i wykonalności na nowym pinie; `--patch`
+  wielokrotnie = komplet diffów jednym wejściem do kontenera.
 - `bench judge --task <nazwa> --patch <plik>` — werdykt sędziego na
   zaktualizowanym wzorcu / pustym diffie.
 - `bench run` + `bench evaluate` — opcjonalny smoke run (krok 7).
@@ -166,9 +167,10 @@ nie formalność.
 ### 7. Samosprawdzenie
 
 Wejście do kontenera oceny kosztuje minuty — zbieraj **komplet dowodów
-jednym wejściem** (grupuj asercje i diffy w jednym wywołaniu; jeśli
-musisz wejść kilka razy, puść wywołania równolegle w tle i zbierz wyniki
-razem). Kolejno, każde musi przejść:
+jednym wejściem**: `bench assert --task <nazwa> --patch wzorzec.diff
+--patch pusty.diff …` ocenia wiele diffów w jednym wejściu (pusty plik
+= stan startowy); jeśli mimo to musisz wejść kilka razy, puść wywołania
+równolegle w tle i zbierz wyniki razem. Kolejno, każde musi przejść:
 
 1. `bench validate --assert` — zielone, bez warningu `expires`.
 2. Wzorzec: `bench assert --task <nazwa> --patch <wzorzec.diff>` →

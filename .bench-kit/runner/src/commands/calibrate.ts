@@ -15,9 +15,17 @@
  * score, criteria}); istniejące rundy zostają — kolejne iteracje rubryki
  * mierzą się na tym samym zbiorze i tej samej historii.
  *
+ * Równoległość (N2): werdykty w ramach rundy są niezależne — `--parallel`
+ * ogranicza liczbę jednoczesnych wywołań sędziego (default 3; 1 = sekwencyjnie
+ * jak dawniej, np. przy providerach z ostrym rate limitem).
+ *
+ * --json (N3): strukturalne podsumowanie rundy na stdout (tabela dla
+ * człowieka idzie wtedy na stderr) — pętla "zmierz → porównaj → zdecyduj"
+ * bez parsowania tabelek.
+ *
  * Użycie: bench calibrate --task <nazwa> --set <dir> [--rubric judge/<nazwa>]
- *                         [--repeats 3] [--model <provider/model>]
- *                         [--label <runda>] [--out <plik>] [--root <dir>]
+ *                         [--repeats 3] [--parallel 3] [--model <provider/model>]
+ *                         [--label <runda>] [--json] [--out <plik>] [--root <dir>]
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -30,13 +38,15 @@ interface Options {
   set: string | null;
   rubric: string | null;
   repeats: number;
+  parallel: number;
   model: string | null;
   label: string | null;
+  json: boolean;
   out: string | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), task: null, set: null, rubric: null, repeats: 3, model: null, label: null, out: null };
+  const opts: Options = { root: process.cwd(), task: null, set: null, rubric: null, repeats: 3, parallel: 3, model: null, label: null, json: false, out: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
@@ -44,14 +54,17 @@ function parseArgs(args: string[]): Options | null {
     else if (arg === "--set") opts.set = resolve(value() ?? "");
     else if (arg === "--rubric") opts.rubric = value() ?? null;
     else if (arg === "--repeats") opts.repeats = Number(value());
+    else if (arg === "--parallel") opts.parallel = Number(value());
     else if (arg === "--model") opts.model = value() ?? null;
     else if (arg === "--label") opts.label = value() ?? null;
+    else if (arg === "--json") opts.json = true;
     else if (arg === "--out") opts.out = resolve(value() ?? "");
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
   if (!opts.task || !opts.set) return null;
   if (!Number.isInteger(opts.repeats) || opts.repeats < 1) return null;
+  if (!Number.isInteger(opts.parallel) || opts.parallel < 1) return null;
   if (opts.rubric && !/^judge\/[A-Za-z0-9._-]+$/.test(opts.rubric)) return null;
   return opts;
 }
@@ -85,7 +98,7 @@ export async function calibrateCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts || !opts.task || !opts.set) {
     console.error(
-      "usage: bench calibrate --task <nazwa> --set <dir> [--rubric judge/<nazwa>] [--repeats 3] [--model <provider/model>] [--label <runda>] [--out <plik>] [--root <dir>]",
+      "usage: bench calibrate --task <nazwa> --set <dir> [--rubric judge/<nazwa>] [--repeats 3] [--parallel 3] [--model <provider/model>] [--label <runda>] [--json] [--out <plik>] [--root <dir>]",
     );
     return 2;
   }
@@ -124,35 +137,46 @@ export async function calibrateCommand(args: string[]): Promise<number> {
     const taskPrompt = readFileSync(join(root, "tasks", opts.task, "prompt.md"), "utf8");
     const label = opts.label ?? `${rubricName}-v${rubricVersion}-${new Date().toISOString().slice(0, 10)}`;
     console.error(
-      `calibrate: ${diffFiles.length} diffów × ${opts.repeats} powtórzeń, rubryka ${rubricRef} (v${rubricVersion}), sędzia ${judgeModel}, runda "${label}"`,
+      `calibrate: ${diffFiles.length} diffów × ${opts.repeats} powtórzeń (parallel ${opts.parallel}), rubryka ${rubricRef} (v${rubricVersion}), sędzia ${judgeModel}, runda "${label}"`,
     );
 
-    const measurements: Measurement[] = [];
+    // Werdykty są niezależne — pula o ograniczonej równoległości (Z3/N2);
+    // kolejność w measurements zostaje deterministyczna (indeks jobu).
+    const setDir = opts.set;
+    const jobs = diffFiles.flatMap((file) => {
+      const diffName = basename(file).replace(/\.(diff|patch)$/, "");
+      const patchDiff = readFileSync(join(setDir, file), "utf8");
+      return Array.from({ length: opts.repeats }, (_, i) => ({ diffName, patchDiff, rep: i + 1 }));
+    });
+    const measurements: Measurement[] = new Array(jobs.length);
     let judgeCostUsd = 0;
     let costKnown = false;
-    for (const file of diffFiles) {
-      const diffName = basename(file).replace(/\.(diff|patch)$/, "");
-      const patchDiff = readFileSync(join(opts.set, file), "utf8");
-      for (let rep = 1; rep <= opts.repeats; rep++) {
-        const verdict = await judgeTrial(judgeModel, taskPrompt, patchDiff, rubricText, { maxTokens: config.judge.max_tokens });
+    let nextJob = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = nextJob++;
+        const job = jobs[index];
+        if (!job) return;
+        const verdict = await judgeTrial(judgeModel, taskPrompt, job.patchDiff, rubricText, { maxTokens: config.judge.max_tokens });
         for (const usage of [verdict.usage, verdict.first_attempt?.usage]) {
           if (typeof usage?.cost_usd === "number") {
             judgeCostUsd += usage.cost_usd;
             costKnown = true;
           }
         }
-        measurements.push({
-          diff: diffName,
-          rep,
+        measurements[index] = {
+          diff: job.diffName,
+          rep: job.rep,
           score: verdict.score,
           criteria: criteriaScores(verdict.parsed),
           ...(verdict.invalid_reason ? { invalid_reason: verdict.invalid_reason } : {}),
-        });
+        };
         console.error(
-          `calibrate: ${diffName} #${rep} → ${verdict.score.toFixed(3)}${verdict.invalid_reason ? ` (${verdict.invalid_reason})` : ""}`,
+          `calibrate: ${job.diffName} #${job.rep} → ${verdict.score.toFixed(3)}${verdict.invalid_reason ? ` (${verdict.invalid_reason})` : ""}`,
         );
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(opts.parallel, jobs.length) }, worker));
 
     // --- tabela: min/med/max per diff + mediany per kryterium ---
     const criteriaNames = [...new Set(measurements.flatMap((m) => Object.keys(m.criteria ?? {})))].sort();
@@ -175,16 +199,18 @@ export async function calibrateCommand(args: string[]): Promise<number> {
     });
     rows.sort((a, b) => b.med - a.med);
 
+    // W trybie --json stdout należy do wyniku strukturalnego; tabela → stderr.
+    const print = opts.json ? console.error : console.log;
     const width = Math.max(...rows.map((r) => r.diff.length), 4);
-    console.log(`\n${"diff".padEnd(width)}  min    med    max    rozrzut  ${criteriaNames.join("  ")}`);
+    print(`\n${"diff".padEnd(width)}  min    med    max    rozrzut  ${criteriaNames.join("  ")}`);
     for (const row of rows) {
-      console.log(
+      print(
         `${row.diff.padEnd(width)}  ${row.min.toFixed(3)}  ${row.med.toFixed(3)}  ${row.max.toFixed(3)}  ${(row.max - row.min).toFixed(3)}    ${row.perCriterion.map((v, i) => v.padEnd((criteriaNames[i] as string).length)).join("  ")}`,
       );
     }
     const invalid = measurements.filter((m) => m.invalid_reason).length;
-    if (invalid > 0) console.log(`\nwarn: ${invalid}/${measurements.length} werdyktów niepoprawnych (invalid_reason w results)`);
-    console.log(
+    if (invalid > 0) print(`\nwarn: ${invalid}/${measurements.length} werdyktów niepoprawnych (invalid_reason w results)`);
+    print(
       `\ncalibrate: ${measurements.length} werdyktów, koszt sędziego ${costKnown ? `$${judgeCostUsd.toFixed(4)}` : "nieznany (provider nie raportuje)"}`,
     );
 
@@ -201,7 +227,34 @@ export async function calibrateCommand(args: string[]): Promise<number> {
     results["date"] = new Date().toISOString().slice(0, 10);
     (results["rounds"] as Record<string, unknown>)[label] = measurements;
     writeFileSync(outPath, JSON.stringify(results, null, 2) + "\n");
-    console.log(`→ runda "${label}" dopisana do ${outPath}`);
+    print(`→ runda "${label}" dopisana do ${outPath}`);
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            label,
+            rubric: rubricRef,
+            rubric_version: rubricVersion,
+            judge_model: judgeModel,
+            repeats: opts.repeats,
+            rows: rows.map((row) => ({
+              diff: row.diff,
+              min: row.min,
+              med: row.med,
+              max: row.max,
+              spread: row.max - row.min,
+              criteria_medians: Object.fromEntries(criteriaNames.map((name, i) => [name, row.perCriterion[i] === "—" ? null : Number(row.perCriterion[i])])),
+            })),
+            invalid_verdicts: invalid,
+            judge_cost_usd: costKnown ? judgeCostUsd : null,
+            results_path: outPath,
+          },
+          null,
+          2,
+        ),
+      );
+    }
     return 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);

@@ -26,7 +26,7 @@ import { join, resolve, relative } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { judgeTrial, parseRubric } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
-import { detectEngine } from "../lib/containers.ts";
+import { depsCacheArgs, detectEngine, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
 import type { Task } from "../schemas/task.ts";
 
@@ -34,15 +34,17 @@ interface Options {
   root: string;
   run: string | null;
   engine: string | null;
+  noDepsCache: boolean;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), run: null, engine: null };
+  const opts: Options = { root: process.cwd(), run: null, engine: null, noDepsCache: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
     if (arg === "--run") opts.run = resolve(value() ?? "");
     else if (arg === "--engine") opts.engine = value() ?? null;
+    else if (arg === "--no-deps-cache") opts.noDepsCache = true;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
@@ -71,7 +73,15 @@ function hashTaskDir(taskDir: string): string {
 
 interface TrialRef {
   dir: string;
-  meta: { task: string; model: string; trial: number; image: string; infra_failure: boolean };
+  meta: {
+    task: string;
+    model: string;
+    trial: number;
+    image: string;
+    infra_failure: boolean;
+    resource_kill?: boolean;
+    memory_limit_mb?: number | null;
+  };
 }
 
 function findTrials(runDir: string): TrialRef[] {
@@ -118,17 +128,43 @@ function rubricVersionStamp(root: string, judgeRefs: string[], fallback: string 
 }
 
 /** Ocena asercji nie-LLM-owych w kontenerze; zwraca score per ref. */
-function runChecksContainer(engine: string, root: string, trialDir: string, image: string, refs: string[]): Map<string, number> {
+function runChecksContainer(
+  engine: string,
+  root: string,
+  trialDir: string,
+  image: string,
+  refs: string[],
+  depsCache: boolean,
+  memoryMb: number | null,
+  pidsLimit: number | null,
+): Map<string, number> {
   writeFileSync(join(trialDir, "eval-plan.json"), JSON.stringify(buildEvalPlan(root, refs), null, 2) + "\n");
 
   const mounts = refs.flatMap((ref) => ["-v", `${join(root, "evaluation-pool", ref)}:/bench/assertions/${ref}:ro`]);
   const result = spawnSync(
     engine,
-    ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...mounts, image, "node", "/bench/evaluate.mjs"],
+    [
+      "run",
+      "--rm",
+      "-v",
+      `${trialDir}:/bench/out`,
+      ...resourceLimitArgs(memoryMb, pidsLimit),
+      ...depsCacheArgs(depsCache),
+      ...mounts,
+      image,
+      "node",
+      "/bench/evaluate.mjs",
+    ],
     { encoding: "utf8", timeout: 3_600_000, maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.status !== 0 || !existsSync(join(trialDir, "checks.json"))) {
-    throw new Error(`kontener oceny zakończony kodem ${result.status}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
+    // OOM w ocenie wyzerowałby miarę pracy i wyglądał jak porażka modelu
+    // (OOM.md, rozdz. 6) — kod sygnałowy nazywamy zamiast zgadywać.
+    const signal = result.status !== null ? signalFromExit(result.status) : null;
+    const signalNote = signal
+      ? ` (${signal.name}${signal.likely_oom ? ` — prawdopodobnie OOM; limit: ${memoryMb !== null ? `${memoryMb} MiB` : "brak, sufit = pamięć maszyny silnika"}` : ""})`
+      : "";
+    throw new Error(`kontener oceny zakończony kodem ${result.status}${signalNote}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
   }
   const checks = JSON.parse(readFileSync(join(trialDir, "checks.json"), "utf8")) as Record<string, { score: number }>;
   return new Map(refs.map((ref) => [ref, checks[ref]?.score ?? 0]));
@@ -137,7 +173,7 @@ function runChecksContainer(engine: string, root: string, trialDir: string, imag
 export async function evaluateCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
-    console.error("usage: bench evaluate --run <dir> [--engine docker|podman] [--root <dir>]");
+    console.error("usage: bench evaluate --run <dir> [--no-deps-cache] [--engine docker|podman] [--root <dir>]");
     return 2;
   }
   const root = findInstanceRoot(opts.root);
@@ -164,7 +200,10 @@ export async function evaluateCommand(args: string[]): Promise<number> {
     for (const { dir, meta } of trials) {
       const label = `${meta.task} × ${meta.model} × próba ${meta.trial}`;
       if (meta.infra_failure) {
-        console.error(`skip:  ${label} — awaria infrastruktury w bench run, nie ma czego oceniać`);
+        const why = meta.resource_kill
+          ? "próba zabita sygnałem (nieinterpretowalna — patrz signal.json)"
+          : "awaria infrastruktury w bench run, nie ma czego oceniać";
+        console.error(`skip:  ${label} — ${why}`);
         continue;
       }
       try {
@@ -187,7 +226,16 @@ export async function evaluateCommand(args: string[]): Promise<number> {
         let refScores = new Map<string, number>();
         if (nonJudgeRefs.length > 0) {
           engine ??= detectEngine(opts.engine);
-          refScores = runChecksContainer(engine, root, dir, meta.image, nonJudgeRefs);
+          refScores = runChecksContainer(
+            engine,
+            root,
+            dir,
+            meta.image,
+            nonJudgeRefs,
+            !opts.noDepsCache && config.evaluation.deps_cache,
+            task.memory_mb ?? config.resources.memory_mb ?? null,
+            config.resources.pids_limit ?? null,
+          );
         }
         const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
         const componentScore = (c: Component): number | null => {
@@ -251,6 +299,10 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             task_hash: hash,
             judge_model: config.judge.model,
             rubric_version: rubricVersionStamp(root, judgeRefs, config.judge.rubric_version),
+            // Sufit zasobów obowiązujący W TRAKCIE próby (z trial.json) —
+            // "model się poprawił" i "daliśmy więcej RAM-u" nie mogą
+            // wyglądać w wynikach identycznie (OOM.md, warstwa 2).
+            memory_limit_mb: meta.memory_limit_mb ?? null,
           },
         });
         writeFileSync(join(dir, "result.json"), JSON.stringify(result, null, 2) + "\n");

@@ -39,6 +39,14 @@ export const EraStamps = z.object({
    * Wyniki legacy mają tu globalne judge.rubric_version z configu.
    */
   rubric_version: z.string().min(1),
+  /**
+   * Limit pamięci kontenera próby (MiB) obowiązujący w trakcie wykonania —
+   * pułap zasobów wpływa na to, co model zdąży zrobić, więc jego zmiana
+   * zmienia miarę (OOM.md, warstwa 2). null = bez jawnego limitu (sufit
+   * = pamięć maszyny silnika, niestemplowalna); brak pola = wynik sprzed
+   * wprowadzenia.
+   */
+  memory_limit_mb: z.number().int().positive().nullable().optional(),
 });
 
 export const ResultSchema = z.object({

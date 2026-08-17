@@ -6,6 +6,92 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.11.0 — 2026-08-17 (neutralny)
+
+Warstwa narzędzia z OPTIMIZATION.md (N1–N3) — cięcie kosztu cyklu
+autorstwa zadań; scoring i kontrakt asercji bez zmian.
+
+**N1 — ciepłe środowisko oceny.** Kontenery oceny (`assert`,
+`validate --assert`, `evaluate`) dostają trwały wolumen
+`bench-deps-cache` z cache'ami menedżerów pakietów (npm/yarn/pnpm/
+pip/uv/Playwright/XDG) — asercje dalej same instalują zależności,
+ale instalacje trafiają w ciepły cache zamiast w zimną sieć.
+Wyłączenie: `evaluation.deps_cache: false` w bench.config.yaml albo
+`--no-deps-cache` per wywołanie. Kontenery próby agenta celowo cache'u
+nie dostają. Drugi kierunek: opcjonalne pole `prepare` w task.yaml —
+komenda bash zapiekana w obraz zadania na etapie `prepare` `bench run`
+(raz na obraz, z siecią); jej artefakty są commitowane i start-sha
+obrazu aktualizowany, więc nie zaśmiecają patch.diff. Agent też dostaje
+przygotowany stan — jawna decyzja projektowa autora zadania.
+
+**N2 — praca wsadowa i równoległość.** `bench assert` przyjmuje
+`--patch` wielokrotnie: komplet diffów (wzorzec + warianty + pusty)
+ocenia JEDNO wejście do kontenera — evaluate.mjs aplikuje każdy patch
+na stan startowy, uruchamia komplet asercji i resetuje workspace
+między patchami (katalogi zależności zostają, więc instalacja płaci
+się raz na wsad); wynik per patch w `checks-batch.json`, patch
+nieaplikowalny raportowany jako `patch_error`, nie wywrotka wsadu.
+`bench calibrate` dostał `--parallel` (default 3) — werdykty rundy
+lecą pulą o ograniczonej równoległości zamiast sekwencyjnie.
+
+**N3 — wyjście maszynowe.** `--json` w `bench assert` (wyniki per
+asercja / per patch) i `bench calibrate` (podsumowanie rundy: min/med/
+max/rozrzut per diff, mediany kryteriów, koszt); postęp idzie wtedy na
+stderr, stdout należy do struktury. `bench judge` wypisywał JSON już
+wcześniej. Koniec parsowania tabelek w pętli „zmierz → porównaj →
+zdecyduj" i klasy pomyłek „kod wyjścia zjedzony przez potok".
+
+**N1 w CI — cache między runami GH Actions.** Wolumen
+`bench-deps-cache` żyje tylko przez czas joba, a obraz bazowy budował
+się od zera w każdym jobie macierzy. Workflow `bench-run` dostał:
+(1) `actions/cache` na katalogu zależności ocen — runner wspiera
+env `BENCH_DEPS_CACHE_DIR` (bind-mount katalogu hosta zamiast
+nazwanego wolumenu), klucz per run z restore-keys po prefiksie, więc
+cache akumuluje się między runami; (2) `docker save`/`load` obrazu
+bazowego z kluczem `hashFiles('.bench-kit/docker/**')` — przy
+trafieniu `BENCH_REUSE_BASE_IMAGE=1` każe runnerowi pominąć rebuild
+(apt + `npm install -g opencode` raz per zmiana definicji obrazu,
+nie raz per job). Świeżość gwarantuje klucz cache'u; lokalnie obu
+env nie ustawiaj. Instancje dostają nowy workflow przy
+`bench-kit update`.
+
+**OOM (wada pomiaru z OOM.md) — warstwy 1–3.** Próby zabijane przez
+OOM killer maszyny silnika wpływały do median jako wynik modelu, karząc
+dokładnie te modele, które weryfikują swoją pracę. Zaadresowane:
+
+- *Warstwa 1 (sygnał):* `bench doctor` sprawdza pamięć maszyny silnika
+  kontenerów — WARN poniżej 4 GiB, BRAK gdy nie mieści skonfigurowanego
+  limitu.
+- *Warstwa 2 (jawny limit, stempel ery):* `resources.memory_mb` /
+  `resources.pids_limit` w bench.config.yaml, nadpisanie per zadanie
+  polem `memory_mb` w task.yaml. Limit obowiązuje w kontenerze próby
+  ORAZ kontenerach oceny (`--memory` = `--memory-swap`, bez swapu),
+  jest zapisywany w trial.json i stemplowany w result.json jako
+  `stamps.memory_limit_mb` — zmiana pułapu zasobów zmienia miarę, więc
+  nie może wyglądać jak poprawa modelu.
+- *Warstwa 3 (klasyfikacja):* kody wyjścia 128+N bez timeoutu dostają
+  mechanikę znaną z awarii providera — retry 1× (archiwum
+  `signal-kill-attempt-1/`), a powtórka oznacza próbę jako
+  nieinterpretowalną (`resource_kill` + `infra_failure` w trial.json →
+  `bench evaluate` ją pomija, nie wlicza zera do median), zapisuje
+  diagnostykę do `signal.json` (sygnał, hint, limit, ogon agent.log)
+  i kończy run głośnym ostrzeżeniem oraz kodem 1. Kontener oceny przy
+  kodzie sygnałowym nazywa sygnał i limit w komunikacie błędu.
+- *Warstwa 4* to pole `prepare` (patrz N1): środowisko zapieczone
+  w obraz usuwa główne źródło szczytu pamięci w próbie.
+
+Nowy wiersz w tabeli objawów bench-triage (exit 137 / `signal.json`);
+bench-wiring prowadzi przez ustawienie limitów. Rozstrzygnięcia
+z OOM.md rozdz. 6 zapisane w dokumencie: kontener próby musi mieć sieć
+(API providera), „offline" dotyczy materiału zadania.
+
+Schematy: nowe pola `evaluation.deps_cache`, `resources.*` (config),
+`prepare`, `memory_mb` (task.yaml) i `stamps.memory_limit_mb`
+(result.json) są opcjonalne z defaultami — istniejące instancje
+i wyniki przechodzą bez migracji. Skille bench-task / bench-rubric /
+bench-refresh / bench-triage / bench-wiring odwołują się do nowych
+możliwości.
+
 ## 0.10.1 — 2026-08-17 (neutralny)
 
 Naprawa bootstrapu na macOS: CLI klonuje template do `mkdtemp(tmpdir())`,

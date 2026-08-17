@@ -159,15 +159,28 @@ się raz i amortyzuje na wszystkich późniejszych zadaniach — domknij tu
 trzy decyzje, zamiast zostawiać je każdemu autorowi zadania jako
 odkrycie:
 
-- [ ] **Ustal politykę cache'u zależności** dla asercji tej instancji
-      (co asercje instalują same, co da się współdzielić między
-      wywołaniami) i zapisz ją jako decyzję wiringu w PR.
-- [ ] **Sprawdź limity zasobów kontenera próby** przeciwko realnemu
-      zapotrzebowaniu stacku. Agenci racjonalnie próbują **zweryfikować**
-      swoją zmianę, uruchamiając build lub testy; jeśli kontener próby
-      nie ma na to zasobów, giną w połowie pracy z kodem wyjścia
-      sygnału, a nie timeoutu — w wynikach wygląda to jak wina modelu
-      i kosztuje pełną rundę triage'u.
+- [ ] **Ustal politykę cache'u zależności** dla asercji tej instancji.
+      Runner domyślnie montuje do kontenerów oceny trwały wolumen
+      `bench-deps-cache` (cache npm/yarn/pnpm/pip/uv/Playwright) —
+      asercje dalej same instalują zależności, ale instalacje trafiają
+      w ciepły cache. Wyłączenie: `evaluation.deps_cache: false`
+      w bench.config.yaml (pełna hermetyczność kosztem czasu) albo
+      punktowo `--no-deps-cache`. Dodatkowo zadanie może zapiekać całe
+      środowisko w obraz polem `prepare` w task.yaml (płacisz raz na
+      obraz zadania; agent też dostaje przygotowany stan — to decyzja
+      projektowa autora zadania). Wybór zapisz jako decyzję wiringu w PR.
+- [ ] **Ustaw jawne limity zasobów kontenerów** przeciwko realnemu
+      zapotrzebowaniu stacku: `resources.memory_mb` (+ opcjonalnie
+      `resources.pids_limit`) w bench.config.yaml, nadpisywalne per
+      zadanie polem `memory_mb` w task.yaml. Agenci racjonalnie próbują
+      **zweryfikować** swoją zmianę, uruchamiając build lub testy; bez
+      limitu giną od OOM killera maszyny silnika z gołym SIGKILL-em,
+      co wygląda jak wina modelu. Z limitem sufit jest częścią definicji
+      pomiaru (stempel ery `memory_limit_mb` — jego zmiana zamyka erę!),
+      a `bench doctor` sprawdza pamięć maszyny silnika i porównuje ją
+      z limitem. Runner klasyfikuje próby zabite sygnałem sam (retry →
+      `resource_kill` → wyłączenie z oceny), ale to jest siatka
+      bezpieczeństwa, nie zamiennik dobrze dobranego limitu.
 - [ ] **Ustal domyślną politykę weryfikacji dla promptów** tej
       instancji: czy agent ma weryfikować pracę uruchomieniem projektu,
       czy ma tego nie robić. Cokolwiek wybierzecie, autorzy zadań piszą

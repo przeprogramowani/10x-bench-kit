@@ -56,6 +56,9 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
   `patch.diff` (praca agenta vs commit startowy), `metrics.json`
   (koszt/tokeny/czas; `"incomplete": true` = adapter nie znalazł
   danych), `container.log` (istnieje tylko przy awarii infrastruktury),
+  `signal.json` (istnieje tylko gdy agent zginął od sygnału także po
+  retry — nazwa sygnału, hint, limit pamięci, ogon logu; taka próba ma
+  `resource_kill: true` w trial.json i jest wyłączona z oceny),
   `eval-plan.json`, `checks.json` (score per asercja nie-LLM-owa),
   `judge.json` (werdykty + surowa odpowiedź sędziego), `result.json`
   (scores, total, stemple er).
@@ -90,6 +93,7 @@ różnica zwykle wskazuje jedną składową, nie wszystkie.
 |---|---|---|
 | pusty/prawie pusty `patch.diff` | `agent.log` | model nie wywołuje narzędzi (np. literalny `<tool_code` wypisany jako tekst) → wina modelu; prompt niejasny → wina zadania |
 | `execution.json` exit 124 | `agent.log` (czy był postęp) | kręcenie się w kółko → wina modelu; robił postęp, zabrakło czasu → timeout za krótki, wina zadania |
+| `execution.json` exit 137 (lub inny 128+N) bez timeoutu | `signal.json`, ogon `agent.log` | agent zabity sygnałem — SIGKILL w trakcie instalacji/builda = wyczerpanie zasobów → wina infrastruktury (runner od 0.11.0 sam to klasyfikuje: retry, `resource_kill`, wyłączenie z oceny; brak `signal.json` = run sprzed tej wersji, klasyfikuj ręcznie) |
 | istnieje `container.log` | `container.log`, `execution.json` | kontener padł przed agentem → wina infrastruktury |
 | `trial.json` z `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | przejściowa awaria providera; runner zrobił 1 retry — jeśli i on padł, wina infrastruktury (provider), nie modelu |
 | `metrics.json` incomplete | `agent.log`, storage OpenCode | adapter/wersja OpenCode → wina infrastruktury |
@@ -109,9 +113,10 @@ czynność w całym skillu:
   sam kod wyjścia procesu plus ostatnie linie logu jednoznacznie
   wskazują wyczerpanie zasobów, bez uruchamiania czegokolwiek.
 - **Grupuj reprodukcje.** Jeśli musisz odtworzyć asercję lub werdykt,
-  zrób to dla wszystkich podejrzanych prób naraz (jedno wejście do
-  środowiska / równoległe wywołania w tle), nie próba po próbie w miarę
-  czytania.
+  zrób to dla wszystkich podejrzanych prób naraz, nie próba po próbie
+  w miarę czytania: `bench assert --task <t> --patch <trial-1/patch.diff>
+  --patch <trial-2/patch.diff> …` to jedno wejście do środowiska,
+  N wyników; werdykty sędziego puszczaj równolegle w tle.
 
 ### 5. Klasyfikacja i delegacja
 

@@ -42,6 +42,23 @@ export const TaskSchema = z.object({
   /** Data ważności zadania (starzenie: po niej validate ostrzega o refresh). */
   expires: z.iso.date().optional(),
   /**
+   * Opcjonalna komenda przygotowania środowiska (bash), zapiekana w obraz
+   * zadania na etapie `prepare` w `bench run` — biegnie RAZ na zadanie,
+   * w /workspace, z siecią (etap przygotowania). Płacisz instalację
+   * zależności raz na obraz zamiast raz na wywołanie oceny; kontener
+   * próby agenta i kontener oceny startują z gotowym środowiskiem.
+   * Uwaga autorska: agent też dostaje ten stan — to jawna decyzja
+   * projektowa zadania (i zmiana task_hash jak każda zmiana task.yaml).
+   */
+  prepare: z.string().min(1).optional(),
+  /**
+   * Nadpisanie limitu pamięci kontenera (MiB) dla tego zadania — dla
+   * stacków cięższych niż default instancji (resources.memory_mb
+   * w bench.config.yaml). Obowiązuje w próbie i w ocenie; wartość jest
+   * stemplem ery (memory_limit_mb w result.json).
+   */
+  memory_mb: z.number().int().positive().optional(),
+  /**
    * Oczekiwane zachowanie asercji nie-LLM-owych na stanie startowym zadania
    * (repo@pin + overlay, pusty diff): "pass" = guard, musi przechodzić już
    * na starcie (np. lint — lekcja z pierwszego runu); "fail" = miara pracy,

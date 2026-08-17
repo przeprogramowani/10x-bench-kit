@@ -91,7 +91,8 @@ sprawdziłeś. Checklista wejściowa, **przed pierwszym pomiarem**:
       nie buduje projektu — nie wykryje diffu, który się nie kompiluje,
       a jedna taka pozycja marnuje całą rundę werdyktów).
 - [ ] Każdy diff ma zmierzony wynik na **składowych nie-LLM-owych**
-      zadania (`bench assert --patch`). To nie jest praca podwójna: te
+      zadania — jednym wejściem do kontenera: `bench assert --task <t>
+      --patch a.diff --patch b.diff …`. To nie jest praca podwójna: te
       liczby i tak są potrzebne do realnego wyniku końcowego wariantu,
       a przy okazji weryfikują, że diff robi to, co deklaruje
       `expected.md`.
@@ -113,8 +114,10 @@ powtórzeń (`--repeats 2`) — szukasz błędu rankingu i rażącego rozrzutu,
 do tego nie potrzeba precyzji; pełna liczba powtórzeń (`--repeats 5`)
 należy do rundy potwierdzającej, **raz**, na końcu, po ostatniej zmianie
 rubryki. Nie odwrotnie — różnica to kilkanaście wywołań modelu na
-iterację. Wywołania w ramach rundy są od siebie niezależne — mogą lecieć
-równolegle.
+iterację. Wywołania w ramach rundy są od siebie niezależne — runner
+puszcza je równolegle (`--parallel`, default 3; zejdź do 1 przy ostrych
+rate limitach providera). `--json` daje podsumowanie rundy strukturalnie,
+bez parsowania tabelki.
 
 Na tabeli z pomiaru sprawdź:
 

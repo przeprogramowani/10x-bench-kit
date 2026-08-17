@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig } from "../lib/instance.ts";
 import type { BenchConfig } from "../schemas/config.ts";
-import { sh } from "../lib/containers.ts";
+import { engineMemoryBytes, sh } from "../lib/containers.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 
 interface Options {
@@ -119,6 +119,38 @@ export async function doctorCommand(args: string[]): Promise<number> {
       detail: "nie parsuje się schematem",
       fix: "uruchom `bench validate` i popraw zgłoszone pola",
     });
+  }
+
+  // --- pamięć maszyny silnika kontenerów (OOM.md, warstwa 1) ---
+  // Za mały pułap = próby zabijane SIGKILL-em w trakcie weryfikacji pracy
+  // przez agenta — kara spada dokładnie na modele, które pracują porządnie.
+  if (alive) {
+    const memBytes = engineMemoryBytes(alive);
+    const MIN_GIB = 4;
+    if (memBytes === null) {
+      checks.push({ name: "pamięć maszyny silnika", status: "WARN", detail: "nie udało się odczytać", fix: "sprawdź `docker info` / `podman info` ręcznie" });
+    } else {
+      const gib = memBytes / 1024 ** 3;
+      const configuredMb = config?.resources.memory_mb ?? null;
+      if (configuredMb !== null && memBytes < configuredMb * 1024 ** 2) {
+        checks.push({
+          name: "pamięć maszyny silnika",
+          status: "BRAK",
+          detail: `${gib.toFixed(1)} GiB < resources.memory_mb (${configuredMb} MiB) z bench.config.yaml`,
+          fix: "podnieś pamięć maszyny silnika (Docker Desktop → Resources / `podman machine set -m …`) albo obniż limit w configu",
+        });
+      } else if (gib < MIN_GIB) {
+        checks.push({
+          name: "pamięć maszyny silnika",
+          status: "WARN",
+          detail: `${gib.toFixed(1)} GiB — poniżej ${MIN_GIB} GiB instalacja zależności dużego projektu ginie od OOM (agent exit 137)`,
+          fix: "podnieś pamięć maszyny silnika do pułapu najcięższej operacji stacku z zapasem (duże monorepo JS/TS: ~8 GiB)",
+        });
+      } else {
+        const limitNote = configuredMb !== null ? `, limit prób/oceny: ${configuredMb} MiB (resources.memory_mb)` : ", bez jawnego limitu prób (rozważ resources.memory_mb — stempel ery i atrybucja OOM)";
+        checks.push({ name: "pamięć maszyny silnika", status: "OK", detail: `${gib.toFixed(1)} GiB${limitNote}` });
+      }
+    }
   }
 
   const presentKeys = Object.keys(process.env).filter((name) => /_API_KEY$/.test(name));

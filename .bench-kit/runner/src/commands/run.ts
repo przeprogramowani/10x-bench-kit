@@ -35,7 +35,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
-import { detectEngine, ensureBaseImage, must, sh } from "../lib/containers.ts";
+import { detectEngine, ensureBaseImage, must, resourceLimitArgs, sh, signalFromExit } from "../lib/containers.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 import type { Task } from "../schemas/task.ts";
 
@@ -129,15 +129,30 @@ function prepareTaskImage(engine: string, root: string, baseImage: string, name:
 
     cpSync(join(root, "tasks", name, "prompt.md"), join(context, "prompt.md"));
     writeFileSync(join(context, "start-sha"), startSha + "\n");
+    // task.prepare: środowisko zapiekane raz na obraz zadania (etap z siecią)
+    // zamiast płacone przy każdym wejściu do kontenera oceny/próby.
+    // Artefakty prepare są commitowane, a start-sha w obrazie aktualizowany —
+    // inaczej `git add -A` w trial.sh wciągnąłby np. node_modules do patch.diff.
+    const prepareLines = task.prepare
+      ? [
+          `RUN cd /workspace && ( ${task.prepare} ) \\`,
+          ` && git add -A \\`,
+          ` && git -c user.name=bench -c user.email=bench@local commit -q --allow-empty -m "bench: prepare środowiska zadania" \\`,
+          ` && git rev-parse HEAD > /bench/start-sha`,
+        ]
+      : [];
     writeFileSync(
       join(context, "Dockerfile"),
-      [`FROM ${baseImage}`, "COPY workspace/ /workspace/", "COPY prompt.md start-sha /bench/", ""].join("\n"),
+      [`FROM ${baseImage}`, "COPY workspace/ /workspace/", "COPY prompt.md start-sha /bench/", ...prepareLines, ""].join("\n"),
     );
 
     const image = `bench-task-${sanitize(name)}:latest`;
-    console.log(`prepare: ${name} → ${image} (pin ${task.commit.slice(0, 12)}…)`);
-    must(engine, ["build", "-q", "-t", image, context], `budowa obrazu zadania ${name}`, { timeout: 600_000 });
-    return { name, task, image, startSha };
+    console.log(`prepare: ${name} → ${image} (pin ${task.commit.slice(0, 12)}…)${task.prepare ? " + prepare środowiska" : ""}`);
+    must(engine, ["build", "-q", "-t", image, context], `budowa obrazu zadania ${name}`, { timeout: 1_800_000 });
+    const effectiveStartSha = task.prepare
+      ? must(engine, ["run", "--rm", image, "cat", "/bench/start-sha"], `odczyt start-sha obrazu ${name}`, { timeout: 120_000 }).trim()
+      : startSha;
+    return { name, task, image, startSha: effectiveStartSha };
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
@@ -199,7 +214,12 @@ export async function runCommand(args: string[]): Promise<number> {
     let spentUsd = 0;
     let overBudget = false;
     let failures = 0;
+    let resourceKills = 0;
     matrix: for (const { name, task, image, startSha } of prepared) {
+      // Jawny limit zasobów próby (OOM.md, warstwa 2): default instancji,
+      // nadpisanie per zadanie; wartość idzie do trial.json i stempli ery.
+      const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
+      const limitArgs = resourceLimitArgs(memoryMb, config.resources.pids_limit ?? null);
       for (const model of models) {
         for (let trial = 1; trial <= trials; trial++) {
           const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
@@ -209,16 +229,20 @@ export async function runCommand(args: string[]): Promise<number> {
 
           // Retry 1× przy przejściowej awarii providera — pusta próba
           // z HTTP 500 wliczona do median to pomiar pogody, nie modelu.
+          // Ta sama mechanika dla kodów sygnałowych 128+N (OOM.md, warstwa 3):
+          // SIGKILL bez timeoutu to prawie zawsze wyczerpanie zasobów, nie
+          // praca modelu — retry raz, a powtórka = próba nieinterpretowalna.
           let execution: { agent_exit: number; timed_out: boolean; wall_duration_s: number } | null = null;
           let infraFailure = false;
           let providerError = false;
+          let resourceKill = false;
           let attempts = 0;
           for (;;) {
             attempts++;
             console.log(`trial:  ${label} …`);
             const result = sh(
               engine,
-              ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...envArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
+              ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
               { timeout: (task.timeout_s + 300) * 1000 },
             );
 
@@ -226,16 +250,53 @@ export async function runCommand(args: string[]): Promise<number> {
             execution = existsSync(executionPath) ? JSON.parse(readFileSync(executionPath, "utf8")) : null;
             infraFailure = result.status !== 0 || !execution;
             providerError = !infraFailure && detectProviderError(trialDir, execution);
-            if (providerError && attempts === 1) {
-              const archive = join(trialDir, `provider-error-attempt-${attempts}`);
+            const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
+            if ((providerError || signal) && attempts === 1) {
+              const kind = providerError ? "provider-error" : "signal-kill";
+              const archive = join(trialDir, `${kind}-attempt-${attempts}`);
               mkdirSync(archive);
               for (const entry of readdirSync(trialDir)) {
-                if (!entry.startsWith("provider-error-attempt-")) renameSync(join(trialDir, entry), join(archive, entry));
+                if (!/^(provider-error|signal-kill)-attempt-/.test(entry)) renameSync(join(trialDir, entry), join(archive, entry));
               }
-              console.error(`trial:  ${label} — awaria providera (5xx/429 w agent.log), retry próby; pierwsze podejście: ${archive}`);
+              const why = providerError
+                ? "awaria providera (5xx/429 w agent.log)"
+                : `agent zabity sygnałem (exit ${execution?.agent_exit} = ${signal?.name}${signal?.likely_oom ? ", prawdopodobnie OOM" : ""})`;
+              console.error(`trial:  ${label} — ${why}, retry próby; pierwsze podejście: ${archive}`);
               continue;
             }
-            if (infraFailure) {
+            if (signal) {
+              // Zabita także po retry: nieinterpretowalna — infra_failure
+              // wyłącza ją z oceny (bench evaluate pomija), zamiast wliczać
+              // zero albo przypadkowy wynik do median.
+              resourceKill = true;
+              resourceKills++;
+              const logPath = join(trialDir, "agent.log");
+              const logTail = existsSync(logPath) ? readFileSync(logPath, "utf8").slice(-4000) : null;
+              writeFileSync(
+                join(trialDir, "signal.json"),
+                JSON.stringify(
+                  {
+                    agent_exit: execution?.agent_exit,
+                    signal: signal.signal,
+                    signal_name: signal.name,
+                    likely_oom: signal.likely_oom,
+                    memory_limit_mb: memoryMb,
+                    hint: signal.likely_oom
+                      ? memoryMb !== null
+                        ? `SIGKILL przy limicie ${memoryMb} MiB — podnieś resources.memory_mb / task.memory_mb albo zapiecz środowisko polem prepare w task.yaml`
+                        : "SIGKILL bez jawnego limitu — najpewniej OOM killer maszyny silnika; ustaw resources.memory_mb (atrybucja) i sprawdź pamięć maszyny (bench doctor)"
+                      : "kod sygnałowy bez timeoutu — sprawdź agent.log i stabilność środowiska",
+                    agent_log_tail: logTail,
+                  },
+                  null,
+                  2,
+                ) + "\n",
+              );
+              console.error(
+                `trial:  ${label} — ZABITA sygnałem ${signal.name} także po retry (${signal.likely_oom ? "prawdopodobnie OOM" : "przyczyna nieznana"}); ` +
+                  `próba nieinterpretowalna, wyłączona z oceny; diagnostyka: ${trialDir}/signal.json`,
+              );
+            } else if (infraFailure) {
               failures++;
               writeFileSync(join(trialDir, "container.log"), (result.stdout ?? "") + (result.stderr ?? ""));
               console.error(`trial:  ${label} — AWARIA infrastruktury (kod ${result.status}); szczegóły: ${trialDir}/container.log`);
@@ -261,8 +322,10 @@ export async function runCommand(args: string[]): Promise<number> {
                 pinned_commit: task.commit,
                 started_at: startedAt,
                 finished_at: new Date().toISOString(),
-                infra_failure: infraFailure,
+                infra_failure: infraFailure || resourceKill,
                 provider_error: providerError,
+                resource_kill: resourceKill,
+                memory_limit_mb: memoryMb,
                 attempts,
                 execution,
               },
@@ -290,8 +353,13 @@ export async function runCommand(args: string[]): Promise<number> {
     }
 
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
-    console.log(`\nbench run: ${overBudget ? "PRZERWANE (budżet)" : "gotowe"} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${budgetNote}`);
-    return failures > 0 || overBudget ? 1 : 0;
+    const killNote = resourceKills
+      ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, run do powtórzenia po naprawie zasobów)`
+      : "";
+    console.log(
+      `\nbench run: ${overBudget ? "PRZERWANE (budżet)" : "gotowe"} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}`,
+    );
+    return failures > 0 || resourceKills > 0 || overBudget ? 1 : 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     return 1;

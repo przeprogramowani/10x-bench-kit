@@ -57,9 +57,12 @@ uruchomiłeś na wersji referencyjnej** — do tego służą `bench assert`,
 Uruchamiane z korzenia instancji: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts <komenda>` (dalej: `bench <komenda>`).
 
-- `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]` —
-  asercje nie-LLM-owe na stanie startowym zadania (repo@pin + overlay);
+- `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]...`
+  — asercje nie-LLM-owe na stanie startowym zadania (repo@pin + overlay);
   `--no-overlay` = czysta referencja, `--patch` = z nałożonym diffem.
+  `--patch` można podać **wielokrotnie** — komplet diffów (wzorzec,
+  warianty, pusty) ocenia jedno wejście do kontenera; `--json` daje wynik
+  strukturalny na stdout zamiast tabelki do parsowania.
   Exit 0 gdy wszystkie score 1, exit 1 gdy nie — sprawdzasz oba kierunki.
   Uwaga: kod wyjścia czytaj z `$?` bezpośrednio po komendzie, **bez
   potoku** — `bench assert … | tail` podmienia `$?` na kod `tail`.
@@ -196,7 +199,9 @@ Wejście do kontenera oceny odtwarza środowisko od zera i kosztuje minuty
   asercję zgodnie z twoim zamiarem. Diff, który wygląda dobrze i nie
   działa, jest gorszy niż jego brak.
 - **Jedno wejście do kontenera na komplet materiału**, nie wywołanie per
-  artefakt — grupuj asercje i diffy. Jeśli mimo wszystko musisz wejść
+  artefakt: `bench assert --task <nazwa> --patch wzorzec.diff --patch
+  wariant-a.diff --patch pusty.diff` ocenia cały zbiór w jednym wejściu
+  (pusty plik diffa = stan startowy). Jeśli mimo wszystko musisz wejść
   kilka razy, puść wywołania równolegle w tle i zbierz wyniki razem
   (pamiętając: brak wyjścia z komendy w tle to "jeszcze trwa" ALBO
   "padło bez słowa" — rozstrzygnij, zanim zbudujesz na tym wniosek).
