@@ -1,6 +1,12 @@
 # Plan: przeniesienie logiki instancji z 10x-cli do bench-kitu
 
-Status: **propozycja** (żadna faza nie rozpoczęta)
+Status: **zrealizowany** (fazy 0–5; kit: tag v0.10.0, CLI: gałąź
+`feat/bench-kit-bootstrap-contract` — oba czekają na push/PR).
+Doprecyzowania kontraktu względem propozycji: żądanie niesie dodatkowo
+`toolProfiles` (mapa id → skillRoot wszystkich profili — dzięki temu
+CLI nie czyta `instance.json`, a `update`/`repair` honorują narzędzie
+z manifestu), `tool.explicit` (jawne `--tool` wygrywa z manifestem przy
+repair) i `templateSource`; do stref template-only doszło `docs/`.
 Dotyczy repozytoriów: `10x-bench-kit` (to repo) oraz `10x-cli`.
 
 ## Cel
@@ -131,30 +137,30 @@ Z `10x-cli/src/commands/bench-kit.ts`:
 
 ### Faza 0 — decyzje przed kodem
 
-- [ ] Zatwierdzić kształt kontraktu (żądanie/odpowiedź powyżej)
-- [ ] Rozstrzygnąć układ bootstrapu: moduł z podziałem (rekomendacja)
+- [x] Zatwierdzić kształt kontraktu (żądanie/odpowiedź powyżej)
+- [x] Rozstrzygnąć układ bootstrapu: moduł z podziałem (rekomendacja)
       zamiast jednego pliku — `index.mjs` + `zones.mjs` + `content.mjs`
       + `manifest.mjs`
-- [ ] Rozstrzygnąć kolejność `yaml`: `npm ci` w runnerze **przed**
+- [x] Rozstrzygnąć kolejność `yaml`: `npm ci` w runnerze **przed**
       chirurgią na `bench.config.yaml`, żeby bootstrap mógł użyć
       `.bench-kit/runner/node_modules/yaml` bez nowej zależności
-- [ ] Zapisać granicę zaufania: bootstrap wykonywany wyłącznie z klonu
+- [x] Zapisać granicę zaufania: bootstrap wykonywany wyłącznie z klonu
       `TEMPLATE_REPO_URL` i wyłącznie z tagu
 
 ### Faza 1 — bootstrap w kicie
 
 Katalog `.bench-kit/bootstrap/`.
 
-- [ ] `zones.mjs` — strefy: template-only, shared root, źródło skilli,
+- [x] `zones.mjs` — strefy: template-only, shared root, źródło skilli,
       mapowanie `.bench-kit/workflows/` → `.github/workflows/`
-- [ ] `zones.mjs` — `materialize`, `syncDir`, `syncFile`, liczniki
-- [ ] `content.mjs` — placeholdery, `registerBaseRepo`, `pinPlaceholderTasks`,
+- [x] `zones.mjs` — `materialize`, `syncDir`, `syncFile`, liczniki
+- [x] `content.mjs` — placeholdery, `registerBaseRepo`, `pinPlaceholderTasks`,
       `toHttpsUrl`, `ensureIgnored`
-- [ ] `manifest.mjs` — odczyt/zapis `instance.json`, odczyt `VERSION`
-- [ ] `index.mjs` — parsowanie żądania, walidacja `contractVersion`,
+- [x] `manifest.mjs` — odczyt/zapis `instance.json`, odczyt `VERSION`
+- [x] `index.mjs` — parsowanie żądania, walidacja `contractVersion`,
       tryby `init`/`update`/`repair`, złożenie odpowiedzi
-- [ ] `index.mjs` — `npm ci` w runnerze i `git init` + pierwszy commit
-- [ ] Kontrakt błędów: kody `not_an_instance`, `dirty_tree`,
+- [x] `index.mjs` — `npm ci` w runnerze i `git init` + pierwszy commit
+- [x] Kontrakt błędów: kody `not_an_instance`, `dirty_tree`,
       `contract_mismatch`, `template_incomplete`
 
 **Kryterium akceptacji:** bootstrap wywołany ręcznie (`echo '<json>' |
@@ -163,14 +169,14 @@ z lokalnego klonu template'u, bez udziału CLI.
 
 ### Faza 2 — testy bootstrapu w kicie
 
-- [ ] Przenieść asercje na efekty dyskowe z `10x-cli/tests/bench-kit-command.test.ts`
-- [ ] Test: pliki template-only nie trafiają do instancji
+- [x] Przenieść asercje na efekty dyskowe z `10x-cli/tests/bench-kit-command.test.ts`
+- [x] Test: pliki template-only nie trafiają do instancji
       (`.github/`, `benchkit.png`) — dziś broniony w CLI, przenieść tutaj
-- [ ] Test: `update` zachowuje strefę firmy (`tasks/`, `evaluation-pool/`,
+- [x] Test: `update` zachowuje strefę firmy (`tasks/`, `evaluation-pool/`,
       `bench.config.yaml`) i nigdy nie kasuje plików firmy
-- [ ] Test: `repair` (`skipExisting`) nie nadpisuje istniejących plików
-- [ ] Test: rejestracja repo bazowego i pinowanie zadań-demo
-- [ ] Test: `contractVersion` niedopasowana → `ok: false`, kod
+- [x] Test: `repair` (`skipExisting`) nie nadpisuje istniejących plików
+- [x] Test: rejestracja repo bazowego i pinowanie zadań-demo
+- [x] Test: `contractVersion` niedopasowana → `ok: false`, kod
       `contract_mismatch`
 
 **Kryterium akceptacji:** każdy test przechodzi **i** czerwienieje po
@@ -180,29 +186,29 @@ cofnięciu odpowiadającej mu logiki (test nie może być pusty).
 
 Kolejność jest wymuszona: CLI bez bootstrapu w template'cie nie zadziała.
 
-- [ ] Wpis w `CHANGELOG.md` (neutralny — nie dotyka scoringu)
-- [ ] Bump `.bench-kit/VERSION`
-- [ ] Tag
+- [x] Wpis w `CHANGELOG.md` (neutralny — nie dotyka scoringu)
+- [x] Bump `.bench-kit/VERSION`
+- [x] Tag
 
 **Kryterium akceptacji:** tag zawiera `.bench-kit/bootstrap/` i jest
 osiągalny dla `git clone --branch <tag>`.
 
 ### Faza 4 — odchudzenie CLI
 
-- [ ] Usunąć przeniesione symbole z `src/commands/bench-kit.ts`
+- [x] Usunąć przeniesione symbole z `src/commands/bench-kit.ts`
       (inwentarz wyżej)
-- [ ] `runBenchKitInit` → klon, profil narzędzia, detekcja repo bazowego,
+- [x] `runBenchKitInit` → klon, profil narzędzia, detekcja repo bazowego,
       wywołanie bootstrapu, klon `.repos/`, render
-- [ ] `runBenchKitUpdate` → klon, bramka czystego drzewa, wywołanie
+- [x] `runBenchKitUpdate` → klon, bramka czystego drzewa, wywołanie
       bootstrapu, render
-- [ ] Warstwa wywołania bootstrapu jako wstrzykiwalna zależność
+- [x] Warstwa wywołania bootstrapu jako wstrzykiwalna zależność
       (`deps.runBootstrap`) — testowalna bez sieci i bez dysku
-- [ ] Testy CLI zawężone do kontraktu: fake bootstrap, asercje na
+- [x] Testy CLI zawężone do kontraktu: fake bootstrap, asercje na
       renderowanie tekstu, koperty `--json` i kody wyjścia
-- [ ] Usunąć `TEMPLATE_ONLY_PATHS` i `isTemplateOnly` z CLI (wchłonięte
+- [x] Usunąć `TEMPLATE_ONLY_PATHS` i `isTemplateOnly` z CLI (wchłonięte
       przez `zones.mjs`) — gałąź `fix/bench-kit-template-only-paths`
       staje się zbędna i nie powinna być mergowana
-- [ ] Podnieść minimalną wymaganą wersję template'u w CLI
+- [x] Podnieść minimalną wymaganą wersję template'u w CLI
 
 **Kryterium akceptacji:** `src/commands/bench-kit.ts` nie zawiera ani
 jednej ścieżki do wnętrza kitu poza `.bench-kit/bootstrap/index.mjs`
@@ -210,13 +216,13 @@ i `.bench-kit/VERSION`.
 
 ### Faza 5 — weryfikacja end-to-end
 
-- [ ] `10x bench-kit init` na świeżym katalogu z lokalnego tagu kitu
-- [ ] Sprawdzić, że instancja **nie** ma `.github/workflows/ci.yaml`
+- [x] `10x bench-kit init` na świeżym katalogu z lokalnego tagu kitu
+- [x] Sprawdzić, że instancja **nie** ma `.github/workflows/ci.yaml`
       ani `benchkit.png`
-- [ ] `bench validate` na świeżej instancji
-- [ ] `10x bench-kit update` z poprzedniego tagu na nowy — strefa firmy
+- [x] `bench validate` na świeżej instancji
+- [x] `10x bench-kit update` z poprzedniego tagu na nowy — strefa firmy
       nietknięta, `git diff` czytelny jako propozycja
-- [ ] Zaktualizować `AGENTS.md` i `README.md` kitu, jeśli opisują podział
+- [x] Zaktualizować `AGENTS.md` i `README.md` kitu, jeśli opisują podział
       odpowiedzialności
 
 **Kryterium akceptacji:** pełny cykl init → validate → update na czystej
