@@ -48,15 +48,32 @@ wyprowadź z opisu propozycje pól zlecenia (schemat wpisu:
 wywnioskowane, a czego w opisie nie ma. Pytania zadawaj mechanizmem
 pytań twojego narzędzia (AskUserQuestion / request_user_input; gdy
 brak — zwykłe pytania w rozmowie), **jednym blokiem na całą paczkę
-zleceń**, wyłącznie o luki i niejednoznaczności — z jednym wyjątkiem:
+zleceń**, wyłącznie o luki i niejednoznaczności — z dwoma wyjątkami,
+o które pytasz zawsze:
 
-- **Poziom naprowadzenia promptu** pytaj zawsze, chyba że opis
+- **Oś oceny (kalibracja rubryki)** — co w TYM zadaniu ma różnicować
+  oceny między wykonaniami: użytkownik często ma w głowie konkretne
+  do's and don'ts (np. "liczy się minimalny diff", "nie wolno dotykać
+  API publicznego", "nagradzamy test regresyjny") i to one mają być
+  zapisane we wpisie, zamiast zostawiać różnicowanie domysłom agenta
+  budującego rubrykę. Jeśli użytkownik nie ma zdania, zaproponuj oś
+  wynikającą z typu zadania i uzyskaj akceptację; brak osi zapisz
+  wprost jako "do uznania bench-build".
+- **Poziom naprowadzenia promptu** — chyba że opis
   rozstrzyga go wprost, z konsekwencjami podanymi przy opcjach:
   - *produktowy* — sam objaw/cel, zero plików i symboli; mierzy
     lokalizację w kodzie + wykonanie — trudniejsze, dłuższy timeout;
   - *kierunkowy* — nazwany obszar/moduł; środek skali;
   - *chirurgiczny* — konkretne pliki/symbole; mierzy samo wykonanie —
     łatwiejsze, krótszy timeout.
+
+Gdy użytkownik wybierze poziom **chirurgiczny**, wpis backlogu musi
+wskazywać konkretne pliki/symbole — analizę repo bazowego z `.repos/`
+potrzebną do ich ustalenia wykonaj **niezależnym subagentem** (agent
+dostaje nazwę repo i intencję zadania, zwraca listę plików/symboli
+z krótkim uzasadnieniem). Nie czytaj repo bazowego samodzielnie w tej
+sesji — to jedyny dopuszczalny kontakt tego skilla z `.repos/` i nadal
+nie jest to budowanie (zasada 1).
 
 Pozostałe pola (pytaj tylko, gdy opis ich nie rozstrzyga):
 
@@ -73,7 +90,7 @@ Pozostałe pola (pytaj tylko, gdy opis ich nie rozstrzyga):
 ### 2. Akceptacja paczki
 
 Przedstaw zlecenia zbiorczo (tabelka: nazwa, typ, repo, naprowadzenie,
-timeout + jedno zdanie opisu) i uzyskaj akceptację użytkownika. Dopiero
+timeout, oś oceny + jedno zdanie opisu) i uzyskaj akceptację użytkownika. Dopiero
 po niej pisz do backlogu.
 
 ### 3. Zapis do backlogu

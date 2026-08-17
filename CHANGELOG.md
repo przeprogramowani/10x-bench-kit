@@ -6,6 +6,22 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.14.3 — 2026-08-18 (neutralny)
+
+Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
+i runnera.
+
+**Oś oceny w zleceniu zadania** — wywiad bench-new-task pyta zawsze
+o główną oś kalibracji rubryki (do's and dont's różnicujące oceny
+w danym zadaniu); nowe pole **Oś oceny** we wpisie backlogu, a
+bench-build (TASK_AUTHORING) traktuje je jako wiążące przy doborze
+wariantów kalibracyjnych i przekazuje do bench-rubric.
+
+**Chirurgiczne prompty przez subagenta** — przy poziomie naprowadzenia
+*chirurgicznym* analizę repo bazowego z `.repos/` (ustalenie
+plików/symboli do wpisu) bench-new-task wykonuje niezależnym
+subagentem zamiast czytać repo w sesji wywiadu.
+
 ## 0.14.2 — 2026-08-17 (neutralny)
 
 Refactor DX — artefakt dashboardu bajt w bajt bez zmian (poza źródłem).

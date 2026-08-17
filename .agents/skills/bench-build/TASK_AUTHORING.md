@@ -167,9 +167,13 @@ Wejście do kontenera oceny odtwarza środowisko od zera i kosztuje minuty
   szybsza niż kontenerowa; do kontenera wchodzisz z gotową asercją,
   nie z hipotezą.
 - **Wytwórz od razu komplet diffów**: wzorzec + warianty, które
-  przewidujesz dla kalibracji rubryki (zwykle: naprawa częściowa /
-  objawowa, poprawna naprawa z nadmiarowym zakresem, poprawna naprawa
-  nieidiomatyczna). Kontekst repo masz otwarty raz — to moment, w którym
+  przewidujesz dla kalibracji rubryki. Jeśli wpis zlecenia ma pole
+  **Oś oceny**, to ono jest wiążące: warianty mają rozciągać skalę
+  wzdłuż tej osi (np. oś "minimalny diff" → wariant poprawny, ale
+  rozlazły), a zadeklarowane do's and dont's trafiają do materiału
+  dla rubryki. Bez osi w zleceniu dobierz warianty sam (zwykle:
+  naprawa częściowa / objawowa, poprawna naprawa z nadmiarowym
+  zakresem, poprawna naprawa nieidiomatyczna). Kontekst repo masz otwarty raz — to moment, w którym
   warianty kosztują minuty zamiast osobnej sesji. Zapisz je od razu
   w `evaluation-pool/judge/<zadanie>-calibration/`.
 - **Każdy diff przepuść przez tanie bramki**, zanim cokolwiek zmierzysz:
@@ -201,7 +205,8 @@ musi sama instalować swoje zależności (etap oceny może używać sieci)
 i nie może karać agenta za zastane problemy repo bazowego.
 
 Dla składowej `judge/*`: rubrykę twórz/kalibruj skillem **bench-rubric**,
-nie ręcznie w ramach tej procedury.
+nie ręcznie w ramach tej procedury; pole **Oś oceny** ze zlecenia
+przekaż tam jako punkt wyjścia kryteriów.
 
 ### 5. Wagi
 

@@ -31,6 +31,10 @@ Skille tylko edytują ten plik — gitem zarządza użytkownik.
 - **Repo bazowe**: <nazwa z base_repos w bench.config.yaml>
 - **Poziom naprowadzenia**: <produktowy / kierunkowy / chirurgiczny>
 - **Trudność / timeout**: <łatwe|średnie|trudne> / <timeout_s> s
+- **Oś oceny**: <co różnicuje oceny w tym zadaniu — do's and dont's
+  od użytkownika (np. "premiuj minimalny diff", "nie wolno zmieniać
+  API publicznego"); bench-build kalibruje pod to rubrykę i warianty.
+  Gdy użytkownik świadomie nie wskazał osi: "do uznania bench-build".>
 - **Opis**: <2–6 zdań: co jest do zrobienia, objaw/cel, granice
   ("nie zmieniaj niczego poza…"). Dla zadań typu "napraw": jaki bug
   ma zostać zasiany overlayem i po czym poznać, że jest naprawiony.>
