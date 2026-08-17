@@ -9,7 +9,7 @@ import { z } from "zod";
 export const BaseRepo = z.object({
   /** Identyfikator używany w task.yaml (pole `repo`). */
   name: z.string().min(1),
-  /** URL do klonowania (dostęp read-only przez deploy key / token). */
+  /** URL do klonowania — https; repo prywatne przez sekret BASE_REPO_TOKEN (contents:read), wpinany w CI przez url.insteadOf. */
   url: z.string().min(1),
 });
 

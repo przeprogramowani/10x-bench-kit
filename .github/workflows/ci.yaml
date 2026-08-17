@@ -75,7 +75,7 @@ jobs:
                    "default template'u się zmienił, zaktualizuj ten krok"; exit 1; }
             sed -i "s|$pattern|$replacement|" "$file"
           }
-          subst "git@github.com:example-org/demo-app.git" "$BASE_REPO_URL" bench.config.yaml
+          subst "https://github.com/example-org/demo-app.git" "$BASE_REPO_URL" bench.config.yaml
           subst "openrouter/anthropic/claude-opus-5" "$JUDGE_MODEL" bench.config.yaml
           subst "- openrouter/anthropic/claude-sonnet-5" "- $TRIAL_MODEL" bench.config.yaml
           subst "\"0000000000000000000000000000000000000000\"" "\"$BASE_REPO_PIN\"" tasks/demo-hello-bench/task.yaml

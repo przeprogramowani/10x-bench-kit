@@ -4,9 +4,14 @@
 # Rytuał: nowy model na rynku → dispatch z jego ID → nowy wiersz w tabeli.
 # Wszystkie parametry mają defaults z bench.config.yaml.
 #
-# Wymagane sekrety instancji: klucze API providerów używanych przez
-# oceniane modele i sędziego (np. OPENROUTER_API_KEY); dla prywatnych
-# repozytoriów bazowych dodatkowo deploy key / token read-only.
+# Wymagane sekrety instancji:
+# - klucze API providerów używanych przez oceniane modele i sędziego
+#   (np. OPENROUTER_API_KEY),
+# - BASE_REPO_TOKEN — gdy którekolwiek repo bazowe jest prywatne:
+#   fine-grained PAT (tylko contents:read) obejmujący wszystkie prywatne
+#   base_repos. Wystarczy env — runner sam wpina token w git fetch/ls-remote
+#   (url.insteadOf per wywołanie); do kontenerów prób nie trafia.
+#   Przy samych repo publicznych sekret jest zbędny.
 
 name: bench-run
 
@@ -38,6 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+    env:
+      BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,6 +71,7 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

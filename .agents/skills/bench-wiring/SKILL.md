@@ -88,14 +88,15 @@ i przeczytaj co już jest:
 
 Dla każdego repo, na którym mają powstawać zadania:
 
-- **Publiczne** → URL `https://…` — klonuje się bez sekretów, zero
-  dodatkowego wiringu. Jeśli zastałeś URL `git@…`, sprawdź
-  `git ls-remote https://…` — gdy działa, przepisz na https i pomiń
-  całą sekcję sekretów dla tego repo (SSH wymusza klucz w kontenerze/CI
-  tam, gdzie https nie wymaga nic).
-- **Prywatne** → dostęp wyłącznie read-only: deploy key (URL `git@…`)
-  albo fine-grained token (URL `https://…`, tylko contents:read).
-  Nazwa sekretu do checklisty (zasada 2), np. `BASE_REPO_<NAZWA>_KEY`.
+URL zawsze `https://…` (zastane `git@…` przepisz — workflow wspiera
+tylko https + token):
+
+- **Publiczne** → klonuje się bez sekretów, zero dodatkowego wiringu.
+- **Prywatne** → jeden sekret `BASE_REPO_TOKEN` na instancję:
+  fine-grained PAT z dostępem wyłącznie contents:read do wszystkich
+  prywatnych repo bazowych. Wystarczy obecność w env (sekret w CI,
+  eksport lokalnie do smoke) — runner sam wpina token w fetch/ls-remote;
+  do checklisty (zasada 2) trafia tylko nazwa sekretu.
 
 Wpisy w `base_repos` (`name` + `url`); placeholder `demo-app` usuń albo
 podmień. Benchmark nigdy nie modyfikuje repo bazowych — jeśli użytkownik
@@ -135,7 +136,7 @@ Zbuduj listę nazw z decyzji z kroków 2–3 i zweryfikuj obecność:
 |---|---|---|
 | klucz(e) providerów ocenianych modeli (np. `OPENROUTER_API_KEY`) | próby agenta | repo instancji (Actions) + env lokalnie do smoke |
 | klucz providera sędziego (często ten sam co wyżej) | `bench evaluate` | jw. |
-| deploy key / token per prywatne repo bazowe | klonowanie przy `run` | jw. |
+| `BASE_REPO_TOKEN` (gdy jest choć jedno prywatne repo bazowe) | klonowanie przy `validate`/`run` | jw. |
 
 Weryfikacja: `gh secret list` w repo instancji oraz `[ -n "$…" ]`
 lokalnie — obecność, nigdy wartości (zasada 2). Checklista trafia do

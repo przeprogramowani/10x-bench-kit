@@ -29,7 +29,8 @@ Szczegóły kontraktu każdej strefy — w README danej strefy.
 1. `10x bench-kit init <katalog>` — materializuje template, robi świeży
    `git init`, zapisuje wersję w manifeście instancji.
 2. Wiring sekretów: klucze API ocenianych modeli, klucz modelu-sędziego,
-   token read-only do repozytoriów bazowych.
+   a przy prywatnych repozytoriach bazowych `BASE_REPO_TOKEN`
+   (fine-grained PAT, tylko contents:read).
 3. Customizacja przez skille (rozmowa z agentem): obraz pod stack firmy,
    wypełnienie `evaluation-pool/`, kalibracja rubryk, pierwsze zadania.
 4. `bench validate` — bramka przed pierwszym runem.

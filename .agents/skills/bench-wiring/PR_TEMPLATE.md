@@ -14,7 +14,7 @@ zdaniem uzasadnienia.>
 <nazwy, nigdy wartości; status obecności z `gh secret list` / env:>
 
 - [ ] `OPENROUTER_API_KEY` — próby agenta + sędzia — <obecny w repo / DO USTAWIENIA>
-- [ ] `BASE_REPO_<NAZWA>_KEY` — klonowanie prywatnego repo bazowego — <status>
+- [ ] `BASE_REPO_TOKEN` — klonowanie prywatnych repo bazowych (fine-grained PAT, contents:read) — <status / "zbędny — same repo publiczne">
 
 ## Dowody
 

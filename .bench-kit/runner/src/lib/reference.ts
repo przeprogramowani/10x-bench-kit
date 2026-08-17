@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { must, sh } from "./containers.ts";
+import { gitAuthArgs } from "./git-auth.ts";
 import { readYamlFile } from "./instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
 
@@ -42,7 +43,7 @@ export function buildEvalPlan(root: string, refs: string[]) {
 export function buildStartWorkspace(repoUrl: string, commit: string, overlayDir: string | null): string {
   const workspace = mkdtempSync(join(tmpdir(), "bench-reference-"));
   must("git", ["init", "-q", workspace], "git init workspace referencyjnego");
-  must("git", ["-C", workspace, "fetch", "--depth", "1", repoUrl, commit], `fetch pinowanego commita ${commit.slice(0, 12)}…`, {
+  must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, commit], `fetch pinowanego commita ${commit.slice(0, 12)}…`, {
     timeout: 300_000,
   });
   must("git", ["-C", workspace, "checkout", "-q", commit], "checkout pinowanego commita");
