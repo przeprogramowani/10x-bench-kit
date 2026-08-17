@@ -46,20 +46,59 @@ i zakończ — nie wymyślaj zadań sam.
    przechodzi na `in-progress`, po zakończeniu na `done` albo wraca na
    `pending` z notatką o przyczynie. Backlog to edycja pliku, nie
    commit (zasada 3).
-5. **Równolegle tylko w izolacji.** Subagenci budują równolegle
-   wyłącznie, gdy mechanizm subagentów twojego narzędzia daje każdemu
-   izolowaną kopię repo (np. osobny git worktree) — dwóch agentów
-   w jednym drzewie roboczym nadpisuje sobie nawzajem pliki. Bez
-   izolacji buduj sekwencyjnie. Przy równoległości ogranicz się do
-   2–3 subagentów naraz (kontenery oceny konkurują o maszynę),
-   a po ukończeniu subagenta przenieś jego pliki (listę ma raport)
-   z izolowanej kopii do drzewa roboczego instancji — kopiowanie
-   plików, nie operacje gita.
+5. **Równolegle to domyślny tryb.** Zlecenia z jednej paczki są
+   niezależne: każdy subagent pisze wyłącznie do `tasks/<swoje-zadanie>/`
+   i do własnych katalogów w `evaluation-pool/`, a `.repos/<nazwa>/`
+   traktuje read-only — nie ma więc czego sobie nadpisywać i budowa
+   w jednym drzewie roboczym jest bezpieczna. Izolowana kopia repo
+   (worktree) nie jest wymagana; bywa wręcz szkodliwa, bo `.repos/`
+   jest w `.gitignore` i w świeżym worktree klonów po prostu nie ma.
+   Ogranicz się do 2–3 subagentów naraz — nie z obawy o pliki, tylko
+   dlatego, że kontenery oceny konkurują o maszynę. Kolejne zlecenia
+   puszczaj falami, gdy paczka jest większa. Sekwencyjnie buduj tylko
+   wtedy, gdy dwa zlecenia realnie celują w te same pliki (np. wspólna
+   nowa asercja w puli) — wtedy powiedz to subagentom wprost albo
+   ustaw je jedno po drugim. Jeśli mimo wszystko użyjesz izolowanych
+   kopii, po ukończeniu subagenta przenieś jego pliki (listę ma raport)
+   do drzewa roboczego instancji — kopiowanie plików, nie operacje gita.
 6. **Wspólne zasoby przygotuj raz, przed fan-outem.** Zrób
    `git fetch origin` w klonach `.repos/<nazwa>/` potrzebnych rep
    bazowych (brakujące sklonuj — konwencja z AGENTS.md) i zabroń
    subagentom fetchowania: równoległe fetche w jednym klonie ścigają
-   się o locki gita.
+   się o locki gita. To samo dotyczy `evaluation-pool/`: **inwentarz
+   puli robisz ty, przed fan-outem** (zasada 6a niżej) — subagent
+   szukający reużycia na własną rękę widzi tylko stan sprzed startu
+   sąsiada i dopisze drugą asercję o tym samym znaczeniu pod inną
+   nazwą. Po fan-oucie klon jest dla subagentów read-only:
+   czytają z niego, a gdy potrzebują stanu na pinie, robią
+   `git worktree add` pod nazwą unikalną dla swojego zadania — nigdy
+   checkoutu na wspólnym HEAD. Przekaż im to w prompcie razem
+   z nazwami zadań budowanych równolegle obok nich.
+6a. **Pulę asercji rozstrzygasz przed fan-outem.** Równoległe
+   subagenty nie widzą swojej pracy w toku, więc bez twojej decyzji
+   dwa zlecenia potrzebujące tej samej asercji zbudują ją dwa razy pod
+   różnymi nazwami — a duplikat w puli jest trwałym długiem: rozjeżdża
+   się przy pierwszej poprawce i psuje reużycie kolejnym zadaniom.
+   Dlatego przed startem:
+
+   - **Zinwentaryzuj pulę**: wypisz istniejące `evaluation-pool/<typ>/
+     <nazwa>/` z jednozdaniowym "co sprawdza" (wystarczy nagłówek
+     `check.yaml`). Tę listę wkładasz każdemu subagentowi do promptu —
+     reużycie ma być decyzją na podstawie faktów, nie własnego skanu.
+   - **Zestaw ją z notatkami zleceń**: notatki z backlogu mówią, jakich
+     asercji zlecenie potrzebuje. Wyłap pary zleceń celujące w to samo
+     (np. dwa zadania chcące "brak odczytu `localStorage` na ścieżce
+     SSR").
+   - **Rozstrzygnij pokrycie** i przekaż decyzję w promptach:
+     *pokrywa istniejąca asercja* → nazwij ją i każ reużyć zamiast
+     tworzyć; *potrzebna nowa, wspólna dla dwóch zleceń* → wskaż
+     **właściciela**, który ją tworzy, a drugie zlecenie puść dopiero
+     po nim, z poleceniem reużycia gotowej nazwy; *nowe i rozłączne* →
+     każdy buduje swoje, a ty narzucasz prefiks nazwy (nazwa zadania),
+     żeby nazwy nie kolidowały.
+
+   Jeśli duplikat wyjdzie dopiero z raportów, nie scalaj go sam
+   (zasada 1) — odnotuj go użytkownikowi jako dług do rozstrzygnięcia.
 7. **Budżet zamiast rytuału zgody.** Kosztów pilnuje
    `defaults.max_cost_usd` w bench.config.yaml; po budowie zbierz
    koszty z raportów subagentów i podaj sumę. Zgody użytkownika wymaga
@@ -85,8 +124,12 @@ braków — do uzupełnienia, nie do budowy.
   cokolwiek zbudujesz — subagenci nie będą w stanie odróżnić swojej
   czerwieni od zastanej.
 - Świeże klony `.repos/` dla wszystkich rep bazowych paczki (zasada 6).
-- Ustal tryb: równolegle (izolacja dostępna, 2–3 naraz) czy
-  sekwencyjnie.
+- Inwentarz `evaluation-pool/` + rozstrzygnięcie pokrycia asercji dla
+  zleceń paczki (zasada 6a): co reużyć, co nowe i wspólne (z właścicielem),
+  co nowe i rozłączne.
+- Sprawdź, czy któreś dwa zlecenia celują w te same pliki — jeśli nie
+  (przypadek domyślny), buduj równolegle, falami po 2–3 (zasada 5).
+  Zlecenie czekające na wspólną asercję idzie w fali po jej właścicielu.
 
 ### 3. Fan-out
 
@@ -100,7 +143,18 @@ w prompcie:
   skilli instancji) — to jest jego procedura, z twardymi zasadami
   i szablonem raportu;
 - korzeń instancji i przypomnienie: zero gita, nie fetchować
-  w `.repos/`, nie dotykać backlogu, pracować tylko w swoim zakresie;
+  w `.repos/` (klon jest read-only; własny stan tylko przez
+  `git worktree add` pod unikalną nazwą), nie dotykać backlogu,
+  pracować tylko w swoim zakresie;
+- nazwy zadań budowanych równolegle obok niego — żeby wiedział, czyich
+  plików nie ruszać i skąd może brać się cudza czerwień w
+  `bench validate`, którego nie wolno mu "naprawiać";
+- inwentarz `evaluation-pool/` i twoje rozstrzygnięcie asercji
+  (zasada 6a): co ma reużyć pod konkretną nazwą, co ma zbudować jako
+  nowe i pod jakim prefiksem nazwy. Dopisz wprost, że pula może się
+  zmieniać pod nim w trakcie (sąsiad dopisuje swoje katalogi), więc
+  ponowny skan puli w trakcie pracy niczego nie rozstrzyga — wiąże go
+  twoje rozstrzygnięcie, a rozbieżność z nim zgłasza w raporcie;
 - format raportu końcowego: REPORT_TEMPLATE.md (lista plików, dowody
   z referencji, koszt) + problemy.
 
@@ -110,8 +164,9 @@ orkiestracji.
 
 ### 4. Zbiór wyników i statusy
 
-Po każdym subagencie: w trybie izolowanym przenieś jego pliki do
-drzewa instancji (zasada 5), zaktualizuj wpis na `done` albo przywróć
+Po każdym subagencie: (w trybie domyślnym jego pliki są już w drzewie
+instancji; tylko przy izolowanych kopiach przenieś je — zasada 5),
+zaktualizuj wpis na `done` albo przywróć
 `pending` z notatką przy odmowie/błędzie. Nie poprawiaj sam pracy
 subagenta — nieudane zlecenie wraca do kolejki z diagnozą, nie z twoją
 łatką.

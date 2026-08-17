@@ -35,7 +35,10 @@ ze zlecenia w backlogu), timeout i uzasadnienie.>
 ## Asercje i wagi
 
 <per asercja: reużyta z puli czy nowa, deklaracja reference (pass/fail)
-i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia.>
+i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia. Jeśli
+odszedłeś od rozstrzygnięcia asercji, które dał orkiestrator (reużycie
+zamiast nowej lub odwrotnie) — powiedz to wprost, żeby mógł domknąć
+ewentualny duplikat w puli.>
 
 ## Skutki dla porównywalności
 

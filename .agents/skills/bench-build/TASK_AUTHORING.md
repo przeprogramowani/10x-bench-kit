@@ -55,10 +55,15 @@ zbudowane na domysłach.
 7. **Świadomość er.** Każda zmiana `tasks/<nazwa>/` zmienia `task_hash`
    tego zadania (nowa era). Raport musi to mówić wprost — sekcja
    "Skutki dla porównywalności" w szablonie raportu.
-8. **`.repos/` bez fetchowania.** Klony przygotował orkiestrator przed
-   fan-outem; równoległe fetche ścigają się o locki gita. Korzystasz
-   z klonu read-only (lokalne gałęzie/worktree do eksperymentów są OK);
-   jeśli klonu brakuje, zgłoś to w raporcie zamiast klonować obok
+8. **`.repos/` jest read-only i współdzielony.** Klony przygotował
+   orkiestrator przed fan-outem; nie fetchujesz i nie klonujesz —
+   równoległe fetche ścigają się o locki gita. Obok ciebie budują
+   równolegle inne subagenty na tym samym klonie, więc nie ruszasz
+   stanu współdzielonego: żadnego checkoutu na wspólnym HEAD ani
+   operacji na wspólnym indeksie. Gdy potrzebujesz drzewa na pinie,
+   zrób `git worktree add` pod nazwą zawierającą nazwę twojego zadania
+   i pracuj wyłącznie tam; sporadyczny `index.lock` po prostu ponów.
+   Jeśli klonu brakuje, zgłoś to w raporcie zamiast klonować obok
    innych subagentów.
 
 ## Narzędzia runnera
@@ -138,8 +143,18 @@ temperament, nie umiejętność.
 
 ### 4. Asercje
 
-Najpierw przejrzyj `evaluation-pool/` pod **reużycie** — asercje są
-wspólne dla wielu zadań. Brakujące twórz **w puli** (katalog
+Asercje są wspólne dla wielu zadań, więc **reużycie rozstrzyga
+orkiestrator przed twoim startem**: masz w prompcie inwentarz puli
+i decyzję — co reużyć pod konkretną nazwą, co zbudować jako nowe i pod
+jakim prefiksem nazwy. Trzymaj się jej. Ponowny skan `evaluation-pool/`
+w trakcie pracy niczego nie rozstrzyga: obok ciebie budują inne
+subagenty i pula zmienia się pod tobą, a asercja, której jeszcze nie
+widzisz, może już powstawać. Jeśli w trakcie okaże się, że decyzja nie
+pasuje (asercja wskazana do reużycia nie mierzy tego, czego trzeba;
+potrzebujesz asercji spoza rozstrzygnięcia) — zbuduj własną pod swoim
+prefiksem i **zgłoś rozbieżność w raporcie**, żeby orkiestrator mógł
+domknąć ewentualny duplikat; nie scalaj i nie edytuj cudzych asercji.
+Nowe twórz **w puli** (katalog
 `evaluation-pool/<typ>/<nazwa>/check.yaml`), nigdy w katalogu zadania.
 Ukryte pliki testów trzymaj w katalogu asercji (w kontenerze oceny są
 pod `$ASSERTION_DIR`).
