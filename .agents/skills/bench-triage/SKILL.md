@@ -100,9 +100,28 @@ różnica zwykle wskazuje jedną składową, nie wszystkie.
 | niepusty `patch.diff`, a judge 0 | nagłówki hunków (`@@ -1,N +1,M @@` na całym pliku) | destrukcyjne nadpisanie zamiast edycji przyrostowej → wina modelu (werdykt sędziego to potwierdzi w uzasadnieniach) |
 
 Reprodukcje z prawej kolumny wykonuj wg zasad 2 i 5 (dowód komendą,
-koszty jawne).
+koszty jawne) — z dwoma zastrzeżeniami, bo reprodukcja to najdroższa
+czynność w całym skillu:
+
+- **Wyczerpaj artefakty przed pierwszą reprodukcją.** Artefakty są już
+  zapłacone; reprodukcja kosztuje kontener albo wywołania sędziego.
+  Bardzo często pełna diagnoza jest w `patch.diff` i ogonie logu — np.
+  sam kod wyjścia procesu plus ostatnie linie logu jednoznacznie
+  wskazują wyczerpanie zasobów, bez uruchamiania czegokolwiek.
+- **Grupuj reprodukcje.** Jeśli musisz odtworzyć asercję lub werdykt,
+  zrób to dla wszystkich podejrzanych prób naraz (jedno wejście do
+  środowiska / równoległe wywołania w tle), nie próba po próbie w miarę
+  czytania.
 
 ### 5. Klasyfikacja i delegacja
+
+**Reguła stopu:** klasa przyczyny jest wyjściem skilla — gdy dowody
+wystarczają do jej wskazania, kończysz. Dokładniejsza analiza wewnątrz
+klasy należy do skilla naprawczego, który i tak zacznie od własnych
+pomiarów. I **diagnozy powtarzalne kieruj do skilla źródłowego**: jeśli
+ta sama klasa awarii wraca (wzorzec, nie incydent), wyjściem triage'u
+jest poprawka procedury w skillu, który ją produkuje — inaczej płacisz
+ten sam triage co run.
 
 - **Wina modelu** — wynik zostaje, leaderboard mówi prawdę. W wyjściu
   opisz wzorzec zachowania (to cenniejsze niż liczba: "gubi tool
@@ -122,3 +141,23 @@ Komentarz (przy PR/runie) albo issue wg
 klasa → rekomendacja → koszt triage. Scoringu nie zmieniasz (zasada 1);
 jeśli naprawa jest pilna, uruchom właściwy skill osobno, po zgodzie
 użytkownika.
+
+### 7. Następny krok
+
+Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan jednym
+zdaniem (co zdiagnozowane, gdzie issue), **jedna** rekomendacja
+z jednozdaniowym uzasadnieniem, maksymalnie dwie alternatywy z ceną,
+oraz — oddzielnie — to, co czeka na decyzję człowieka. Typowe przejścia
+wg klasy:
+
+- **wina zadania** → bench-refresh albo bench-task — zależnie od tego,
+  czy naprawa zachowuje intencję zadania;
+- **wina rubryki** → bench-rubric;
+- **wina infrastruktury** → run do powtórzenia po naprawie — wyniki
+  dotkniętych prób są nieinterpretowalne;
+- **wina modelu** → nic w benchmarku — to jest odpowiedź, nie problem
+  do naprawy.
+
+Nie proponuj kolejnego runu, dopóki poprzedni nie jest zinterpretowany:
+jeśli w runie były próby zabite przez infrastrukturę, drugi run powtórzy
+tę samą awarię i tę samą fakturę.

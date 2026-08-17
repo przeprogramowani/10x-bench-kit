@@ -90,10 +90,16 @@ zadania:
 
 ```
 git log --oneline <stary-pin>..<nowy-pin> -- <ścieżki zadania>
+git diff <stary-pin>..<nowy-pin> -- <ścieżki zadania>
 ```
 
-To wejście do kroku 3. Zweryfikuj, że projekt na nowym pinie się
-buduje, a pliki, których zadanie dotyczy, istnieją.
+**Zacznij od tego diffu obszaru zadania — zanim uruchomisz jakąkolwiek
+bramkę.** To najtańsza możliwa informacja i ona rozstrzyga, w którym
+scenariuszu kroku 3 jesteś: "sens bez zmian" (dowody powinny przejść bez
+adaptacji), "sens po adaptacji" (wiesz z góry, co adaptować), czy "brak
+sensu" (kończysz po jednej komendzie zamiast po pełnym cyklu). To
+wejście do kroku 3. Zweryfikuj, że projekt na nowym pinie się buduje,
+a pliki, których zadanie dotyczy, istnieją.
 
 Jeśli stary pin to nadal HEAD repo bazowego, refresh sprowadza się do
 odnowienia `expires` — dowody z kroków 4–5 i tak wykonujesz (potwierdzasz,
@@ -113,6 +119,12 @@ Trzy możliwe wyjścia — nazwij, które zachodzi:
   zadanie ratowane na siłę mierzy szum, nie pracę agenta.
 
 ### 4. Overlay na nowym pinie
+
+**Adaptuj materiał zanim uruchomisz bramki, nie po ich czerwieni.**
+Jeśli diff obszaru (krok 2) pokazuje, że plik odjechał, to overlay,
+wzorzec i diffy kalibracyjne wymagają przeniesienia — zrób to od razu,
+jednym posiedzeniem w repo, zamiast odkrywać każdy z osobna kolejnym
+czerwonym przejściem przez kontener.
 
 Pliki overlay **nadpisują** pliki repo przy starcie próby. Na nowym
 pinie stary overlay może nadpisywać świeższą wersję pliku — czyli
@@ -153,7 +165,10 @@ nie formalność.
 
 ### 7. Samosprawdzenie
 
-Kolejno, każde musi przejść:
+Wejście do kontenera oceny kosztuje minuty — zbieraj **komplet dowodów
+jednym wejściem** (grupuj asercje i diffy w jednym wywołaniu; jeśli
+musisz wejść kilka razy, puść wywołania równolegle w tle i zbierz wyniki
+razem). Kolejno, każde musi przejść:
 
 1. `bench validate --assert` — zielone, bez warningu `expires`.
 2. Wzorzec: `bench assert --task <nazwa> --patch <wzorzec.diff>` →
@@ -168,4 +183,16 @@ Kolejno, każde musi przejść:
 Gałąź `bench-refresh/<nazwa>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
 stary → nowy pin z tym, co zaszło między nimi; adaptacje z uzasadnieniem;
 komplet dowodów z nowej referencji; sekcja "to otwiera nową erę tego
-zadania"; koszt samosprawdzenia.
+zadania"; koszt samosprawdzenia. Zestaw poprzednie wyniki (krok 1) obok
+nowych jako **punkt odniesienia**: identyczne liczby na nowym pinie to
+najmocniejszy sygnał, że refresh niczego nie zepsuł, i skracają przegląd
+PR-a.
+
+### 9. Następny krok
+
+Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan instancji
+jednym zdaniem, **jedna** rekomendacja z jednozdaniowym uzasadnieniem,
+maksymalnie dwie alternatywy z ceną, oraz — oddzielnie — to, co czeka na
+decyzję człowieka. Typowe przejście: zadanie na nowym pinie, PR otwarty
+→ **merge**; jeśli zbiór kalibracyjny nie przeszedł na nowy pin —
+**bench-rubric**.

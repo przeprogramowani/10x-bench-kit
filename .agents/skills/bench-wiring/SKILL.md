@@ -154,6 +154,26 @@ to brak runnera — zgłoś issue z konkretem (zasada 3), nie edytuj
 bazowego Dockerfile'a i nie obiecuj obrazu pochodnego, którego runner
 nie zbuduje.
 
+Wiring to jedyny moment, w którym koszt przygotowania środowiska płaci
+się raz i amortyzuje na wszystkich późniejszych zadaniach — domknij tu
+trzy decyzje, zamiast zostawiać je każdemu autorowi zadania jako
+odkrycie:
+
+- [ ] **Ustal politykę cache'u zależności** dla asercji tej instancji
+      (co asercje instalują same, co da się współdzielić między
+      wywołaniami) i zapisz ją jako decyzję wiringu w PR.
+- [ ] **Sprawdź limity zasobów kontenera próby** przeciwko realnemu
+      zapotrzebowaniu stacku. Agenci racjonalnie próbują **zweryfikować**
+      swoją zmianę, uruchamiając build lub testy; jeśli kontener próby
+      nie ma na to zasobów, giną w połowie pracy z kodem wyjścia
+      sygnału, a nie timeoutu — w wynikach wygląda to jak wina modelu
+      i kosztuje pełną rundę triage'u.
+- [ ] **Ustal domyślną politykę weryfikacji dla promptów** tej
+      instancji: czy agent ma weryfikować pracę uruchomieniem projektu,
+      czy ma tego nie robić. Cokolwiek wybierzecie, autorzy zadań piszą
+      to w `prompt.md` (skill bench-task) zamiast zostawiać agentowi
+      zgadywanie.
+
 ### 6. Bramka: validate
 
 Kolejno, aż zielone:
@@ -174,7 +194,12 @@ bench run --smoke --tasks demo-hello-bench --models <najtańszy oceniany>
 bench evaluate --run <katalog runu>
 ```
 
-Czytasz `result.json`: total, koszt, czas. Potem właściwy test wiringu
+Czytasz `result.json`: total, koszt, czas. Przy okazji smoke'a **zmierz
+i zapisz koszt zimnego cyklu oceny** — ile trwa jedno `bench assert` na
+realnym zadaniu tej instancji. To liczba, którą autorzy zadań muszą
+znać, zanim zaprojektują asercję: przy kilku minutach na wywołanie
+strategia pracy jest inna niż przy kilkunastu sekundach. Wpisz ją do
+opisu PR-a wiringu. Potem właściwy test wiringu
 end-to-end: `workflow_dispatch` workflow `bench-run` w GH Actions (to
 jedyne miejsce, gdzie sekrety repo faktycznie pracują). Nieudany smoke
 = wracasz do kroku, którego dotyczy przyczyna, z artefaktami w ręku.
@@ -184,5 +209,16 @@ jedyne miejsce, gdzie sekrety repo faktycznie pracują). Nieudany smoke
 Gałąź `bench-wiring/<opis>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
 decyzje (repo, modele, sędzia) z uzasadnieniem, checklista sekretów ze
 statusem obecności, dowody (wyjście `validate`, wynik smoke runu
-z kosztem), sekcja "Skutki dla porównywalności" (pierwsza era: sędzia +
+z kosztem), zmierzony koszt zimnego cyklu oceny i decyzje środowiskowe
+z kroku 5, sekcja "Skutki dla porównywalności" (pierwsza era: sędzia +
 wersje rubryk; co ją w przyszłości zamknie).
+
+### 9. Następny krok
+
+Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan instancji
+jednym zdaniem (co skonfigurowane, co czeka na przegląd), **jedna**
+rekomendacja z jednozdaniowym uzasadnieniem, maksymalnie dwie
+alternatywy z ceną, oraz — oddzielnie — to, co czeka na decyzję
+człowieka (merge PR-a, ustawienie sekretów). Typowe przejście: instancja
+skonfigurowana, smoke przeszedł → **bench-task** — instancja bez zadań
+nic nie mierzy.

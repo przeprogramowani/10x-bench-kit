@@ -79,6 +79,24 @@ Diffy muszą się **aplikować na stan startowy zadania** (repo@pin +
 overlay). Zapisz zbiór w `evaluation-pool/judge/<zadanie>-calibration/`
 wraz z `expected.md` (oczekiwania + uzasadnienie).
 
+"Aplikuje się" nie znaczy "działa" — nie mierz materiału, którego nie
+sprawdziłeś. Checklista wejściowa, **przed pierwszym pomiarem**:
+
+- [ ] Zbiór pochodzi z bench-task (wytworzony przy zadaniu, gdy kontekst
+      repo był świeży) — jeśli go nie ma, wytwórz komplet za jednym
+      posiedzeniem w repo, nie diff po diffie.
+- [ ] Każdy diff aplikuje się na stan startowy zadania.
+- [ ] Każdy diff **kompiluje się / uruchamia** — to bramka o szczebel
+      tańsza niż sędzia i wyłapuje materiał martwy (sędzia czyta diff,
+      nie buduje projektu — nie wykryje diffu, który się nie kompiluje,
+      a jedna taka pozycja marnuje całą rundę werdyktów).
+- [ ] Każdy diff ma zmierzony wynik na **składowych nie-LLM-owych**
+      zadania (`bench assert --patch`). To nie jest praca podwójna: te
+      liczby i tak są potrzebne do realnego wyniku końcowego wariantu,
+      a przy okazji weryfikują, że diff robi to, co deklaruje
+      `expected.md`.
+- [ ] Dopiero teraz pierwszy `calibrate`.
+
 ### 2. Pomiar rozdzielczości
 
 ```
@@ -86,9 +104,19 @@ bench calibrate --task <zadanie> --set evaluation-pool/judge/<zadanie>-calibrati
   [--repeats 3] [--label <nazwa-rundy>]
 ```
 
-Komenda ocenia każdy diff `--repeats` razy (co najmniej 3), wypisuje
-tabelę min/med/max + rozrzut per diff i mediany per kryterium, i dopisuje
-rundę do `results.json` zbioru. Na tej tabeli sprawdź:
+Komenda ocenia każdy diff `--repeats` razy, wypisuje tabelę min/med/max
++ rozrzut per diff i mediany per kryterium, i dopisuje rundę do
+`results.json` zbioru.
+
+Stosuj **drabinę precyzji**: rundy diagnostyczne z minimalną liczbą
+powtórzeń (`--repeats 2`) — szukasz błędu rankingu i rażącego rozrzutu,
+do tego nie potrzeba precyzji; pełna liczba powtórzeń (`--repeats 5`)
+należy do rundy potwierdzającej, **raz**, na końcu, po ostatniej zmianie
+rubryki. Nie odwrotnie — różnica to kilkanaście wywołań modelu na
+iterację. Wywołania w ramach rundy są od siebie niezależne — mogą lecieć
+równolegle.
+
+Na tabeli z pomiaru sprawdź:
 
 - **Ranking**: mediany układają się zgodnie z oczekiwaniem
   (wzorzec > częściowe > poza-zakresem ≥ … > pusty)?
@@ -104,10 +132,26 @@ rundę do `results.json` zbioru. Na tej tabeli sprawdź:
 Gdzie sędzia myli dobre ze złym — doprecyzuj rubrykę, nie oczekiwania:
 dopisz do kryterium, co konkretnie znaczy 1.0 a co 0.5 (kotwice), nazwij
 kary (np. "zmiany niewymagane przez zadanie obniżają scope o…"), dodaj
-kryterium, jeśli dwa aspekty się zlewają. Po każdej zmianie — pełny
-pomiar z kroku 2 od nowa, na tym samym zbiorze. Zatrzymaj się, gdy
-ranking + separacja + stabilność są osiągnięte; nie tuninguj dalej
-(przeuczenie rubryki pod zbiór to też błąd).
+kryterium, jeśli dwa aspekty się zlewają.
+
+Zanim cokolwiek zmierzysz, przeczytaj rubrykę pod kątem dwóch wzorców
+awarii, które powtarzają się niezależnie od dziedziny i które naprawia
+się samym czytaniem (minuta zamiast straconej rundy pomiaru):
+
+1. **Kryterium bez dna dla przypadku degeneracyjnego.** Diff, który nic
+   nie robi, dostaje punkty za kryteria "negatywne" (nie zepsuł, nie
+   wyszedł poza zakres). Każde kryterium tego typu potrzebuje jawnej
+   klauzuli: przy braku pracy do oceny — zero.
+2. **Kotwice liczące zdarzenia zamiast ważyć skutek.** "Jedna zmiana
+   ponad potrzebę" to kotwica licząca; sędzia zastosuje ją dosłownie
+   i ukarze trzy nieszkodliwe drobiazgi surowiej niż jedną ryzykowną
+   przebudowę. Kotwice mają opisywać **skutek**, nie liczbę.
+
+Po zmianie rubryki mierzysz **cały zbiór** (inaczej porównujesz rubryki
+na różnych danych) — ale rundę diagnostyczną możesz zawęzić do diffów,
+których zmiana dotyczy, o ile runda potwierdzająca obejmie komplet.
+Zatrzymaj się, gdy ranking + separacja + stabilność są osiągnięte; nie
+tuninguj dalej (przeuczenie rubryki pod zbiór to też błąd).
 
 ### 4. PR
 
@@ -117,3 +161,12 @@ ranking + separacja + stabilność są osiągnięte; nie tuninguj dalej
 - podbicie `version` we frontmatterze rubryki **tylko jeśli** zmieniła
   się rubryka już użyta w policzonych wynikach (zasada 2),
 - w opisie PR-a: tabela median z kroku 2, wnioski, koszt kalibracji.
+
+### 5. Następny krok
+
+Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan instancji
+jednym zdaniem, **jedna** rekomendacja z jednozdaniowym uzasadnieniem,
+maksymalnie dwie alternatywy z ceną, oraz — oddzielnie — to, co czeka na
+decyzję człowieka. Typowe przejście: rubryka skalibrowana, PR
+zaktualizowany → **merge + pełny run na 2+ modelach** — kalibracja
+przewiduje wyniki, run je weryfikuje.
