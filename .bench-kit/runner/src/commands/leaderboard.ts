@@ -313,6 +313,81 @@ function tableHtml(rows, threshold) {
     }).join("") + "</tbody></table>";
 }
 
+// przybliżona szerokość etykiety w jednostkach viewBoxu (font 11px/600)
+const labelW = text => text.length * 6.6;
+
+// rozmieszczanie etykiet punktów bez kolizji: dla każdego punktu próbujemy
+// kolejnych pozycji nad/pod (coraz dalej), aż bounding box nie zahacza o już
+// położone etykiety ani o krawędź viewBoxu; etykieta odsunięta od punktu
+// dostaje cienki łącznik, żeby przypisanie pozostało czytelne
+function placePointLabels(items, W, H, m) {
+  const placed = [];
+  const out = [];
+  for (const it of [...items].sort((a, b) => a.px - b.px)) {
+    const w = labelW(it.text), h = 13;
+    const anchor = it.px > W - m.r - w / 2 ? "end" : it.px < m.l + w / 2 ? "start" : "middle";
+    const bx = anchor === "end" ? it.px - w : anchor === "start" ? it.px : it.px - w / 2;
+    let pick = null;
+    for (const dy of [-10, 15, -23, 28, -36, 41, -49, 54, -62, 67, -75, 80, -88, 93]) {
+      const ly = it.py + dy;
+      if (ly - h + 3 < 2 || ly > H - m.b - 2) continue;
+      const box = { x: bx - 2, y: ly - h + 3, w: w + 4, h };
+      if (!placed.some(p => box.x < p.x + p.w && p.x < box.x + box.w && box.y < p.y + p.h && p.y < box.y + box.h)) {
+        pick = { ly, box, dy };
+        break;
+      }
+    }
+    if (!pick) {
+      const ly = Math.min(Math.max(it.py - 10, h), H - m.b - 2);
+      pick = { ly, box: { x: bx - 2, y: ly - h + 3, w: w + 4, h }, dy: ly - it.py };
+    }
+    placed.push(pick.box);
+    out.push({ ...it, anchor, ly: pick.ly, leader: Math.abs(pick.dy) > 23 });
+  }
+  return out;
+}
+
+// rozsuwanie pionowe nakładających się etykiet (końcówki linii trendu):
+// sort po y, przepych w dół z minimalnym odstępem, potem korekta od dołu,
+// żeby całość zmieściła się w [lo, hi]
+function spreadY(ys, minGap, lo, hi) {
+  const idx = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < idx.length; k++) idx[k].y = Math.max(idx[k].y, idx[k - 1].y + minGap);
+  if (idx.length && idx[idx.length - 1].y > hi) idx[idx.length - 1].y = hi;
+  for (let k = idx.length - 2; k >= 0; k--) idx[k].y = Math.min(idx[k].y, idx[k + 1].y - minGap);
+  for (const p of idx) p.y = Math.max(p.y, lo);
+  for (let k = 1; k < idx.length; k++) idx[k].y = Math.max(idx[k].y, idx[k - 1].y + minGap);
+  const res = new Array(ys.length);
+  for (const p of idx) res[p.i] = p.y;
+  return res;
+}
+
+// deklaratywny zapis SVG: el(tag, atrybuty, ...dzieci) → string; dzieci mogą
+// być dowolnie zagnieżdżonymi tablicami (spłaszczane), falsy pomijane —
+// wykres składa się jak drzewo, bez ręcznego doklejania stringów
+const el = (tag, attrs = {}, ...children) => {
+  const a = Object.entries(attrs)
+    .filter(([, v]) => v !== undefined && v !== null && v !== false)
+    .map(([k, v]) => " " + k + '="' + v + '"').join("");
+  const kids = children.flat(Infinity).filter(Boolean).join("");
+  return kids ? "<" + tag + a + ">" + kids + "</" + tag + ">" : "<" + tag + a + "/>";
+};
+
+const chart = (W, H, label, ...children) =>
+  el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": label }, children);
+
+const hGridLine = (v, text, W, m, y) => [
+  el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }),
+  el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, text),
+];
+
+const thresholdLine = (threshold, W, m, y) =>
+  el("line", { x1: m.l, x2: W - m.r, y1: y(threshold), y2: y(threshold),
+    stroke: "var(--axis)", "stroke-width": 1, "stroke-dasharray": "4 3" });
+
+// tooltip: pierwszy element pogrubioną nazwą, reszta rozdzielona kropką
+const tipText = (name, ...parts) => "<b>" + esc(name) + "</b>" + parts.join(" · ");
+
 // jakość vs koszt: log-x (koszty rozpięte o rzędy wielkości), punkt per model,
 // identyczność niesiona kolorem ORAZ bezpośrednią etykietą (reguła relief)
 function scatterSvg(rows, threshold) {
@@ -323,33 +398,30 @@ function scatterSvg(rows, threshold) {
   if (hi <= lo) hi = lo + 1;
   const x = c => m.l + (Math.log10(Math.max(c, 1e-5)) - lo) / (hi - lo) * iw;
   const y = v => m.t + (1 - v) * ih;
-  let s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Jakość względem kosztu próby">';
-  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
-    s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--grid)" stroke-width="1"/>' +
-      '<text x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v.toFixed(2) + "</text>";
-  }
-  s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(threshold) + '" y2="' + y(threshold) +
-    '" stroke="var(--axis)" stroke-width="1" stroke-dasharray="4 3"/>' +
-    '<text x="' + (W - m.r) + '" y="' + (y(threshold) - 4) + '" text-anchor="end">próg ' + threshold + "</text>";
-  for (let e = lo; e <= hi; e++) {
-    const c = Math.pow(10, e);
-    const anchor = e === hi ? "end" : e === lo ? "start" : "middle";
-    s += '<text x="' + x(c) + '" y="' + (H - m.b + 16) + '" text-anchor="' + anchor + '">' + fmt.cost(c) + "</text>" +
-      '<line x1="' + x(c) + '" x2="' + x(c) + '" y1="' + (H - m.b) + '" y2="' + (H - m.b + 4) + '" stroke="var(--axis)"/>';
-  }
-  s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + (H - m.b) + '" y2="' + (H - m.b) + '" stroke="var(--axis)"/>' +
-    '<text x="' + (m.l + iw / 2) + '" y="' + (H - 4) + '" text-anchor="middle">koszt próby (log)</text>';
-  for (const r of rows) {
-    const px = x(r.median_cost_usd), py = y(r.median_total);
-    // etykiety trzymane wewnątrz viewBoxu: przy krawędziach zmiana kotwicy/strony
-    const anchor = px > W - 90 ? "end" : px < m.l + 90 ? "start" : "middle";
-    const ly = py < m.t + 16 ? py + 18 : py - 10;
-    s += '<circle cx="' + px + '" cy="' + py + '" r="5" fill="' + colorOf(r.model) +
-      '" stroke="var(--surface-1)" stroke-width="2" data-tip="<b>' + esc(short(r.model)) + "</b>mediana " + fmt.score(r.median_total) +
-      " · " + fmt.cost(r.median_cost_usd) + " · " + fmt.time(r.median_duration_s) + '"/>' +
-      '<text class="dl" x="' + px + '" y="' + ly + '" text-anchor="' + anchor + '">' + esc(short(r.model)) + "</text>";
-  }
-  return s + "</svg>";
+  const decades = Array.from({ length: hi - lo + 1 }, (_, k) => lo + k);
+  const points = placePointLabels(rows.map(r => ({
+    r, px: x(r.median_cost_usd), py: y(r.median_total), text: short(r.model),
+  })), W, H, m);
+  return chart(W, H, "Jakość względem kosztu próby",
+    [0, 0.25, 0.5, 0.75, 1].map(v => hGridLine(v, v.toFixed(2), W, m, y)),
+    thresholdLine(threshold, W, m, y),
+    el("text", { x: W - m.r, y: y(threshold) - 4, "text-anchor": "end" }, "próg " + threshold),
+    decades.map(e => [
+      el("text", { x: x(Math.pow(10, e)), y: H - m.b + 16,
+        "text-anchor": e === hi ? "end" : e === lo ? "start" : "middle" }, fmt.cost(Math.pow(10, e))),
+      el("line", { x1: x(Math.pow(10, e)), x2: x(Math.pow(10, e)), y1: H - m.b, y2: H - m.b + 4, stroke: "var(--axis)" }),
+    ]),
+    el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: "var(--axis)" }),
+    el("text", { x: m.l + iw / 2, y: H - 4, "text-anchor": "middle" }, "koszt próby (log)"),
+    points.map(({ r, px, py, text, anchor, ly, leader }) => [
+      leader && el("line", { x1: px, x2: px, y1: py + (ly > py ? 6 : -6), y2: ly > py ? ly - 10 : ly + 3,
+        stroke: "var(--axis)", "stroke-width": 1 }),
+      el("circle", { cx: px, cy: py, r: 5, fill: colorOf(r.model), stroke: "var(--surface-1)", "stroke-width": 2,
+        "data-tip": tipText(short(r.model), "mediana " + fmt.score(r.median_total),
+          fmt.cost(r.median_cost_usd), fmt.time(r.median_duration_s)) }),
+      el("text", { class: "dl", x: px, y: ly, "text-anchor": anchor }, esc(text)),
+    ]),
+  );
 }
 
 // trend median po runach w obrębie ery — tylko gdy jest co porównywać (>= 2 runy)
@@ -363,29 +435,45 @@ function trendSvg(runs, threshold) {
     if (!byModel.has(r.model)) byModel.set(r.model, []);
     byModel.get(r.model).push({ i, run, r });
   }));
-  let s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Trend median między runami">';
-  for (const v of [0, 0.5, 1]) {
-    s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--grid)"/>' +
-      '<text x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v.toFixed(1) + "</text>";
-  }
-  s += '<line x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(threshold) + '" y2="' + y(threshold) +
-    '" stroke="var(--axis)" stroke-width="1" stroke-dasharray="4 3"/>';
-  runs.forEach((run, i) => {
-    s += '<text x="' + x(i) + '" y="' + (H - m.b + 16) + '" text-anchor="middle">' + fmt.date(run.generated_at) + "</text>";
-  });
-  for (const [model, pts] of byModel) {
-    const c = colorOf(model);
-    s += '<polyline fill="none" stroke="' + c + '" stroke-width="2" points="' +
-      pts.map(p => x(p.i) + "," + y(p.r.median_total)).join(" ") + '"/>';
-    for (const p of pts) {
-      s += '<circle cx="' + x(p.i) + '" cy="' + y(p.r.median_total) + '" r="4" fill="' + c +
-        '" stroke="var(--surface-1)" stroke-width="2" data-tip="<b>' + esc(short(model)) + "</b>run " + esc(p.run.run_id) +
-        " · mediana " + fmt.score(p.r.median_total) + " · " + fmt.cost(p.r.median_cost_usd) + '"/>';
-    }
+  const series = [...byModel].map(([model, pts]) => {
     const last = pts[pts.length - 1];
-    s += '<text class="dl" x="' + (x(last.i) + 8) + '" y="' + (y(last.r.median_total) + 4) + '">' + esc(short(model)) + "</text>";
+    return { model, color: colorOf(model), pts, lx: x(last.i), ly: y(last.r.median_total) };
+  });
+  // etykiety końcówek rozsuwane pionowo per kolumna zakończenia serii —
+  // przy zbliżonych medianach lądowałyby jedna na drugiej
+  const byEnd = new Map();
+  series.forEach(sr => {
+    const key = Math.round(sr.lx);
+    byEnd.set(key, [...(byEnd.get(key) ?? []), sr]);
+  });
+  for (const group of byEnd.values()) {
+    const ys = spreadY(group.map(sr => sr.ly + 4), 13, m.t + 8, H - m.b - 2);
+    group.forEach((sr, k) => { sr.ty = ys[k]; });
   }
-  return s + "</svg>";
+  const endLabel = sr => {
+    const name = short(sr.model);
+    const maxW = W - (sr.lx + 8) - 2;
+    const label = labelW(name) <= maxW ? name : name.slice(0, Math.max(3, Math.floor(maxW / 6.6) - 1)) + "…";
+    return [
+      Math.abs(sr.ty - (sr.ly + 4)) > 7 && el("line", { x1: sr.lx + 5, x2: sr.lx + 7, y1: sr.ly, y2: sr.ty - 4,
+        stroke: "var(--axis)", "stroke-width": 1 }),
+      el("text", { class: "dl", x: sr.lx + 8, y: sr.ty, "data-tip": "<b>" + esc(name) + "</b>" }, esc(label)),
+    ];
+  };
+  return chart(W, H, "Trend median między runami",
+    [0, 0.5, 1].map(v => hGridLine(v, v.toFixed(1), W, m, y)),
+    thresholdLine(threshold, W, m, y),
+    runs.map((run, i) => el("text", { x: x(i), y: H - m.b + 16, "text-anchor": "middle" }, fmt.date(run.generated_at))),
+    series.map(sr => [
+      el("polyline", { fill: "none", stroke: sr.color, "stroke-width": 2,
+        points: sr.pts.map(p => x(p.i) + "," + y(p.r.median_total)).join(" ") }),
+      sr.pts.map(p => el("circle", { cx: x(p.i), cy: y(p.r.median_total), r: 4, fill: sr.color,
+        stroke: "var(--surface-1)", "stroke-width": 2,
+        "data-tip": tipText(short(sr.model), "run " + esc(p.run.run_id),
+          "mediana " + fmt.score(p.r.median_total), fmt.cost(p.r.median_cost_usd)) })),
+    ]),
+    series.map(endLabel),
+  );
 }
 
 // ranking przekrojowy: bieżąca era każdego zadania, najświeższy wynik per
