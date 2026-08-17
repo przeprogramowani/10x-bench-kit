@@ -163,6 +163,16 @@ export async function validateCommand(args: string[]): Promise<number> {
   const ok = (msg: string) => console.log(`ok:    ${msg}`);
   const report = (issue: Issue) => issues.push(issue);
 
+  // Plan faz z góry — użytkownik ma wiedzieć, co go czeka i która część
+  // potrafi wisieć (sieć), zanim cokolwiek zawiśnie.
+  const phases = ["schematy i spójność (lokalnie, szybkie)"];
+  if (opts.offline) phases.push("sieć — POMINIĘTA (--offline)");
+  else phases.push("sieć: osiągalność repo + istnienie pinów (ls-remote/fetch — najdłuższa część)");
+  if (opts.assert) phases.push("referencje (--assert): asercje na stanie startowym w kontenerze");
+  console.log(`bench validate — fazy:${phases.map((p, i) => `\n  ${i + 1}. ${p}`).join("")}`);
+  const phase = (n: number) => console.log(`\n— faza ${n}/${phases.length}: ${phases[n - 1]} —`);
+  phase(1);
+
   // --- bench.config.yaml ---
   let config: BenchConfig | null = null;
   try {
@@ -335,27 +345,46 @@ export async function validateCommand(args: string[]): Promise<number> {
 
   // --- sieć: klonowalność repo bazowych i istnienie pinów ---
   if (opts.offline) {
+    phase(2);
     console.log("info:  --offline — pomijam klonowalność repo bazowych i istnienie pinów");
   } else if (config) {
-    const usedRepos = new Set([...tasks.values()].map((t) => t.repo));
+    phase(2);
+    const usedRepos = [...new Set([...tasks.values()].map((t) => t.repo))].filter((name) => repoUrls.has(name));
+    const totalNet = usedRepos.length + [...tasks.values()].filter((t) => repoUrls.has(t.repo)).length;
+    // Zapowiedź PRZED operacją (bez newline) + czas po niej — użytkownik
+    // widzi, na czym dokładnie wisi i którym sprawdzeniem z ilu jest.
+    let netDone = 0;
+    const started = (label: string) => {
+      netDone++;
+      process.stdout.write(`net:   [${netDone}/${totalNet}] ${label} … `);
+      return Date.now();
+    };
+    const finished = (t0: number, verdict: string) => console.log(`${verdict} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+    console.log(`info:  ${usedRepos.length} repo (ls-remote) + ${totalNet - usedRepos.length} pin(ów) (płytki fetch) do sprawdzenia`);
+
     for (const repoName of usedRepos) {
-      const url = repoUrls.get(repoName);
-      if (!url) continue;
+      const url = repoUrls.get(repoName) as string;
+      const repoTasks = [...tasks].filter(([, t]) => t.repo === repoName);
+      let t0 = started(`base_repos/${repoName} — osiągalność (${url})`);
       const problem = checkCloneable(url);
       if (problem) {
+        finished(t0, "BŁĄD");
         // Błąd musi uczyć rozwiązania: najczęstsza przyczyna na CI to prywatne
         // repo bez skonfigurowanego tokena — nazwij sekret wprost.
         const hint = process.env.BASE_REPO_TOKEN
           ? " (BASE_REPO_TOKEN jest w env — sprawdź, czy token obejmuje to repo i ma contents:read, oraz czy URL jest poprawny)"
           : " (repo prywatne? ustaw sekret BASE_REPO_TOKEN — fine-grained PAT z contents:read do repo bazowych — w repo instancji / env)";
         report({ level: "error", where: `base_repos/${repoName}`, message: `repo nieosiągalne (${url}): ${problem}${hint}` });
+        netDone += repoTasks.length;
+        if (repoTasks.length > 0) console.log(`info:  pomijam ${repoTasks.length} pin(ów) z ${repoName} — repo nieosiągalne`);
         continue;
       }
-      ok(`base_repos/${repoName} osiągalne (${url})`);
+      finished(t0, "ok — osiągalne");
 
-      for (const [taskName, task] of tasks) {
-        if (task.repo !== repoName) continue;
+      for (const [taskName, task] of repoTasks) {
         if (task.commit === PLACEHOLDER_COMMIT) {
+          t0 = started(`tasks/${taskName} — pin`);
+          finished(t0, "BŁĄD (placeholder)");
           report({
             level: "error",
             where: `tasks/${taskName}`,
@@ -363,15 +392,17 @@ export async function validateCommand(args: string[]): Promise<number> {
           });
           continue;
         }
+        t0 = started(`tasks/${taskName} — pin ${task.commit.slice(0, 12)}…`);
         const commitProblem = checkCommitExists(url, task.commit);
         if (commitProblem) {
+          finished(t0, "BŁĄD");
           report({
             level: "error",
             where: `tasks/${taskName}`,
             message: `pinowany commit ${task.commit.slice(0, 12)}… nie daje się pobrać z ${repoName}: ${commitProblem}`,
           });
         } else {
-          ok(`tasks/${taskName}: pin ${task.commit.slice(0, 12)}… istnieje w ${repoName}`);
+          finished(t0, "ok — istnieje");
         }
       }
     }
@@ -379,19 +410,26 @@ export async function validateCommand(args: string[]): Promise<number> {
 
   // --- weryfikacja referencyjna: asercje na stanie startowym vs deklaracje ---
   if (opts.assert && config) {
+    phase(phases.length);
     const declared = [...tasks].filter(([, t]) => Object.keys(t.reference ?? {}).length > 0);
     if (declared.length === 0) {
       console.log("info:  --assert — żadne zadanie nie deklaruje reference, nic do weryfikacji");
     } else {
       try {
+        console.log(`info:  ${declared.length} zadań(nie) z deklaracjami reference; każde = fetch pina + kontener oceny (minuty przy zimnym cache'u)`);
+        process.stdout.write("info:  obraz bazowy (build/cache) … ");
         const engine = detectEngine(opts.engine);
+        const imageT0 = Date.now();
         const image = ensureBaseImage(engine, root);
+        console.log(`ok (${((Date.now() - imageT0) / 1000).toFixed(1)}s)`);
+        let assertDone = 0;
         for (const [name, task] of declared) {
+          assertDone++;
           const url = repoUrls.get(task.repo);
           if (!url || task.commit === PLACEHOLDER_COMMIT) continue; // zaraportowane wyżej
           const refs = Object.keys(task.reference ?? {}).filter((ref) => !ref.startsWith("judge/"));
           if (refs.length === 0) continue;
-          console.log(`info:  --assert — tasks/${name}: stan startowy ${task.repo}@${task.commit.slice(0, 12)}…`);
+          console.log(`info:  [${assertDone}/${declared.length}] tasks/${name}: stan startowy ${task.repo}@${task.commit.slice(0, 12)}… (${refs.length} asercji)`);
           const overlay = join(root, "tasks", name, "overlay");
           const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null);
           try {
