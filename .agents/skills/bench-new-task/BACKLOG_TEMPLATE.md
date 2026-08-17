@@ -2,13 +2,14 @@
 
 Backlog to stanowy dokument koordynacji między bench-new-task (dopisuje
 zlecenia) a bench-build (buduje z nich zadania). Runner go ignoruje
-(w `tasks/` czyta wyłącznie katalogi zadań), więc nie wpływa na scoring
-i wolno go commitować prosto na master.
+(w `tasks/` czyta wyłącznie katalogi zadań), więc nie wpływa na
+scoring. Skille wyłącznie edytują ten plik w drzewie roboczym — gitem
+(commit, push) zarządza użytkownik.
 
 Cykl statusów wpisu:
 
 `pending` → `in-progress` (bench-build wystartował subagenta) →
-`done (commit <sha>)` (zadanie zacommitowane na master) albo z powrotem
+`done` (komplet plików zadania gotowy w drzewie roboczym) albo z powrotem
 `pending` z notatką, gdy budowa się nie powiodła. Zlecenia porzucone oznaczaj
 `dropped` z jednozdaniowym powodem — nie kasuj wpisów, historia decyzji
 zostaje.
@@ -19,9 +20,8 @@ Szablon dokumentu:
 # Backlog zleceń zadań
 
 Zlecenia tworzy skill **bench-new-task**, buduje je skill
-**bench-build**. Statusy: pending / in-progress / done (commit <sha>) /
-dropped. Ten plik nie wpływa na scoring — commit prosto na master
-jest OK.
+**bench-build**. Statusy: pending / in-progress / done / dropped.
+Skille tylko edytują ten plik — gitem zarządza użytkownik.
 
 ## <nazwa-zadania>
 

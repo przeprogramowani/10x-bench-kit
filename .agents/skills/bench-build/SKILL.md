@@ -4,8 +4,8 @@ description: >-
   Buduje zadania benchmarku z oczekujących zleceń w backlogu
   (`tasks/backlog.md`): rozdziela zlecenia na subagentów, a każdy subagent
   wykonuje pełne autorstwo zadania (pin, overlay, prompt, asercje, wagi,
-  samosprawdzenie na referencji) i wychodzi jednym commitem na master.
-  Użyj, gdy użytkownik
+  samosprawdzenie na referencji) i zostawia gotowe pliki w drzewie
+  roboczym z raportem dowodów — bez gita. Użyj, gdy użytkownik
   chce zbudować zadania z backlogu albo mówi "bench-build / zbuduj
   zadania / przerób backlog".
 ---
@@ -15,7 +15,7 @@ description: >-
 Orkiestrujesz budowę zadań: czytasz zlecenia `pending`
 z `tasks/backlog.md`, rozdzielasz je na subagentów i pilnujesz statusów.
 Właściwe autorstwo zadania — pin, overlay, prompt, asercje, wagi,
-samosprawdzenie, commit — wykonuje **subagent** wg procedury
+samosprawdzenie — wykonuje **subagent** wg procedury
 [TASK_AUTHORING.md](TASK_AUTHORING.md), po jednym zleceniu na
 subagenta.
 
@@ -34,24 +34,27 @@ i zakończ — nie wymyślaj zadań sam.
    backlogu — decyzje projektowe zapadły w bench-new-task. Luk we
    wpisie nie łatasz domysłami: niekompletne zlecenie wraca do
    użytkownika (albo do bench-new-task), nie do budowy.
-3. **Jedno zlecenie = jeden commit na master.** Zadania z jednej paczki
-   nie zlewają się w zbiorczy commit — każde ma własny commit z dowodami
-   z referencji w komunikacie (COMMIT_TEMPLATE.md) i własną erę.
-   Zadanie wychodzi bez gałęzi i bez PR-a; PR-em dalej wychodzą tylko
-   rubryki (bench-rubric) i wiring.
+3. **Zero gita — pliki i raporty, nic więcej.** Ani ty, ani subagenci
+   nie commitujecie, nie tworzycie gałęzi, nie pushujecie. Wynik paczki
+   to gotowe katalogi `tasks/<nazwa>/` (+ nowe asercje w puli) w drzewie
+   roboczym oraz raport per zadanie wg
+   [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) z dowodami z referencji —
+   co z tym dalej (commit, PR, review, odrzucenie), decyduje wyłącznie
+   użytkownik. Zadania z jednej paczki trzymaj rozdzielne: osobne
+   katalogi, osobne raporty, żadnego zlewania.
 4. **Statusy w backlogu są prawdą.** Przed startem subagenta wpis
-   przechodzi na `in-progress`, po zakończeniu na `done (commit <sha>)`
-   albo wraca na `pending` z notatką o przyczynie. Aktualizacje backlogu
-   commituj osobno — nie doklejaj ich do commitów zadań.
+   przechodzi na `in-progress`, po zakończeniu na `done` albo wraca na
+   `pending` z notatką o przyczynie. Backlog to edycja pliku, nie
+   commit (zasada 3).
 5. **Równolegle tylko w izolacji.** Subagenci budują równolegle
    wyłącznie, gdy mechanizm subagentów twojego narzędzia daje każdemu
    izolowaną kopię repo (np. osobny git worktree) — dwóch agentów
    w jednym drzewie roboczym nadpisuje sobie nawzajem pliki. Bez
    izolacji buduj sekwencyjnie. Przy równoległości ogranicz się do
    2–3 subagentów naraz (kontenery oceny konkurują o maszynę),
-   a commity z izolowanych kopii wnoś do mastera ty — pojedynczo,
-   w kolejności ukończenia, bez zmiany treści (dwóch subagentów nie
-   może commitować do mastera naraz).
+   a po ukończeniu subagenta przenieś jego pliki (listę ma raport)
+   z izolowanej kopii do drzewa roboczego instancji — kopiowanie
+   plików, nie operacje gita.
 6. **Wspólne zasoby przygotuj raz, przed fan-outem.** Zrób
    `git fetch origin` w klonach `.repos/<nazwa>/` potrzebnych rep
    bazowych (brakujące sklonuj — konwencja z AGENTS.md) i zabroń
@@ -87,19 +90,19 @@ braków — do uzupełnienia, nie do budowy.
 
 ### 3. Fan-out
 
-Dla każdego zlecenia: przestaw status na `in-progress` (commit na
-master), uruchom subagenta mechanizmem twojego narzędzia i przekaż mu
+Dla każdego zlecenia: przestaw status na `in-progress` (edycja
+backlogu), uruchom subagenta mechanizmem twojego narzędzia i przekaż mu
 w prompcie:
 
 - pełny wpis zlecenia z backlogu, verbatim;
 - polecenie przeczytania i wykonania
   `.agents/skills/bench-build/TASK_AUTHORING.md` (ścieżka wg katalogu
   skilli instancji) — to jest jego procedura, z twardymi zasadami
-  i szablonem komunikatu commita;
-- korzeń instancji i przypomnienie: nie fetchować w `.repos/`,
-  nie dotykać backlogu, pracować tylko w swoim zakresie;
-- format raportu końcowego: nazwa zadania, SHA commita, skrót
-  dowodów z referencji (wyniki komend), koszt, problemy.
+  i szablonem raportu;
+- korzeń instancji i przypomnienie: zero gita, nie fetchować
+  w `.repos/`, nie dotykać backlogu, pracować tylko w swoim zakresie;
+- format raportu końcowego: REPORT_TEMPLATE.md (lista plików, dowody
+  z referencji, koszt) + problemy.
 
 Subagent może zakończyć odmową z powodem (np. zlecenie niewykonalne na
 aktualnym repo, bug nieobserwowalny) — to poprawny wynik, nie porażka
@@ -107,24 +110,26 @@ orkiestracji.
 
 ### 4. Zbiór wyników i statusy
 
-Po każdym subagencie: wnieś jego commit do mastera (tryb izolowany —
-zasada 5; w trybie sekwencyjnym subagent commituje sam), zaktualizuj
-wpis na `done (commit <sha>)` albo przywróć `pending` z notatką przy
-odmowie/błędzie, commit backlogu. Nie poprawiaj sam pracy subagenta —
-nieudane zlecenie wraca do kolejki z diagnozą, nie z twoją łatką.
+Po każdym subagencie: w trybie izolowanym przenieś jego pliki do
+drzewa instancji (zasada 5), zaktualizuj wpis na `done` albo przywróć
+`pending` z notatką przy odmowie/błędzie. Nie poprawiaj sam pracy
+subagenta — nieudane zlecenie wraca do kolejki z diagnozą, nie z twoją
+łatką.
 
 ### 5. Następny krok
 
 Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan paczki
-(ile zadań zacommitowanych, ile zleceń wróciło do `pending`, suma
-kosztów), **jedna** rekomendacja z jednozdaniowym uzasadnieniem,
-maksymalnie dwie alternatywy z ceną, oraz — oddzielnie — to, co czeka
-na decyzję człowieka. Typowe przejścia:
+(ile zadań gotowych w drzewie roboczym — z listą plików i raportami
+per zadanie, ile zleceń wróciło do `pending`, suma kosztów), **jedna**
+rekomendacja z jednozdaniowym uzasadnieniem, maksymalnie dwie
+alternatywy z ceną, oraz — oddzielnie — to, co czeka na decyzję
+człowieka. Los zbudowanych plików — commit, PR, review, odrzucenie —
+to ZAWSZE decyzja użytkownika; raporty dostarczają mu do niej dowody.
+Typowe przejścia:
 
 - **Zadanie ze składową sędziego** → **bench-rubric, PRZED pierwszym
   runem** — kalibracja świeżej rubryki przed pierwszym użyciem nie
-  zamyka ery; po policzonych wynikach zamyka. (Rubryka wychodzi PR-em —
-  jego merge to decyzja człowieka.)
+  zamyka ery; po policzonych wynikach zamyka.
 - **Zlecenia wróciły do `pending`** → uzupełnić wpisy (bench-new-task)
   albo ponowny bench-build na podzbiorze.
-- **Backlog pusty, zadania na masterze** → pełny run.
+- **Zadania gotowe i przyjęte przez użytkownika** → pełny run.

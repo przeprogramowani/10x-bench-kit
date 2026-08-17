@@ -11,8 +11,9 @@ SKILLS_DESIGN w repo projektowym):
   backlogu: rozdziela je na subagentów, każdy wykonuje pełne autorstwo
   (prompt + pin + overlay + asercje z deklaracjami `reference` + wagi,
   wszystko sprawdzone na referencji przez `bench assert` /
-  `bench judge` / `bench validate --assert`), wyjście jednym commitem
-  per zadanie z dowodami w komunikacie.
+  `bench judge` / `bench validate --assert`); wynik zostaje jako pliki
+  w drzewie roboczym z raportem dowodów per zadanie — git po stronie
+  użytkownika.
 - **bench-wiring** *(dostępny)* — od świeżego `init` do zielonego
   `validate`: repo bazowe, modele, sekrety, obraz pod stack firmy.
 - **bench-refresh** *(planowany)* — odświeżenie przeterminowanego

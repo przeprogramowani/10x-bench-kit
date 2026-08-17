@@ -16,10 +16,9 @@ zmian.
 pomysłów) kończy się zleceniem w stanowym backlogu `tasks/backlog.md`
 zamiast pełną budową zadania: w jednej sesji można zdefiniować 5–10
 zleceń bez czekania na piny, kontenery i samosprawdzenia. Backlog nie
-wpływa na scoring (runner czyta w `tasks/` wyłącznie katalogi), więc
-wolno go commitować prosto na master. Format wpisu i cykl statusów
-(`pending` → `in-progress` → `done (commit <sha>)` / `dropped`):
-BACKLOG_TEMPLATE.md w skillu.
+wpływa na scoring (runner czyta w `tasks/` wyłącznie katalogi). Format
+wpisu i cykl statusów (`pending` → `in-progress` → `done` /
+`dropped`): BACKLOG_TEMPLATE.md w skillu.
 
 **bench-build** — zamienia oczekujące zlecenia backlogu w zadania:
 rozdziela je na subagentów (równolegle tylko przy izolowanych kopiach
@@ -30,16 +29,17 @@ wg TASK_AUTHORING.md (dawna procedura bench-task, kroki po wywiadzie).
 Orkiestrator pilnuje statusów w backlogu i raportuje zbiorczo; przy
 pustym backlogu odsyła do bench-new-task.
 
-**Zmiana zasady wyjścia dla nowych zadań.** Zadanie z bench-build
-wychodzi **jednym commitem per zadanie prosto na master** — bez gałęzi
-i bez PR-a; komunikat commita przejmuje rolę opisu PR-a (sekcje
-i dowody z referencji: COMMIT_TEMPLATE.md w skillu, dawny
-PR_TEMPLATE.md). Commit nie wychodzi przed zielonym samosprawdzeniem,
-a review odbywa się po fakcie, po SHA ze statusu w backlogu. Rubryki
+**Zmiana zasady wyjścia dla nowych zadań: skille nie dotykają gita.**
+bench-new-task i bench-build (wraz z subagentami) nie commitują, nie
+tworzą gałęzi i nie pushują niczego — backlog to edytowany plik,
+a zbudowane zadanie zostaje jako **pliki w drzewie roboczym** + raport
+per zadanie z dowodami z referencji (REPORT_TEMPLATE.md w skillu,
+dawny PR_TEMPLATE.md). Co dalej — commit, PR, review, odrzucenie —
+decyduje wyłącznie użytkownik, na podstawie raportów. Rubryki
 (bench-rubric), wiring i odświeżenia zadań (bench-refresh) dalej
-wychodzą wyłącznie przez PR — zasada nadrzędna w AGENTS.md
-przeredagowana z "zmiany scoringu wyłącznie przez PR" na "zmiany
-scoringu z dowodem i śladem".
+wychodzą przez PR — zasada nadrzędna w AGENTS.md przeredagowana
+z "zmiany scoringu wyłącznie przez PR" na "zmiany scoringu z dowodem
+i śladem".
 
 ## 0.11.0 — 2026-08-17 (neutralny)
 

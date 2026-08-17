@@ -1,14 +1,19 @@
-# Szablon commita dla nowego zadania (bench-build)
+# Szablon raportu zadania (bench-build)
 
-Zadanie wychodzi **jednym commitem prosto na master** — bez gałęzi
-i PR-a. Komunikat commita przejmuje rolę opisu PR-a: to on niesie
-dowody, więc sekcje poniżej są obowiązkowe. Wklejaj wyniki komend,
-nie deklaracje.
-
-Pierwsza linia: `bench-build: <nazwa-zadania>`
+Zadanie zostaje jako **pliki w drzewie roboczym** — subagent nie robi
+nic w gicie. Raport przejmuje rolę opisu zmiany: to on niesie dowody
+i to z niego użytkownik zbuduje ewentualny komunikat commita czy opis
+PR-a, gdy zdecyduje, co dalej. Sekcje poniżej są obowiązkowe — wklejaj
+wyniki komend, nie deklaracje.
 
 ```markdown
-bench-build: <nazwa-zadania>
+# <nazwa-zadania>
+
+## Pliki
+
+<pełna lista utworzonych/zmienionych ścieżek: tasks/<nazwa>/…, nowe
+asercje w evaluation-pool/…, zbiór kalibracyjny
+w evaluation-pool/judge/<zadanie>-calibration/…>
 
 ## Co zadanie mierzy
 
@@ -34,9 +39,9 @@ i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia.>
 
 ## Skutki dla porównywalności
 
-<nowe zadanie = nowa era tego zadania (task_hash). Jeśli commit zmienia
-też istniejące asercje w puli lub rubryki: które dotychczasowe wyniki
-przestają być porównywalne.>
+<nowe zadanie = nowa era tego zadania (task_hash). Jeśli zmiany
+obejmują też istniejące asercje w puli lub rubryki: które dotychczasowe
+wyniki przestają być porównywalne.>
 
 ## Koszt samosprawdzenia
 

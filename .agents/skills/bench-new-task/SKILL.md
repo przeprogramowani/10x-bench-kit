@@ -23,9 +23,11 @@ klonowania rep, kontenerów ani komend runnera.
    overlaya ani asercji, nie wołasz komend `bench`. To praca
    bench-build. Jeśli użytkownik chce budować od razu, dopisz zlecenie
    i wskaż bench-build — nie buduj w ramach tego skilla.
-2. **Backlog nie jest scoringiem.** `tasks/backlog.md` to stan
-   koordynacji (runner ignoruje pliki w `tasks/` niebędące katalogami
-   zadań) — wolno go commitować prosto na master, bez PR-a.
+2. **Zero gita.** Wyjściem tego skilla jest edycja pliku
+   `tasks/backlog.md` w drzewie roboczym — nie commitujesz, nie
+   tworzysz gałęzi, nie pushujesz; kiedy i jak backlog trafia do gita,
+   decyduje użytkownik. Backlog to stan koordynacji, nie scoring
+   (runner ignoruje pliki w `tasks/` niebędące katalogami zadań).
 3. **Decyzje należą do użytkownika.** Pola zlecenia rozstrzyga wywiad,
    nie twoje domysły — źle dobrany poziom naprowadzenia czy timeout
    zmienia, co zadanie mierzy. Wnioski z opisu użytkownika to
@@ -80,8 +82,7 @@ Jeśli `tasks/backlog.md` nie istnieje, załóż go wg
 [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md). Dopisz każde zlecenie jako
 wpis ze statusem `pending` i datą. Nazwa zlecenia nie może kolidować
 z istniejącym katalogiem `tasks/<nazwa>/` ani innym wpisem backlogu.
-Commit prosto na master (zasada 2), komunikat np.
-`backlog: +fix-cart-total-rounding, +add-csv-export`.
+Nic w gicie (zasada 2) — plik zostaje w drzewie roboczym.
 
 ### 4. Następny krok
 
