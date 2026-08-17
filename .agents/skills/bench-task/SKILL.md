@@ -84,6 +84,16 @@ w rozmowie) i zapisz sobie odpowiedzi, zanim napiszesz cokolwiek.
 Nie zgaduj i nie przyjmuj po cichu domyślnych: źle dobrany poziom
 naprowadzenia czy timeout zmienia, **co** zadanie mierzy.
 
+**Jeśli wywołanie zawiera już opis zadania**, nie zaczynaj wywiadu od
+zera: wyprowadź z opisu propozycje odpowiedzi na poniższe punkty
+i przedstaw je z oznaczeniem, co jest wywnioskowane z opisu, a czego
+w nim nie ma. Pytania zadawaj **tylko** o luki i niejednoznaczności;
+o poziom naprowadzenia promptu pytaj zawsze, chyba że opis rozstrzyga
+go wprost (użytkownik opisujący zadanie mówi zwykle *co* jest do
+zrobienia, nie *ile prompt ma zdradzać* — a to zmienia, co zadanie
+mierzy). Wnioski z opisu to propozycje, nie decyzje — bramka
+akceptacji na końcu kroku obowiązuje bez zmian.
+
 - **Co zadanie mierzy**: implementacja funkcji / naprawa buga / refaktor /
   dokumentacja. Jedno zadanie = jedna intencja.
 - **Repo bazowe** (musi być w `base_repos` w bench.config.yaml — jeśli
