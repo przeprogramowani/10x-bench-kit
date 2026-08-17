@@ -36,6 +36,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
 import { detectEngine, ensureBaseImage, must, sh } from "../lib/containers.ts";
+import { gitAuthArgs } from "../lib/git-auth.ts";
 import type { Task } from "../schemas/task.ts";
 
 interface Options {
@@ -104,7 +105,7 @@ function prepareTaskImage(engine: string, root: string, baseImage: string, name:
     const workspace = join(context, "workspace");
     mkdirSync(workspace);
     must("git", ["init", "-q", workspace], "git init workspace");
-    must("git", ["-C", workspace, "fetch", "--depth", "1", repoUrl, task.commit], `fetch pinowanego commita ${name}`, {
+    must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, task.commit], `fetch pinowanego commita ${name}`, {
       timeout: 300_000,
     });
     must("git", ["-C", workspace, "checkout", "-q", task.commit], "checkout pinowanego commita");

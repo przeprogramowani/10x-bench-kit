@@ -38,6 +38,7 @@ import { CheckFileSchema } from "../schemas/check.ts";
 import { parseRubric } from "../lib/judge.ts";
 import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
 import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
+import { gitAuthArgs } from "../lib/git-auth.ts";
 
 const PLACEHOLDER_COMMIT = "0".repeat(40);
 
@@ -118,7 +119,7 @@ function validateRubric(path: string): string | null {
 
 /** `git ls-remote` — czy repo bazowe w ogóle daje się osiągnąć/sklonować. */
 function checkCloneable(url: string): string | null {
-  const result = spawnSync("git", ["ls-remote", "--heads", url], {
+  const result = spawnSync("git", [...gitAuthArgs(), "ls-remote", "--heads", url], {
     encoding: "utf8",
     timeout: 60_000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
@@ -133,7 +134,7 @@ function checkCommitExists(url: string, commit: string): string | null {
   try {
     const init = spawnSync("git", ["init", "-q", tmp], { encoding: "utf8" });
     if (init.status !== 0) return "git init w katalogu tymczasowym nie powiodło się";
-    const fetch = spawnSync("git", ["-C", tmp, "fetch", "--depth", "1", url, commit], {
+    const fetch = spawnSync("git", [...gitAuthArgs(), "-C", tmp, "fetch", "--depth", "1", url, commit], {
       encoding: "utf8",
       timeout: 120_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
@@ -342,7 +343,12 @@ export async function validateCommand(args: string[]): Promise<number> {
       if (!url) continue;
       const problem = checkCloneable(url);
       if (problem) {
-        report({ level: "error", where: `base_repos/${repoName}`, message: `repo nieosiągalne (${url}): ${problem}` });
+        // Błąd musi uczyć rozwiązania: najczęstsza przyczyna na CI to prywatne
+        // repo bez skonfigurowanego tokena — nazwij sekret wprost.
+        const hint = process.env.BASE_REPO_TOKEN
+          ? " (BASE_REPO_TOKEN jest w env — sprawdź, czy token obejmuje to repo i ma contents:read, oraz czy URL jest poprawny)"
+          : " (repo prywatne? ustaw sekret BASE_REPO_TOKEN — fine-grained PAT z contents:read do repo bazowych — w repo instancji / env)";
+        report({ level: "error", where: `base_repos/${repoName}`, message: `repo nieosiągalne (${url}): ${problem}${hint}` });
         continue;
       }
       ok(`base_repos/${repoName} osiągalne (${url})`);

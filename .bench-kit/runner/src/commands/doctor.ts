@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig } from "../lib/instance.ts";
 import type { BenchConfig } from "../schemas/config.ts";
 import { sh } from "../lib/containers.ts";
+import { gitAuthArgs } from "../lib/git-auth.ts";
 
 interface Options {
   root: string;
@@ -179,7 +180,7 @@ export async function doctorCommand(args: string[]): Promise<number> {
     console.log("info:  --offline — pomijam klonowalność repo bazowych");
   } else if (config) {
     for (const repo of config.base_repos) {
-      const result = spawnSync("git", ["ls-remote", "--heads", repo.url], {
+      const result = spawnSync("git", [...gitAuthArgs(), "ls-remote", "--heads", repo.url], {
         encoding: "utf8",
         timeout: 60_000,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
@@ -191,7 +192,7 @@ export async function doctorCommand(args: string[]): Promise<number> {
               name: `base_repos/${repo.name}`,
               status: "BRAK",
               detail: `nieosiągalne (${repo.url})`,
-              fix: "sprawdź URL; dla repo prywatnych po SSH — deploy key, dla publicznych preferuj https (zero sekretów)",
+              fix: "sprawdź URL (https); dla repo prywatnych ustaw BASE_REPO_TOKEN (fine-grained PAT, contents:read) — sekret w repo instancji, lokalnie eksport w env albo własne poświadczenia gita",
             },
       );
     }
