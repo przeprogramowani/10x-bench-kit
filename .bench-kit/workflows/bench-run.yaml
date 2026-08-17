@@ -46,7 +46,12 @@ jobs:
     env:
       BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
+      # persist-credentials: false — checkout nie może zostawić w .git/config
+      # nagłówka Authorization z GITHUB_TOKEN; git odpalany w workspace
+      # wysyłałby go do repo bazowych zamiast BASE_REPO_TOKEN (url.insteadOf).
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -74,6 +79,8 @@ jobs:
       BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -105,6 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
