@@ -28,8 +28,13 @@
  * dostają provider_error w trial.json i jeden retry — artefakty pierwszego
  * podejścia zostają w provider-error-attempt-1/.
  *
- * Użycie: bench run [--models a,b] [--tasks x,y] [--trials n] [--smoke]
- *                   [--out <dir>] [--engine docker|podman] [--root <dir>]
+ * CI dzieli macierz na job per próba: `--trial-index n` wykonuje dokładnie
+ * jedną próbę o numerze n (katalog trial-<n>), żeby równoległe joby tej samej
+ * pary model × zadanie składały się w komplet prób po stronie agregacji.
+ * Wyklucza się z --trials i --smoke.
+ *
+ * Użycie: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n]
+ *                   [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,19 +49,21 @@ interface Options {
   models: string[] | null;
   tasks: string[] | null;
   trials: number | null;
+  trialIndex: number | null;
   smoke: boolean;
   out: string | null;
   engine: string | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), models: null, tasks: null, trials: null, smoke: false, out: null, engine: null };
+  const opts: Options = { root: process.cwd(), models: null, tasks: null, trials: null, trialIndex: null, smoke: false, out: null, engine: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
     if (arg === "--models") opts.models = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--tasks") opts.tasks = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--trials") opts.trials = Number(value());
+    else if (arg === "--trial-index") opts.trialIndex = Number(value());
     else if (arg === "--smoke") opts.smoke = true;
     else if (arg === "--out") opts.out = resolve(value() ?? "");
     else if (arg === "--engine") opts.engine = value() ?? null;
@@ -64,6 +71,8 @@ function parseArgs(args: string[]): Options | null {
     else return null;
   }
   if (opts.trials !== null && (!Number.isInteger(opts.trials) || opts.trials < 1)) return null;
+  if (opts.trialIndex !== null && (!Number.isInteger(opts.trialIndex) || opts.trialIndex < 1)) return null;
+  if (opts.trialIndex !== null && (opts.trials !== null || opts.smoke)) return null;
   if (opts.smoke && opts.trials !== null && opts.trials !== 1) return null;
   return opts;
 }
@@ -100,6 +109,19 @@ interface PreparedTask {
 
 /** Zapieka repo@pin + overlay + commit startowy w obraz `bench-task-<nazwa>`. */
 function prepareTaskImage(engine: string, root: string, baseImage: string, name: string, task: Task, repoUrl: string): PreparedTask {
+  const reusableImage = `bench-task-${sanitize(name)}:latest`;
+  // CI: obraz zadania ściągnięty z rejestru (GHCR) — pomiń fetch + build.
+  // Świeżość gwarantuje tag rejestru (hash tasks/<nazwa>/** + .bench-kit/docker/**),
+  // nie ten kod; lokalnie flagi nie ustawiaj, bo edycja zadania nie miałaby efektu.
+  // start-sha jest zapieczony w obraz (COPY, a przy `prepare` nadpisany w RUN),
+  // więc punkt odniesienia patch.diff czytamy z obrazu, nie z lokalnego workspace.
+  if (process.env.BENCH_REUSE_TASK_IMAGE === "1" && sh(engine, ["image", "inspect", reusableImage], { timeout: 30_000 }).status === 0) {
+    console.log(`prepare: ${name} → ${reusableImage} (reuse z rejestru, bez rebuildu)`);
+    const startSha = must(engine, ["run", "--rm", reusableImage, "cat", "/bench/start-sha"], `odczyt start-sha obrazu ${name}`, {
+      timeout: 120_000,
+    }).trim();
+    return { name, task, image: reusableImage, startSha };
+  }
   const context = mkdtempSync(join(tmpdir(), `bench-prepare-${sanitize(name)}-`));
   try {
     const workspace = join(context, "workspace");
@@ -161,7 +183,9 @@ function prepareTaskImage(engine: string, root: string, baseImage: string, name:
 export async function runCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
-    console.error("usage: bench run [--models a,b] [--tasks x,y] [--trials n] [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]");
+    console.error(
+      "usage: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n] [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]",
+    );
     return 2;
   }
 
@@ -181,6 +205,10 @@ export async function runCommand(args: string[]): Promise<number> {
       models = models.slice(0, 1);
       console.log(`smoke: 1 próba × ${models[0]} (tani model wskaż przez --models)`);
     }
+    // --trial-index: jedna próba o zadanym numerze (job macierzy CI);
+    // bez flagi — pełna sekwencja 1..trials jak dotąd.
+    const trialNumbers = opts.trialIndex !== null ? [opts.trialIndex] : Array.from({ length: trials }, (_, i) => i + 1);
+    const trialTotal = Math.max(trials, opts.trialIndex ?? 0);
     const allTasks = listTaskNames(root);
     const taskNames = opts.tasks ?? allTasks;
     for (const name of taskNames) {
@@ -193,7 +221,11 @@ export async function runCommand(args: string[]): Promise<number> {
     const outDir = opts.out ?? join(root, "out", runId);
     mkdirSync(outDir, { recursive: true });
     console.log(`bench run: ${runId} (engine: ${engine})`);
-    console.log(`macierz: ${models.length} model(i) × ${taskNames.length} zadań × ${trials} prób → ${outDir}`);
+    console.log(
+      `macierz: ${models.length} model(i) × ${taskNames.length} zadań × ${
+        opts.trialIndex !== null ? `próba nr ${opts.trialIndex}` : `${trials} prób`
+      } → ${outDir}`,
+    );
 
     // --- przygotowanie: obraz bazowy + obrazy zadań (jedyny etap z siecią) ---
     const baseImage = ensureBaseImage(engine, root);
@@ -221,10 +253,10 @@ export async function runCommand(args: string[]): Promise<number> {
       const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
       const limitArgs = resourceLimitArgs(memoryMb, config.resources.pids_limit ?? null);
       for (const model of models) {
-        for (let trial = 1; trial <= trials; trial++) {
+        for (const trial of trialNumbers) {
           const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
           mkdirSync(trialDir, { recursive: true });
-          const label = `${name} × ${model} × próba ${trial}/${trials}`;
+          const label = `${name} × ${model} × próba ${trial}/${trialTotal}`;
           const startedAt = new Date().toISOString();
 
           // Retry 1× przy przejściowej awarii providera — pusta próba

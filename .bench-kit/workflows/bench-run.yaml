@@ -15,6 +15,13 @@
 
 name: bench-run
 
+# packages: write — obrazy (bazowy + zadań) idą przez GHCR pakietów repo:
+# zbudowane raz, reużywane przez wszystkie joby i kolejne runy (pull warstw
+# zamiast docker save/load tar przez actions/cache).
+permissions:
+  contents: read
+  packages: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -63,10 +70,13 @@ jobs:
       - name: bench matrix
         id: matrix
         run: |
-          echo "matrix=$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG)" >> "$GITHUB_OUTPUT"
 
-  # Jeden job = model × zadanie; próby (trials) sekwencyjnie w środku —
-  # obraz zadania buduje się raz per job, próby nie zależą od sieci.
+  # Jeden job = model × zadanie × próba — próby biegną RÓWNOLEGLE, więc
+  # wall-clock runu ≈ najdłuższa pojedyncza próba, nie trials × próba
+  # (koszt minut GH jest ten sam: billing per job-minuta). Obrazy (bazowy +
+  # zadań) idą przez GHCR: joby po chybieniu budują i wypychają, kolejne
+  # ściągają — rozmnożenie jobów nie mnoży budowań w ciepłym runie.
   trial:
     needs: plan
     strategy:
@@ -101,40 +111,70 @@ jobs:
           restore-keys: |
             bench-deps-${{ runner.os }}-
 
-      # Obraz bazowy (apt + npm install -g opencode) budowany raz per zmiana
-      # .bench-kit/docker/**, nie raz per job macierzy. Przy trafieniu
-      # BENCH_REUSE_BASE_IMAGE=1 każe runnerowi pominąć rebuild.
-      - name: Cache obrazu bazowego
-        id: base-image
-        uses: actions/cache@v4
-        with:
-          path: /tmp/bench-base-image
-          key: bench-base-${{ runner.os }}-${{ hashFiles('.bench-kit/docker/**') }}
-      - name: Wczytaj obraz bazowy z cache
-        if: steps.base-image.outputs.cache-hit == 'true'
+      # Obrazy przez GHCR zamiast docker save/load tar w actions/cache:
+      # pull warstw jest szybszy i współdzielony między jobami oraz runami.
+      # Tagi są treścią, nie czasem — hash wejść (Dockerfile/zadanie), więc
+      # świeżość gwarantuje tag, a nie rebuild. Pull „na miękko": chybienie
+      # (pierwszy run po zmianie) nie wywraca joba, tylko zostawia budowę
+      # runnerowi; brak flag BENCH_REUSE_* = zbuduj normalnie.
+      - name: Obrazy z rejestru (GHCR)
         run: |
-          docker load -i /tmp/bench-base-image/bench-base.tar
-          echo "BENCH_REUSE_BASE_IMAGE=1" >> "$GITHUB_ENV"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          REGISTRY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          OPENCODE_VERSION="$(tr -d '[:space:]' < .bench-kit/docker/opencode.version)"
+          BASE_HASH="${{ hashFiles('.bench-kit/docker/**') }}"
+          TASK_HASH="${{ hashFiles(format('tasks/{0}/**', matrix.task), '.bench-kit/docker/**') }}"
+          # TASK_SAFE odtwarza sanitize() runnera (run.ts) — lokalny tag musi
+          # trafić w nazwę, której `bench run` szuka przy BENCH_REUSE_TASK_IMAGE.
+          TASK_SAFE="$(echo "${{ matrix.task }}" | sed -E 's/[^A-Za-z0-9._-]+/-/g')"
+          TASK_LC="$(echo "$TASK_SAFE" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "BASE_LOCAL=bench-base:${OPENCODE_VERSION}"
+            echo "BASE_REMOTE=${REGISTRY}/bench-base:${BASE_HASH:0:16}"
+            echo "TASK_LOCAL=bench-task-${TASK_SAFE}:latest"
+            echo "TASK_REMOTE=${REGISTRY}/bench-task-${TASK_LC}:${TASK_HASH:0:16}"
+          } >> "$GITHUB_ENV"
+      - name: Wczytaj obrazy z rejestru
+        run: |
+          if docker pull -q "$BASE_REMOTE"; then
+            docker tag "$BASE_REMOTE" "$BASE_LOCAL"
+            echo "BENCH_REUSE_BASE_IMAGE=1" >> "$GITHUB_ENV"
+          else
+            echo "obraz bazowy: brak w rejestrze — runner zbuduje ($BASE_REMOTE)"
+          fi
+          if docker pull -q "$TASK_REMOTE"; then
+            docker tag "$TASK_REMOTE" "$TASK_LOCAL"
+            echo "BENCH_REUSE_TASK_IMAGE=1" >> "$GITHUB_ENV"
+          else
+            echo "obraz zadania: brak w rejestrze — runner zbuduje ($TASK_REMOTE)"
+          fi
 
       - name: bench run
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- run \
             --root "$GITHUB_WORKSPACE" \
-            --models "${{ matrix.model }}" --tasks "${{ matrix.task }}" $TRIALS_ARG \
+            --models "${{ matrix.model }}" --tasks "${{ matrix.task }}" \
+            --trial-index "${{ matrix.trial }}" \
             --out "$GITHUB_WORKSPACE/out/run"
       - name: bench evaluate
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- evaluate \
             --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
 
-      # Zrzut obrazu do cache tylko przy chybieniu (post-step actions/cache
-      # zapisze katalog na koniec joba; przy trafieniu nic nie zapisuje).
-      - name: Zrzuć obraz bazowy do cache
-        if: steps.base-image.outputs.cache-hit != 'true'
+      # Wypchnięcie tylko obrazów zbudowanych w tym jobie (chybienie pull).
+      # Równoległe joby zimnego runu wypychają ten sam tag — push jest
+      # idempotentny; continue-on-error, bo brak uprawnień do pakietu nie
+      # może unieważnić wyników próby.
+      - name: Wypchnij obrazy do rejestru
+        if: env.BENCH_REUSE_BASE_IMAGE != '1' || env.BENCH_REUSE_TASK_IMAGE != '1'
+        continue-on-error: true
         run: |
-          mkdir -p /tmp/bench-base-image
-          docker save "bench-base:$(cat .bench-kit/docker/opencode.version | tr -d '[:space:]')" \
-            -o /tmp/bench-base-image/bench-base.tar
+          if [ "$BENCH_REUSE_BASE_IMAGE" != "1" ]; then
+            docker tag "$BASE_LOCAL" "$BASE_REMOTE" && docker push -q "$BASE_REMOTE"
+          fi
+          if [ "$BENCH_REUSE_TASK_IMAGE" != "1" ]; then
+            docker tag "$TASK_LOCAL" "$TASK_REMOTE" && docker push -q "$TASK_REMOTE"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()

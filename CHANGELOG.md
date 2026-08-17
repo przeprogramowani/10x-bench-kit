@@ -6,6 +6,34 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.13.0 — 2026-08-17 (neutralny)
+
+Przyspieszenie runów CI ~3×: równoległe próby + obrazy przez GHCR.
+Scoring, schematy i stemple ery bez zmian — kontener próby, limity
+zasobów i punkt startowy patch.diff identyczne jak dotąd.
+
+**Job per próba** — `bench matrix` emituje macierz model × zadanie ×
+próba (flaga `--trials`, slug z sufiksem `--tN`), a `bench run` dostaje
+`--trial-index n`: dokładnie jedna próba o numerze n (wyklucza się
+z `--trials`/`--smoke`). Próby tej samej pary biegną równolegle w GH
+Actions i składają się w komplet w `aggregate` — wall-clock runu spada
+z trials × próba do ~1 × najdłuższa próba, przy tym samym koszcie
+minut (billing per job-minuta). Lokalny `bench run` bez flagi działa
+jak dotąd (sekwencyjnie). Uwaga: `defaults.max_cost_usd` odcina koszt
+per wywołanie `bench run`, więc w CI działa teraz per próba, nie per
+job z trzema próbami.
+
+**Obrazy przez GHCR** — workflow loguje się do ghcr.io (GITHUB_TOKEN,
+`permissions: packages: write`) i ciągnie obraz bazowy oraz obrazy
+zadań po tagach-hashach treści (`.bench-kit/docker/**`, per zadanie
+dodatkowo `tasks/<nazwa>/**`); zastępuje to docker save/load tar przez
+actions/cache. Chybienie pull nie wywraca joba: runner buduje jak
+dotąd, a job wypycha zbudowany obraz (push idempotentny,
+continue-on-error). Nowa flaga `BENCH_REUSE_TASK_IMAGE=1` każe
+runnerowi pominąć fetch + build obrazu zadania i czytać start-sha
+z obrazu — kosztowny `task.prepare` (instalacja/build repo bazowego)
+płacony raz per zmiana zadania, nie raz per job.
+
 ## 0.12.0 — 2026-08-17 (neutralny)
 
 Przebudowa workflow autorstwa zadań: skill bench-task rozdzielony na
