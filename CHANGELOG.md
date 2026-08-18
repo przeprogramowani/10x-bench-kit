@@ -6,6 +6,23 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.14.4 — 2026-08-18 (neutralny)
+
+Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
+i runnera.
+
+**Pin-kandydat od orkiestratora** — bench-build wyznacza przed
+fan-outem pin-kandydata per repo bazowe (SHA + dowód zielonego CI)
+i przekazuje go w promptach; subagent (TASK_AUTHORING) weryfikuje
+tylko sens swojego zlecenia na kandydacie i może odstąpić
+z uzasadnieniem w raporcie, zamiast przeglądać historię i CI od zera.
+
+**Bramka środowiska oceny przed fan-outem** — orkiestrator doprowadza
+środowisko (obraz `bench-base`, zależności runnera, docker) do stanu,
+w którym `bench assert` na istniejącym zielonym zadaniu przechodzi,
+zanim wystartują subagenci; awarie infrastrukturalne u subagenta to
+odmowa z diagnozą w raporcie, nie samodzielna naprawa strefy wspólnej.
+
 ## 0.14.3 — 2026-08-18 (neutralny)
 
 Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
