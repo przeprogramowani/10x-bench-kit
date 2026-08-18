@@ -4,7 +4,8 @@ description: >-
   Diagnozuje wyniki runu benchmarku: schodzi z report.json przez
   result.json do artefaktów próby (agent.log, patch.diff, checks.json,
   judge.json) i klasyfikuje przyczynę — wina modelu, wina zadania albo
-  wina infrastruktury. Wyjście to komentarz lub issue z dowodami, nigdy
+  wina infrastruktury. Działa na runie lokalnym i na runie z CI —
+  zaczyna od pytania o źródło wyników i sam pobiera artefakty przez gh. Wyjście to komentarz lub issue z dowodami, nigdy
   zmiana scoringu. Użyj po runie, gdy wynik zaskakuje, model spadł
   między runami, próba padła, albo użytkownik pyta "czemu ten model
   dostał tyle / przeanalizuj run".
@@ -48,10 +49,10 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
 ## Gdzie są artefakty
 
 - **Run lokalny**: `out/<run-id>/<zadanie>/<model>/trial-N/`.
-- **Run w CI**: `gh run download <run-id> -R <repo-instancji>` —
-  artefakty `results-<slug>` (per model×zadanie, ten sam layout co
-  lokalnie) + `report`. Artefakty CI wygasają; historia samych raportów
-  jest trwała na gałęzi `bench-data` (`runs/<run_id>.json`).
+- **Run w CI**: artefakty `results-<slug>` (per model×zadanie, ten sam
+  layout co lokalnie) + `report` — ściągasz je na dysk przez `gh`
+  (krok 1). Artefakty CI wygasają; historia samych raportów jest trwała
+  na gałęzi `bench-data` (`runs/<run_id>.json`).
 - **Pliki próby**: `trial.json` (metadane), `execution.json` (kod
   wyjścia agenta; 124 = timeout), `agent.log` (pełne wyjście OpenCode),
   `patch.diff` (praca agenta vs commit startowy), `metrics.json`
@@ -66,13 +67,52 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
 
 ## Procedura
 
-### 1. Pytanie i zakres
+### 1. Źródło wyników (zawsze na start)
+
+Zanim cokolwiek przeczytasz, ustal **skąd biorą się artefakty** — bez
+tego nie masz `report.json` na dysku. Pytanie zadaj mechanizmem pytań
+twojego narzędzia (AskUserQuestion / request_user_input; gdy brak —
+zwykłe pytanie w rozmowie), jednym blokiem, z opcjami:
+
+- **run lokalny** — katalog `out/<run-id>/`; gdy jest ich kilka,
+  zaproponuj najnowszy i potwierdź. Ścieżkę podaną przez użytkownika
+  bierz wprost, bez pytania.
+- **run z CI** — pobierasz przez `gh`. Bez podanego id = **ostatni**
+  run workflow `bench-run` w repo instancji.
+
+Wyjątek: gdy użytkownik sam wskazał źródło w prośbie (podał ścieżkę,
+id runu, link do runu/PR-a albo napisał "ostatni run z CI") — nie
+pytaj, tylko potwierdź jednym zdaniem, co bierzesz.
+
+Pobranie z CI (repo instancji, nie template'u):
+
+```bash
+# id ostatniego runu, gdy użytkownik go nie podał
+RUN_ID=$(gh run list --workflow bench-run --limit 1 --json databaseId \
+  --jq '.[0].databaseId')
+gh run download "$RUN_ID" --dir out/ci-$RUN_ID     # results-* + report
+```
+
+Artefakty `results-<slug>` mają ten sam layout co run lokalny, więc od
+tego miejsca procedura jest identyczna; `report.json` leży w artefakcie
+`report`. Dwa przypadki brzegowe rozstrzygnij od razu, zanim pójdziesz
+dalej:
+
+- **artefakty wygasły** (retencja repo) — zostaje wyłącznie
+  `runs/<run_id>.json` na gałęzi `bench-data`, czyli sam poziom
+  raportu. Powiedz to wprost: diagnoza schodzi wtedy najwyżej do
+  kroku 3, klasy przyczyny nie da się wskazać (zasada 3).
+- **run nieukończony / job `aggregate` padł** — brak artefaktu
+  `report`; `results-*` mogą istnieć. Zejdź prosto do prób i zaznacz,
+  że nie masz porównania z medianami.
+
+### 2. Pytanie i zakres
 
 Ustal, co diagnozujesz: pojedyncza próba / model×zadanie / cały run /
 zmiana między runami. Przy porównaniach między runami — najpierw
 zasada 4 (identyczne stamps, czy nie).
 
-### 2. Z góry: report.json
+### 3. Z góry: report.json
 
 - mediany total/koszt/czas per model×zadanie — co odstaje,
 - **pass@1 vs pass@k**: rozjazd (np. 0.33 vs 1.0) = niestabilność,
@@ -80,15 +120,15 @@ zasada 4 (identyczne stamps, czy nie).
 - total ≈ 0 nie ma jednej przyczyny — pusty diff (agent nie działał),
   destrukcyjne nadpisanie pliku i praca oceniona na 0 wyglądają
   w report.json identycznie. Nie wnioskuj z mediany; rozstrzygają
-  artefakty (krok 4).
+  artefakty (krok 5).
 
-### 3. W dół: result.json próby
+### 4. W dół: result.json próby
 
 Która składowa ciągnie total w dół (`scores.static/tests/e2e/judge`;
 `null` = waga 0, nieliczona). Porównaj z próbami, które przeszły —
 różnica zwykle wskazuje jedną składową, nie wszystkie.
 
-### 4. Artefakty: objaw → ścieżka
+### 5. Artefakty: objaw → ścieżka
 
 | Objaw | Gdzie patrzeć | Typowe rozstrzygnięcie |
 |---|---|---|
@@ -119,7 +159,7 @@ czynność w całym skillu:
   --patch <trial-2/patch.diff> …` to jedno wejście do środowiska,
   N wyników; werdykty sędziego puszczaj równolegle w tle.
 
-### 5. Klasyfikacja i delegacja
+### 6. Klasyfikacja i delegacja
 
 **Reguła stopu:** klasa przyczyny jest wyjściem skilla — gdy dowody
 wystarczają do jej wskazania, kończysz. Dokładniejsza analiza wewnątrz
@@ -141,7 +181,7 @@ ten sam triage co run.
   obraz) z `container.log` / `execution.json`; wyniki dotkniętych prób
   oznacz jako nieinterpretowalne, run do powtórzenia po naprawie.
 
-### 6. Wyjście
+### 7. Wyjście
 
 Komentarz (przy PR/runie) albo issue wg
 [EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md): symptom → łańcuch dowodów →
@@ -149,7 +189,7 @@ klasa → rekomendacja → koszt triage. Scoringu nie zmieniasz (zasada 1);
 jeśli naprawa jest pilna, uruchom właściwy skill osobno, po zgodzie
 użytkownika.
 
-### 7. Następny krok
+### 8. Następny krok
 
 Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan jednym
 zdaniem (co zdiagnozowane, gdzie issue), **jedna** rekomendacja

@@ -6,6 +6,23 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.15.2 — 2026-08-18 (neutralny)
+
+Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
+i runnera.
+
+**bench-explain-results: pytanie o źródło wyników na start** — nowy
+krok 1 procedury pyta interaktywnie, czy diagnoza idzie z runu
+lokalnego (`out/<run-id>/`), czy z CI; przy CI skill sam pobiera
+artefakty (`gh run download`), a brak podanego id oznacza ostatni run
+workflow `bench-run`. Gdy użytkownik wskazał źródło już w prośbie
+(ścieżka, id, link, „ostatni run"), skill nie pyta, tylko potwierdza
+wybór. Krok rozstrzyga też dwa przypadki brzegowe: wygasłe artefakty
+(zostaje sam `bench-data/runs/<id>.json` → diagnoza kończy się na
+poziomie raportu) i padnięty job `aggregate` (brak `report.json`, próby
+czytane bez porównania z medianami). Pozostałe kroki przenumerowane
+(1–7 → 2–8).
+
 ## 0.15.1 — 2026-08-18 (neutralny)
 
 Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
