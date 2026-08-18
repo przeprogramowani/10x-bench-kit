@@ -1,7 +1,7 @@
 /**
  * bench assert — pojedyncze asercje nie-LLM-owe z puli na wskazanej
  * referencji, bez pełnego cyklu próby. Enabler zasady "testuj na
- * referencji, zanim zaproponujesz" (bench-task / bench-refresh) oraz
+ * referencji, zanim zaproponujesz" (bench-task / bench-refresh-task) oraz
  * weryfikacji referencyjnej w `bench validate --assert`.
  *
  * Referencja = stan startowy zbudowany na hoście (repo@pin + overlay

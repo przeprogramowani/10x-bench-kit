@@ -1,6 +1,6 @@
-# Szablon PR-a odświeżenia zadania (bench-refresh)
+# Szablon PR-a odświeżenia zadania (bench-refresh-task)
 
-Tytuł: `bench-refresh: <nazwa-zadania>`
+Tytuł: `bench-refresh-task: <nazwa-zadania>`
 
 ```markdown
 ## Powód odświeżenia

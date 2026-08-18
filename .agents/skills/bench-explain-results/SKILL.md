@@ -1,5 +1,5 @@
 ---
-name: bench-triage
+name: bench-explain-results
 description: >-
   Diagnozuje wyniki runu benchmarku: schodzi z report.json przez
   result.json do artefaktów próby (agent.log, patch.diff, checks.json,
@@ -10,7 +10,7 @@ description: >-
   dostał tyle / przeanalizuj run".
 ---
 
-# bench-triage — czytanie wyników
+# bench-explain-results — czytanie wyników
 
 Wynik próby to koniec łańcucha dowodów: report → result → artefakty.
 Twoja praca to zejść po tym łańcuchu i **nazwać przyczynę** jedną
@@ -24,7 +24,7 @@ się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
 1. **Nigdy nie zmieniasz scoringu.** Żadnych edycji `result.json`,
    `report.json`, gałęzi `bench-data`, zadań, asercji, rubryk ani
    `bench.config.yaml`. Nawet gdy bug asercji jest oczywisty: diagnoza
-   → issue → naprawa osobnym skillem (bench-build / bench-refresh /
+   → issue → naprawa osobnym skillem (bench-build / bench-refresh-task /
    bench-rubric), nigdy edycją w ramach triage. Artefakty prób są
    read-only.
 2. **Hipoteza → dowód komendą.** Podejrzenie wobec asercji lub sędziego
@@ -133,7 +133,7 @@ ten sam triage co run.
   opisz wzorzec zachowania (to cenniejsze niż liczba: "gubi tool
   calling", "nie trzyma zakresu").
 - **Wina zadania** — issue w repo instancji + delegacja: asercja /
-  overlay / prompt / timeout → bench-refresh (lub bench-new-task +
+  overlay / prompt / timeout → bench-refresh-task (lub bench-new-task +
   bench-build dla nowego zadania), rubryka → bench-rubric. Zaznacz
   w issue, które
   wyniki bieżącej ery są skażone — era i tak zamknie się przy naprawie.
@@ -144,7 +144,7 @@ ten sam triage co run.
 ### 6. Wyjście
 
 Komentarz (przy PR/runie) albo issue wg
-[TRIAGE_TEMPLATE.md](TRIAGE_TEMPLATE.md): symptom → łańcuch dowodów →
+[EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md): symptom → łańcuch dowodów →
 klasa → rekomendacja → koszt triage. Scoringu nie zmieniasz (zasada 1);
 jeśli naprawa jest pilna, uruchom właściwy skill osobno, po zgodzie
 użytkownika.
@@ -157,7 +157,7 @@ z jednozdaniowym uzasadnieniem, maksymalnie dwie alternatywy z ceną,
 oraz — oddzielnie — to, co czeka na decyzję człowieka. Typowe przejścia
 wg klasy:
 
-- **wina zadania** → bench-refresh albo bench-new-task + bench-build —
+- **wina zadania** → bench-refresh-task albo bench-new-task + bench-build —
   zależnie od tego, czy naprawa zachowuje intencję zadania;
 - **wina rubryki** → bench-rubric;
 - **wina infrastruktury** → run do powtórzenia po naprawie — wyniki

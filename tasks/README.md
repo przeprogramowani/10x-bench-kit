@@ -30,7 +30,7 @@ plik — gitem zarządza użytkownik.
 - Zadania powstają i są odświeżane skillami, ale skille nie dotykają
   gita. Nowe zadania bench-build zostawia jako pliki w drzewie
   roboczym z raportem dowodów z referencji per zadanie — commit, PR
-  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh)
+  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh-task)
   i rubryki (bench-rubric) przechodzą przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,

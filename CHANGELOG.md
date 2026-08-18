@@ -6,6 +6,22 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.15.0 — 2026-08-18 (neutralny)
+
+Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
+i runnera. Rename przed szerszą adopcją instancji — bez aliasów wstecz.
+
+**Rename skilli** — `bench-triage` → **`bench-explain-results`**
+i `bench-refresh` → **`bench-refresh-task`**: katalogi, frontmatter
+`name`, konwencja gałęzi (`bench-refresh-task/<nazwa>`), szablon
+`TRIAGE_TEMPLATE.md` → `EXPLAIN_TEMPLATE.md` oraz wszystkie odwołania
+krzyżowe (AGENTS.md, README stref, skille, komentarze runnera).
+Historyczne wpisy changeloga zachowują stare nazwy.
+
+**README strefy skilli zaktualizowane do stanu faktycznego** —
+bench-refresh-task oznaczony jako dostępny (był „planowany"),
+dopisany brakujący wpis bench-explain-results.
+
 ## 0.14.5 — 2026-08-18 (neutralny)
 
 Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy

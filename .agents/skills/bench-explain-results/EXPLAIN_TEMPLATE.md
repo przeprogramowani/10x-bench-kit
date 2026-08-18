@@ -1,4 +1,4 @@
-# Szablon diagnozy (bench-triage)
+# Szablon diagnozy (bench-explain-results)
 
 Tytuł (issue/komentarz): `triage: <model> × <zadanie> — <symptom w 3-5 słowach>`
 
@@ -24,7 +24,7 @@ starcza: "nierozstrzygnięte" + czego zabrakło.>
 ## Rekomendacja
 
 <wina modelu → wynik zostaje, opisany wzorzec zachowania;
-wina zadania → co naprawić i którym skillem (bench-refresh /
+wina zadania → co naprawić i którym skillem (bench-refresh-task /
 bench-build / bench-rubric), które wyniki ery są skażone;
 wina infrastruktury → issue w repo template'u, które próby
 nieinterpretowalne, czy run powtórzyć.>

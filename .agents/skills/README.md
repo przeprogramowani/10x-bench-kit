@@ -16,12 +16,16 @@ SKILLS_DESIGN w repo projektowym):
   użytkownika.
 - **bench-wiring** *(dostępny)* — od świeżego `init` do zielonego
   `validate`: repo bazowe, modele, sekrety, obraz pod stack firmy.
-- **bench-refresh** *(planowany)* — odświeżenie przeterminowanego
+- **bench-refresh-task** *(dostępny)* — odświeżenie przeterminowanego
   zadania (nowy pin + asercje) → PR otwierający nową erę zadania.
 - **bench-rubric** *(dostępny)* — kalibracja rubryk LLM-as-judge:
   zbiór kalibracyjny z diffów o znanej jakości, pomiar rozdzielczości
   i stabilności sędziego (`bench calibrate`), iteracja kryteriów, PR
   z podbiciem wersji rubryki (frontmatter `version`).
+- **bench-explain-results** *(dostępny)* — diagnoza wyników runu:
+  zejście z report.json przez result.json do artefaktów próby
+  i klasyfikacja przyczyny (wina modelu / zadania / infrastruktury)
+  z dowodami; wyjście to komentarz lub issue, nigdy zmiana scoringu.
 
 W template skille żyją pod tool-agnostycznym `.agents/skills/`;
 `10x bench-kit init` materializuje je w instancji pod ścieżką wybranego

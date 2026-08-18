@@ -1,5 +1,5 @@
 ---
-name: bench-refresh
+name: bench-refresh-task
 description: >-
   Odświeża przeterminowane zadanie benchmarku: nowy pinowany commit repo
   bazowego, ponowna weryfikacja overlaya, asercji i deklaracji reference
@@ -9,7 +9,7 @@ description: >-
   zadanie / refresh taska / zadanie się przeterminowało".
 ---
 
-# bench-refresh — starzenie zadań
+# bench-refresh-task — starzenie zadań
 
 Zadanie jest przypięte do commita sprzed miesięcy, a repo bazowe żyje.
 Refresh to nie podmiana SHA: to ponowne przejście zasady **"testuj na
@@ -22,7 +22,7 @@ nie sztuczne ratowanie.
 
 ## Twarde zasady
 
-1. **Wyjście wyłącznie przez PR.** Gałąź `bench-refresh/<nazwa>` + PR wg
+1. **Wyjście wyłącznie przez PR.** Gałąź `bench-refresh-task/<nazwa>` + PR wg
    [PR_TEMPLATE.md](PR_TEMPLATE.md), człowiek merguje. Nigdy commit do
    mastera instancji.
 2. **Refresh = nowa era zadania.** Każda zmiana katalogu zadania zmienia
@@ -184,7 +184,7 @@ równolegle w tle i zbierz wyniki razem. Kolejno, każde musi przejść:
 
 ### 8. PR
 
-Gałąź `bench-refresh/<nazwa>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
+Gałąź `bench-refresh-task/<nazwa>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
 stary → nowy pin z tym, co zaszło między nimi; adaptacje z uzasadnieniem;
 komplet dowodów z nowej referencji; sekcja "to otwiera nową erę tego
 zadania"; koszt samosprawdzenia. Zestaw poprzednie wyniki (krok 1) obok

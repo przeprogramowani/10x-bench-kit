@@ -20,8 +20,8 @@ Kolejność odpowiada cyklowi życia instancji:
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
 | 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na referencji; gotowe pliki + raport w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Kalibracja rubryki LLM-as-judge na diffach o znanej jakości | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
-| 5 | **bench-refresh** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
-| 6 | **bench-triage** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
+| 5 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
+| 6 | **bench-explain-results** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 

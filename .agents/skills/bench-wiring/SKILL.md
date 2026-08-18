@@ -105,7 +105,7 @@ proponuje zapis do nich, to nieporozumienie do wyprostowania.
 Dla każdego wpisu zadbaj o lokalny klon roboczy w `.repos/<nazwa>/`
 (konwencja z AGENTS.md; init zwykle zostawia tam klon wykrytego repo —
 brakujące sklonuj sam). Z niego korzystają potem bench-build
-i bench-refresh, zamiast klonować w kółko do scratchpada.
+i bench-refresh-task, zamiast klonować w kółko do scratchpada.
 
 ### 3. Modele i sędzia
 
