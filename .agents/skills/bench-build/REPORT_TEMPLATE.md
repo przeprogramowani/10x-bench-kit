@@ -13,7 +13,8 @@ wyniki komend, nie deklaracje.
 
 <pełna lista utworzonych/zmienionych ścieżek: tasks/<nazwa>/…, nowe
 asercje w evaluation-pool/…, zbiór kalibracyjny
-w evaluation-pool/judge/<zadanie>-calibration/…>
+w evaluation-pool/judge/<zadanie>-calibration/…; bez todo.md — plik
+postępu usuwasz przy oddaniu pracy>
 
 ## Co zadanie mierzy
 
