@@ -284,7 +284,14 @@ przejść zanim pójdziesz dalej:
    ma czerwoną miarę pracy (pkt 1) i — jeśli jest składowa judge —
    `bench judge --task <nazwa> --patch <pusty.diff>` daje niski wynik.
 4. Próbny `bench run --smoke --tasks <nazwa> --models <tani-model>` +
-   `bench evaluate` (budżet instancji pilnuje kosztów — zasada 6).
+   `bench evaluate` (budżet instancji pilnuje kosztów — zasada 6) —
+   **o ile sesja ma klucze API dostawców**. Gdy kluczy nie ma, nie
+   obchodź tego i nie traktuj jak porażki: odnotuj w raporcie „smoke
+   odroczony — brak sekretów w sesji" i oddaj pracę; próbny run
+   wszystkich nowych zadań paczki wykona się tam, gdzie sekrety są,
+   po przyjęciu plików przez użytkownika (bramka paczki
+   u orkiestratora, nie rytuał per zadanie). Punkty 1–3 pozostają
+   bezwarunkowe.
    Zadanie, którego nie da się przejść, albo które przechodzi się pustym
    diffem, wraca do kroku 2/4.
 

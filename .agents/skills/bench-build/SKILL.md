@@ -180,9 +180,18 @@ w prompcie:
 - format raportu końcowego: REPORT_TEMPLATE.md (lista plików, dowody
   z referencji, koszt) + problemy.
 
+**Moc subagenta dobierz do profilu zlecenia** (pole Typ z wpisu):
+zadania dokumentacyjne/koncepcyjne uruchamiaj z obniżonym reasoning
+effort — pełna procedura dowodowa obowiązuje je tak samo, ale nie
+wymagają mocy zadania implementacyjnego z testami. Modelu nie obniżaj
+w ciemno: jakość `prompt.md` waży w każdym profilu. Zlecenia
+implementacyjne dostają pełną moc.
+
 Subagent może zakończyć odmową z powodem (np. zlecenie niewykonalne na
 aktualnym repo, bug nieobserwowalny) — to poprawny wynik, nie porażka
-orkiestracji.
+orkiestracji. Odroczony smoke (brak sekretów w sesji, krok 6.4
+TASK_AUTHORING) także nie jest porażką — odnotowany w raporcie
+przechodzi do bramki paczki (sekcja „Następny krok").
 
 ### 4. Zbiór wyników i statusy
 
@@ -218,4 +227,9 @@ Typowe przejścia:
   zamyka ery; po policzonych wynikach zamyka.
 - **Zlecenia wróciły do `pending`** → uzupełnić wpisy (bench-new-task)
   albo ponowny bench-build na podzbiorze.
+- **Raporty odnotowują odroczony smoke (brak sekretów w sesji)** →
+  po przyjęciu plików przez użytkownika jeden próbny
+  `bench run --smoke` na wszystkich nowych zadaniach paczki naraz,
+  w środowisku z kluczami (sesja użytkownika albo CI) — przed pełnym
+  runem, jako bramka paczki.
 - **Zadania gotowe i przyjęte przez użytkownika** → pełny run.

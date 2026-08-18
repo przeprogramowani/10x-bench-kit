@@ -6,6 +6,24 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.14.5 — 2026-08-18 (neutralny)
+
+Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
+i runnera.
+
+**Smoke run warunkowy, bramka paczki zamiast rytuału** — krok 6.4
+TASK_AUTHORING (próbny `bench run --smoke` + `bench evaluate`) wykonuje
+się tylko, gdy sesja ma klucze API; bez sekretów subagent odnotowuje
+odroczenie w raporcie i oddaje pracę, a jeden smoke wszystkich nowych
+zadań paczki wykonuje się po przyjęciu plików, w środowisku z kluczami
+(sekcja „Następny krok" bench-build). Bramki 6.1–6.3 (validate, wzorzec,
+pusty diff) pozostają bezwarunkowe.
+
+**Moc subagenta wg profilu zlecenia** — orkiestrator przy fan-oucie
+obniża reasoning effort dla zleceń dokumentacyjnych/koncepcyjnych
+(pełna procedura dowodowa bez zmian); zlecenia implementacyjne dostają
+pełną moc.
+
 ## 0.14.4 — 2026-08-18 (neutralny)
 
 Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
