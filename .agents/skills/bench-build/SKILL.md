@@ -124,6 +124,19 @@ braków — do uzupełnienia, nie do budowy.
   cokolwiek zbudujesz — subagenci nie będą w stanie odróżnić swojej
   czerwieni od zastanej.
 - Świeże klony `.repos/` dla wszystkich rep bazowych paczki (zasada 6).
+- **Pin-kandydat per repo bazowe**: wskaż świeży commit istniejący na
+  remote z dowodem zielonego CI (status checków z GitHub API) — SHA
+  + dowód trafią do promptów subagentów. Kandydat jest domyślny, nie
+  wiążący: subagent weryfikuje tylko, że **jego** zlecenie ma na nim
+  sens, i może odstąpić z uzasadnieniem w raporcie. Bez tego kroku
+  każdy subagent osobno przegląda historię i odpytuje CI o to samo.
+- **Środowisko oceny gotowe przed fan-outem**: doprowadź do stanu,
+  w którym jedno wejście do kontenera przechodzi — np. `bench assert`
+  na dowolnym istniejącym zielonym zadaniu instancji. Obraz
+  `bench-base`, zależności runnera i dostępność dockera to
+  infrastruktura wspólna paczki: naprawiasz ją ty, raz, tutaj — a nie
+  pierwszy subagent, który się na nią natknie, w ramach swojego
+  zadania.
 - Inwentarz `evaluation-pool/` + rozstrzygnięcie pokrycia asercji dla
   zleceń paczki (zasada 6a): co reużyć, co nowe i wspólne (z właścicielem),
   co nowe i rozłączne.
@@ -138,6 +151,10 @@ backlogu), uruchom subagenta mechanizmem twojego narzędzia i przekaż mu
 w prompcie:
 
 - pełny wpis zlecenia z backlogu, verbatim;
+- pin-kandydat dla repo bazowego zlecenia: SHA + dowód zielonego CI
+  (krok 2) i zasada odstępstwa — kandydat jest domyślny, subagent
+  weryfikuje sens swojego zlecenia na tym commicie, a odstąpienie
+  wymaga uzasadnienia w raporcie;
 - polecenie przeczytania i wykonania
   `.agents/skills/bench-build/TASK_AUTHORING.md` (ścieżka wg katalogu
   skilli instancji) — to jest jego procedura, z twardymi zasadami

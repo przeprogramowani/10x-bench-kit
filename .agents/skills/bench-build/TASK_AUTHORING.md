@@ -78,6 +78,13 @@ zbudowane na domysłach.
 Uruchamiane z korzenia instancji: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts <komenda>` (dalej: `bench <komenda>`).
 
+Środowisko oceny (obraz `bench-base`, zależności runnera, docker)
+przygotował i sprawdził orkiestrator przed twoim startem. Jeśli mimo
+to komenda `bench` pada z powodów infrastrukturalnych (build obrazu,
+sieć/TLS, docker), zgłoś to w raporcie i odmów, zamiast naprawiać
+środowisko — to strefa wspólna paczki, a twoja naprawa wyścigałaby
+się z sąsiadami budującymi równolegle.
+
 - `bench assert <ref...> --task <nazwa> [--no-overlay] [--patch <plik>]...`
   — asercje nie-LLM-owe na stanie startowym zadania (repo@pin + overlay);
   `--no-overlay` = czysta referencja, `--patch` = z nałożonym diffem.
@@ -131,13 +138,19 @@ powstało). Wszystko, co ma przetrwać, należy do raportu końcowego.
 
 ### 1. Pin
 
-Wybierz konkretny commit repo bazowego: świeży, ale stabilny —
-najlepiej ostatni zielony na CI. Repo przeglądaj w lokalnym klonie
-`.repos/<nazwa>/` (przygotowanym przez orkiestratora — zasada 8);
-wybieraj commity **istniejące na remote** (runner robi własny płytki
-fetch z URL-a). Zweryfikuj, że zlecenie ma na nim sens: przejrzyj repo
-na tym commicie, sprawdź że pliki, których zadanie dotyczy, istnieją,
-a projekt się buduje. Pełny SHA (40 znaków) do `task.yaml`.
+Orkiestrator podał ci w prompcie **pin-kandydata** (SHA + dowód
+zielonego CI) dla repo bazowego — nie powtarzaj jego pracy: nie
+przeglądasz historii i nie odpytujesz CI od zera. Twoja część to
+weryfikacja, że **twoje zlecenie** ma na tym commicie sens: przejrzyj
+repo na tym commicie (klon `.repos/<nazwa>/`, stan na pinie przez
+worktree — zasada 8), sprawdź, że pliki, których zadanie dotyczy,
+istnieją, a projekt się buduje. Pasuje → pełny SHA (40 znaków) do
+`task.yaml`. Nie pasuje (np. obszar zadania świeżo przebudowany) →
+wybierz inny commit i **uzasadnij odstępstwo w raporcie**.
+
+Gdy kandydata w prompcie nie ma, wybierz sam: świeży, ale stabilny —
+najlepiej ostatni zielony na CI. Zawsze wybieraj commity **istniejące
+na remote** (runner robi własny płytki fetch z URL-a).
 
 ### 2. Overlay (zadania typu "napraw")
 
