@@ -6,6 +6,18 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.15.1 — 2026-08-18 (neutralny)
+
+Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
+i runnera.
+
+**bench-wiring: jawne kroki dodania sekretów do zdalnego repo** —
+checklista sekretów (krok 4) przy brakach wypisuje użytkownikowi gotową
+komendę `gh secret set <NAZWA> --repo <owner/repo-instancji>` (lub
+ścieżkę w UI) z jawnym rozróżnieniem, że sekret obecny tylko lokalnie
+w env nie wystarczy workflowowi `bench-run`. PR_TEMPLATE analogicznie
+wymaga komendy przy statusie „DO USTAWIENIA".
+
 ## 0.15.0 — 2026-08-18 (neutralny)
 
 Zmiany wyłącznie w skillach autorskich — bez wpływu na scoring, schematy
