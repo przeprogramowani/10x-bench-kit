@@ -140,7 +140,22 @@ Zbuduj listę nazw z decyzji z kroków 2–3 i zweryfikuj obecność:
 
 Weryfikacja: `gh secret list` w repo instancji oraz `[ -n "$…" ]`
 lokalnie — obecność, nigdy wartości (zasada 2). Checklista trafia do
-opisu PR-a; braki wypisujesz użytkownikowi jako jego kroki.
+opisu PR-a.
+
+Braki wypisujesz użytkownikowi jako jego konkretne kroki — dla każdego
+brakującego sekretu podaj dokładną nazwę i gotową komendę do dodania
+w **zdalnym repo instancji** (tam pracują workflows):
+
+```
+gh secret set OPENROUTER_API_KEY --repo <owner/repo-instancji>
+gh secret set BASE_REPO_TOKEN --repo <owner/repo-instancji>
+```
+
+(albo ścieżkę w UI: Settings → Secrets and variables → Actions). Do
+lokalnego smoke'a osobno: eksport tej samej zmiennej w env. Sekret
+obecny tylko lokalnie ≠ obecny w repo — workflow `bench-run` bez sekretu
+w repo padnie, nawet gdy lokalny smoke przeszedł; wypisz oba miejsca
+jawnie.
 
 ### 5. Obraz pod stack
 

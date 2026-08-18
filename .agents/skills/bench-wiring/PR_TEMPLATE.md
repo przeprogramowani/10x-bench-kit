@@ -11,7 +11,9 @@ zdaniem uzasadnienia.>
 
 ## Checklista sekretów
 
-<nazwy, nigdy wartości; status obecności z `gh secret list` / env:>
+<nazwy, nigdy wartości; status obecności z `gh secret list` / env;
+przy statusie "DO USTAWIENIA" dopisz gotową komendę dodania do zdalnego
+repo instancji, np. `gh secret set <NAZWA> --repo <owner/repo>`:>
 
 - [ ] `OPENROUTER_API_KEY` — próby agenta + sędzia — <obecny w repo / DO USTAWIENIA>
 - [ ] `BASE_REPO_TOKEN` — klonowanie prywatnych repo bazowych (fine-grained PAT, contents:read) — <status / "zbędny — same repo publiczne">
