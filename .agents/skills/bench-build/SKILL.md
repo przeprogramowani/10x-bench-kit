@@ -155,6 +155,11 @@ w prompcie:
   zmieniać pod nim w trakcie (sąsiad dopisuje swoje katalogi), więc
   ponowny skan puli w trakcie pracy niczego nie rozstrzyga — wiąże go
   twoje rozstrzygnięcie, a rozbieżność z nim zgłasza w raporcie;
+- przypomnienie o podglądzie postępu: pierwszą czynnością subagenta
+  jest utworzenie `tasks/<nazwa>/todo.md` (krok 0 procedury),
+  aktualizowanego bezpośrednio po każdym kroku — przez ten plik ty
+  i użytkownik podglądacie pracę w toku, więc ma być pisany na
+  bieżąco, nie uzupełniany wstecz przed raportem;
 - format raportu końcowego: REPORT_TEMPLATE.md (lista plików, dowody
   z referencji, koszt) + problemy.
 
@@ -163,6 +168,15 @@ aktualnym repo, bug nieobserwowalny) — to poprawny wynik, nie porażka
 orkiestracji.
 
 ### 4. Zbiór wyników i statusy
+
+W trakcie pracy subagentów postęp podglądasz w ich plikach
+`tasks/<nazwa>/todo.md` — każdy prowadzi swój na bieżąco (krok 0
+TASK_AUTHORING.md) i to tam patrzysz najpierw, gdy któryś utknie albo
+użytkownik pyta o stan paczki. Podglądasz, nie edytujesz (zasada 1);
+przy oddaniu pracy subagent sam usuwa swój todo.md — jeśli po jego
+raporcie plik został, przypomnij mu o sprzątnięciu albo odnotuj to
+użytkownikowi jako resztkę do usunięcia (plik roboczy wszedłby
+w `task_hash`).
 
 Po każdym subagencie: (w trybie domyślnym jego pliki są już w drzewie
 instancji; tylko przy izolowanych kopiach przenieś je — zasada 5),

@@ -65,6 +65,13 @@ zbudowane na domysłach.
    i pracuj wyłącznie tam; sporadyczny `index.lock` po prostu ponów.
    Jeśli klonu brakuje, zgłoś to w raporcie zamiast klonować obok
    innych subagentów.
+9. **Postęp raportujesz na bieżąco w `tasks/<nazwa>/todo.md`.** To
+   jedyny kanał podglądu twojej pracy w toku — orkiestrator
+   i użytkownik czytają go, zanim wrócisz z raportem. Tworzysz go jako
+   pierwszą czynność (krok 0 procedury), aktualizujesz bezpośrednio po
+   każdym kroku (nie zbiorczo na końcu), a przy oddaniu pracy usuwasz:
+   `task_hash` liczy się ze **wszystkich** plików katalogu zadania,
+   więc pozostawiony plik roboczy wszedłby na stałe w tożsamość ery.
 
 ## Narzędzia runnera
 
@@ -91,6 +98,36 @@ Uruchamiane z korzenia instancji: `node --experimental-strip-types
   `bench evaluate --run <dir>` — próbny pełny cykl (krok 6).
 
 ## Procedura
+
+### 0. Plan pracy — todo.md
+
+Zanim cokolwiek zbudujesz, utwórz `tasks/<nazwa>/todo.md` (razem
+z katalogiem zadania, jeśli jeszcze nie istnieje): checklista kroków
+tej procedury, którą będziesz odhaczać w trakcie pracy:
+
+```markdown
+# <nazwa> — postęp budowy
+- [ ] 1. Pin
+- [ ] 2. Overlay (zadania typu "napraw")
+- [ ] 3. prompt.md
+- [ ] 4. Asercje (+ diffy kalibracyjne)
+- [ ] 5. Wagi
+- [ ] 6. Samosprawdzenie
+- [ ] 7. Oddanie pracy
+```
+
+Aktualizuj go **bezpośrednio po każdym kroku** (zasada 9): odhaczenie
+plus jedno-dwa zdania konkretu — wybrany SHA, nazwy zbudowanych
+asercji, wynik `bench assert`. W krokach długich (asercje,
+samosprawdzenie) dopisuj także w trakcie, po każdej domkniętej
+bramce, a problemy i decyzje notuj w momencie ich podjęcia. Ten plik
+czyta na żywo orkiestrator i użytkownik — ma opisywać stan faktyczny,
+nie plan; wpis wsteczny uzupełniony tuż przed raportem mija się
+z celem.
+
+Przy oddaniu pracy (krok 7) todo.md **usuwasz** — także przy odmowie
+(wtedy usuń również katalog zadania, jeśli nic poza todo.md w nim nie
+powstało). Wszystko, co ma przetrwać, należy do raportu końcowego.
 
 ### 1. Pin
 
@@ -244,7 +281,10 @@ Zostaw komplet plików w drzewie roboczym: katalog zadania + ewentualne
 nowe asercje w puli + zbiór kalibracyjny. Nic w gicie (zasada 1) —
 o commicie/PR-rze decyduje użytkownik. Wzorcowego rozwiązania **nie**
 zostawiaj w `tasks/` (przeciekłoby do workspace'u agenta) — jego
-miejsce to `evaluation-pool/judge/<zadanie>-calibration/`.
+miejsce to `evaluation-pool/judge/<zadanie>-calibration/`. Na koniec
+usuń `tasks/<nazwa>/todo.md` (zasada 9) — plik postępu to kanał
+podglądu na czas budowy, nie część zadania; pozostawiony wszedłby
+w `task_hash`.
 
 ### 8. Raport końcowy
 
