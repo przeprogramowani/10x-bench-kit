@@ -16,7 +16,7 @@ Kolejność odpowiada cyklowi życia instancji:
 
 | Kolejność | Skill | Przeznaczenie | Kiedy |
 |---|---|---|---|
-| 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate`: repo bazowe, modele, sędzia, sekrety, smoke run | raz, przy powstaniu instancji (i przy zmianach wiringu) |
+| 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszego runu w CI: braki po init, sekrety, dispatch `bench-run` | raz, przy powstaniu instancji (i przy zmianach wiringu) |
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
 | 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na referencji; gotowe pliki + raport w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Kalibracja rubryki LLM-as-judge na diffach o znanej jakości | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
