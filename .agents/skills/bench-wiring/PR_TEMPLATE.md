@@ -25,7 +25,7 @@ repo instancji, np. `gh secret set <NAZWA> --repo <owner/repo>`:>
 - `bench validate` → <0 errorów / lista>
 - `bench validate --assert` (jeśli zadania mają reference) → <wynik>
 - smoke run: `<model>` × `<zadanie>` → total <x>, koszt $<y>, czas <z> s
-- dispatch w GH Actions: <link do runu / "nie odpalano">
+- dispatch w GH Actions: <link do runu / "następny krok po merge — wymaga zmergowanego configu i sekretów w repo">
 
 ## Skutki dla porównywalności
 
