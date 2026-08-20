@@ -6,6 +6,36 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.16.0 — 2026-08-20 (neutralny)
+
+Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
+i runnera.
+
+**bench-wiring: podział na ścieżkę A (pierwszy czek) i ścieżkę B
+(pierwszy run w CI)** — procedura rozjeżdża się na dwie części zamiast
+jednej liniowej listy kroków. Ścieżka A ma budżet minuty i biegnie
+lokalnie bez kontenerów: przeczytaj, co zrobił `bench-kit init`
+(`instance.json`, `base_repos`, klon w `.repos/`, workflows),
+uzupełnij **tylko** braki i zamknij temat zielonym `bench validate`.
+Ścieżka B domyka pierwszy run: zdalne repo instancji, sekrety,
+dispatch workflow `bench-run`, zielony run.
+
+Dwie zasady rozdziału pracy stoją za tym podziałem: co zrobił init,
+nie jest pracą wiringu (init odpalony z wnętrza repo produktowego sam
+rejestruje repo bazowe, pinuje zadania-demo i klonuje), a co może
+zrobić CI, nie jest pracą lokalnej maszyny (pierwszy run idzie przez
+GH Actions z cache obrazów w GHCR). W konsekwencji brak silnika
+kontenerów **nie blokuje** wiringu — lokalne kontenery są potrzebne
+dopiero autorom zadań w `bench-build` (`bench assert`). Rozmowy
+o modelach, sędzim i budżecie znikają z pierwszego czeku: co ma dobry
+default w template, nie jest rozmową.
+
+Dowodem wykonania jest teraz zielony run `bench-run` w CI, nie lokalny
+smoke — PR_TEMPLATE wymaga linku do runu, a lokalny smoke jest
+opcjonalny i jawnie oznaczony jako nietestujący sekretów repo. Wyjątek
+z zasady 1 (commit na master świeżej instancji) dostał uzasadnienie:
+`workflow_dispatch` wymaga workflowów na gałęzi domyślnej.
+
 ## 0.15.2 — 2026-08-18 (neutralny)
 
 Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
