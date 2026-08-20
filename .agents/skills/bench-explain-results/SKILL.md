@@ -1,210 +1,218 @@
 ---
 name: bench-explain-results
 description: >-
-  Diagnozuje wyniki runu benchmarku: schodzi z report.json przez
-  result.json do artefaktów próby (agent.log, patch.diff, checks.json,
-  judge.json) i klasyfikuje przyczynę — wina modelu, wina zadania albo
-  wina infrastruktury. Działa na runie lokalnym i na runie z CI —
-  zaczyna od pytania o źródło wyników i sam pobiera artefakty przez gh. Wyjście to komentarz lub issue z dowodami, nigdy
-  zmiana scoringu. Użyj po runie, gdy wynik zaskakuje, model spadł
-  między runami, próba padła, albo użytkownik pyta "czemu ten model
-  dostał tyle / przeanalizuj run".
+  Diagnoses benchmark run results: descends from report.json through
+  result.json to trial artifacts (agent.log, patch.diff, checks.json,
+  judge.json) and classifies the cause — model fault, task fault, or
+  infrastructure fault. Works on both local and CI runs — starts by
+  asking about the source of the results and fetches artifacts itself
+  via gh. The output is a comment or issue with evidence, never a
+  scoring change. Use after a run when a result is surprising, a model
+  dropped between runs, a trial failed, or the user asks "why did this
+  model score that / analyze the run".
 ---
 
-# bench-explain-results — czytanie wyników
+# bench-explain-results — reading the results
 
-Wynik próby to koniec łańcucha dowodów: report → result → artefakty.
-Twoja praca to zejść po tym łańcuchu i **nazwać przyczynę** jedną
-z trzech klas: *wina modelu* (leaderboard mówi prawdę), *wina zadania*
-(asercja/overlay/prompt/rubryka karzą nie za to, co trzeba), *wina
-infrastruktury* (kontener, timeout, adapter, sekrety). Diagnoza kończy
-się komentarzem lub issue z delegacją naprawy — nigdy zmianą wyników.
+A trial's score is the end of a chain of evidence: report → result →
+artifacts. Your job is to walk down that chain and **name the cause**
+as one of three classes: *model fault* (the leaderboard tells the
+truth), *task fault* (the assertion/overlay/prompt/rubric punishes the
+wrong thing), *infrastructure fault* (container, timeout, adapter,
+secrets). A diagnosis ends with a comment or an issue delegating the
+fix — never with changing the results.
 
-## Twarde zasady
+## Hard rules
 
-1. **Nigdy nie zmieniasz scoringu.** Żadnych edycji `result.json`,
-   `report.json`, gałęzi `bench-data`, zadań, asercji, rubryk ani
-   `bench.config.yaml`. Nawet gdy bug asercji jest oczywisty: diagnoza
-   → issue → naprawa osobnym skillem (bench-build / bench-refresh-task /
-   bench-rubric), nigdy edycją w ramach triage. Artefakty prób są
-   read-only.
-2. **Hipoteza → dowód komendą.** Podejrzenie wobec asercji lub sędziego
-   weryfikujesz runnerem (`bench assert`, `bench judge`), nie "na oko".
-   Diagnoza bez reprodukcji to spekulacja — oznacz ją jako taką.
-3. **Klasyfikacja obowiązkowa.** Każda diagnoza kończy się jedną z
-   trzech klas + dowodem. Gdy dowodów brak, napisz wprost, czego
-   zabrakło (np. artefakty wygasły) — nie zgaduj klasy.
-4. **Ery przed porównaniami.** "Model spadł między runami" najpierw
-   sprawdź na krotce stamps (`template_version`, `task_hash`,
-   `judge_model`, `rubric_version`) — różne ery to nie regresja modelu,
-   tylko zmiana miary. Leaderboard ich nie miesza; ty też nie.
-5. **Budżet zamiast rytuału zgody.** Re-judge i re-assert kosztują
-   (wywołania sędziego, kontenery), ale pilnuje ich budżet instancji —
-   po serii raportuj koszt faktyczny; zgody wymaga tylko seria wyraźnie
-   większa niż zwykle albo podnoszenie budżetu.
-6. **Materiały oceny linkuj, nie kopiuj.** W komentarzach/issue cytuj
-   minimalne fragmenty potrzebne do dowodu i ścieżki w repo instancji;
-   nie przeklejaj całych ukrytych testów ani rubryk.
+1. **You never change the scoring.** No edits to `result.json`,
+   `report.json`, the `bench-data` branch, tasks, assertions, rubrics,
+   or `bench.config.yaml`. Even when an assertion bug is obvious:
+   diagnosis → issue → fix via the appropriate skill (bench-build /
+   bench-refresh-task / bench-rubric), never an edit as part of triage.
+   Trial artifacts are read-only.
+2. **Hypothesis → proof by command.** Verify suspicions about an
+   assertion or the judge with the runner (`bench assert`,
+   `bench judge`), not "by eye". A diagnosis without reproduction is
+   speculation — label it as such.
+3. **Classification is mandatory.** Every diagnosis ends with one of
+   the three classes + evidence. When evidence is missing, say plainly
+   what was missing (e.g. artifacts expired) — do not guess the class.
+4. **Eras before comparisons.** Before concluding "the model dropped
+   between runs", check the stamps tuple (`template_version`,
+   `task_hash`, `judge_model`, `rubric_version`) — different eras are
+   not a model regression, just a change of measure. The leaderboard
+   does not mix them; neither do you.
+5. **A budget instead of a consent ritual.** Re-judging and
+   re-asserting cost money (judge calls, containers), but the
+   instance's budget guards them — after a series, report the actual
+   cost; consent is required only for a series clearly larger than
+   usual or for raising the budget.
+6. **Link evaluation materials, do not copy them.** In comments/issues,
+   quote the minimal fragments needed as proof plus paths in the
+   instance repo; do not paste entire hidden tests or rubrics.
 
-## Gdzie są artefakty
+## Where the artifacts are
 
-- **Run lokalny**: `out/<run-id>/<zadanie>/<model>/trial-N/`.
-- **Run w CI**: artefakty `results-<slug>` (per model×zadanie, ten sam
-  layout co lokalnie) + `report` — ściągasz je na dysk przez `gh`
-  (krok 1). Artefakty CI wygasają; historia samych raportów jest trwała
-  na gałęzi `bench-data` (`runs/<run_id>.json`).
-- **Pliki próby**: `trial.json` (metadane), `execution.json` (kod
-  wyjścia agenta; 124 = timeout), `agent.log` (pełne wyjście OpenCode),
-  `patch.diff` (praca agenta vs commit startowy), `metrics.json`
-  (koszt/tokeny/czas; `"incomplete": true` = adapter nie znalazł
-  danych), `container.log` (istnieje tylko przy awarii infrastruktury),
-  `signal.json` (istnieje tylko gdy agent zginął od sygnału także po
-  retry — nazwa sygnału, hint, limit pamięci, ogon logu; taka próba ma
-  `resource_kill: true` w trial.json i jest wyłączona z oceny),
-  `eval-plan.json`, `checks.json` (score per asercja nie-LLM-owa),
-  `judge.json` (werdykty + surowa odpowiedź sędziego), `result.json`
-  (scores, total, stemple er).
+- **Local run**: `out/<run-id>/<task>/<model>/trial-N/`.
+- **CI run**: `results-<slug>` artifacts (per model×task, same layout
+  as local) + `report` — you download them to disk via `gh` (step 1).
+  CI artifacts expire; the history of the reports themselves is
+  permanent on the `bench-data` branch (`runs/<run_id>.json`).
+- **Trial files**: `trial.json` (metadata), `execution.json` (agent
+  exit code; 124 = timeout), `agent.log` (full OpenCode output),
+  `patch.diff` (the agent's work vs the starting commit),
+  `metrics.json` (cost/tokens/time; `"incomplete": true` = the adapter
+  found no data), `container.log` (exists only on infrastructure
+  failure), `signal.json` (exists only when the agent was killed by a
+  signal even after retry — signal name, hint, memory limit, log tail;
+  such a trial has `resource_kill: true` in trial.json and is excluded
+  from evaluation), `eval-plan.json`, `checks.json` (score per non-LLM
+  assertion), `judge.json` (verdicts + the judge's raw response),
+  `result.json` (scores, total, era stamps).
 
-## Procedura
+## Procedure
 
-### 1. Źródło wyników (zawsze na start)
+### 1. Source of the results (always first)
 
-Zanim cokolwiek przeczytasz, ustal **skąd biorą się artefakty** — bez
-tego nie masz `report.json` na dysku. Pytanie zadaj mechanizmem pytań
-twojego narzędzia (AskUserQuestion / request_user_input; gdy brak —
-zwykłe pytanie w rozmowie), jednym blokiem, z opcjami:
+Before reading anything, establish **where the artifacts come from** —
+without that you have no `report.json` on disk. Ask via your tool's
+question mechanism (AskUserQuestion / request_user_input; if
+unavailable — a plain question in the conversation), in a single block,
+with the options:
 
-- **run lokalny** — katalog `out/<run-id>/`; gdy jest ich kilka,
-  zaproponuj najnowszy i potwierdź. Ścieżkę podaną przez użytkownika
-  bierz wprost, bez pytania.
-- **run z CI** — pobierasz przez `gh`. Bez podanego id = **ostatni**
-  run workflow `bench-run` w repo instancji.
+- **local run** — an `out/<run-id>/` directory; if there are several,
+  propose the newest and confirm. Take a path given by the user as-is,
+  without asking.
+- **CI run** — you fetch via `gh`. Without a given id = the **latest**
+  run of the `bench-run` workflow in the instance repo.
 
-Wyjątek: gdy użytkownik sam wskazał źródło w prośbie (podał ścieżkę,
-id runu, link do runu/PR-a albo napisał "ostatni run z CI") — nie
-pytaj, tylko potwierdź jednym zdaniem, co bierzesz.
+Exception: when the user already indicated the source in their request
+(gave a path, a run id, a link to a run/PR, or wrote "the latest CI
+run") — do not ask, just confirm in one sentence what you are taking.
 
-Pobranie z CI (repo instancji, nie template'u):
+Fetching from CI (the instance repo, not the template):
 
 ```bash
-# id ostatniego runu, gdy użytkownik go nie podał
+# id of the latest run, when the user did not provide one
 RUN_ID=$(gh run list --workflow bench-run --limit 1 --json databaseId \
   --jq '.[0].databaseId')
 gh run download "$RUN_ID" --dir out/ci-$RUN_ID     # results-* + report
 ```
 
-Artefakty `results-<slug>` mają ten sam layout co run lokalny, więc od
-tego miejsca procedura jest identyczna; `report.json` leży w artefakcie
-`report`. Dwa przypadki brzegowe rozstrzygnij od razu, zanim pójdziesz
-dalej:
+The `results-<slug>` artifacts have the same layout as a local run, so
+from this point on the procedure is identical; `report.json` lives in
+the `report` artifact. Settle two edge cases immediately, before going
+further:
 
-- **artefakty wygasły** (retencja repo) — zostaje wyłącznie
-  `runs/<run_id>.json` na gałęzi `bench-data`, czyli sam poziom
-  raportu. Powiedz to wprost: diagnoza schodzi wtedy najwyżej do
-  kroku 3, klasy przyczyny nie da się wskazać (zasada 3).
-- **run nieukończony / job `aggregate` padł** — brak artefaktu
-  `report`; `results-*` mogą istnieć. Zejdź prosto do prób i zaznacz,
-  że nie masz porównania z medianami.
+- **artifacts expired** (repo retention) — only
+  `runs/<run_id>.json` on the `bench-data` branch remains, i.e. the
+  report level alone. Say so plainly: the diagnosis then descends at
+  most to step 3, and the cause class cannot be determined (rule 3).
+- **run unfinished / the `aggregate` job failed** — no `report`
+  artifact; `results-*` may exist. Descend straight to the trials and
+  note that you have no comparison against medians.
 
-### 2. Pytanie i zakres
+### 2. Question and scope
 
-Ustal, co diagnozujesz: pojedyncza próba / model×zadanie / cały run /
-zmiana między runami. Przy porównaniach między runami — najpierw
-zasada 4 (identyczne stamps, czy nie).
+Establish what you are diagnosing: a single trial / model×task / the
+whole run / a change between runs. For cross-run comparisons — rule 4
+first (identical stamps or not).
 
-### 3. Z góry: report.json
+### 3. Top-down: report.json
 
-- mediany total/koszt/czas per model×zadanie — co odstaje,
-- **pass@1 vs pass@k**: rozjazd (np. 0.33 vs 1.0) = niestabilność,
-  nie niemożność — wybierz do zejścia parę prób: zaliczoną i nie,
-- total ≈ 0 nie ma jednej przyczyny — pusty diff (agent nie działał),
-  destrukcyjne nadpisanie pliku i praca oceniona na 0 wyglądają
-  w report.json identycznie. Nie wnioskuj z mediany; rozstrzygają
-  artefakty (krok 5).
+- medians of total/cost/time per model×task — what stands out,
+- **pass@1 vs pass@k**: a gap (e.g. 0.33 vs 1.0) = instability, not
+  inability — pick a pair of trials to descend into: one that passed
+  and one that did not,
+- total ≈ 0 has no single cause — an empty diff (the agent did
+  nothing), a destructive file overwrite, and work scored 0 look
+  identical in report.json. Do not conclude from the median; the
+  artifacts decide (step 5).
 
-### 4. W dół: result.json próby
+### 4. Down: the trial's result.json
 
-Która składowa ciągnie total w dół (`scores.static/tests/e2e/judge`;
-`null` = waga 0, nieliczona). Porównaj z próbami, które przeszły —
-różnica zwykle wskazuje jedną składową, nie wszystkie.
+Which component drags the total down (`scores.static/tests/e2e/judge`;
+`null` = weight 0, not counted). Compare with trials that passed — the
+difference usually points to one component, not all of them.
 
-### 5. Artefakty: objaw → ścieżka
+### 5. Artifacts: symptom → path
 
-| Objaw | Gdzie patrzeć | Typowe rozstrzygnięcie |
+| Symptom | Where to look | Typical resolution |
 |---|---|---|
-| pusty/prawie pusty `patch.diff` | `agent.log` | model nie wywołuje narzędzi (np. literalny `<tool_code` wypisany jako tekst) → wina modelu; prompt niejasny → wina zadania |
-| `execution.json` exit 124 | `agent.log` (czy był postęp) | kręcenie się w kółko → wina modelu; robił postęp, zabrakło czasu → timeout za krótki, wina zadania |
-| `execution.json` exit 137 (lub inny 128+N) bez timeoutu | `signal.json`, ogon `agent.log` | agent zabity sygnałem — SIGKILL w trakcie instalacji/builda = wyczerpanie zasobów → wina infrastruktury (runner od 0.11.0 sam to klasyfikuje: retry, `resource_kill`, wyłączenie z oceny; brak `signal.json` = run sprzed tej wersji, klasyfikuj ręcznie) |
-| istnieje `container.log` | `container.log`, `execution.json` | kontener padł przed agentem → wina infrastruktury |
-| `trial.json` z `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | przejściowa awaria providera; runner zrobił 1 retry — jeśli i on padł, wina infrastruktury (provider), nie modelu |
-| `metrics.json` incomplete | `agent.log`, storage OpenCode | adapter/wersja OpenCode → wina infrastruktury |
-| asercja 0 w `checks.json` | log asercji + `bench assert --task <t> --patch <wzorzec.diff>` | czerwona także na wzorcu → bug asercji, wina zadania; zielona na wzorcu → wina modelu |
-| judge 0 w `judge.json` | surowa odpowiedź w `judge.json` | brak poprawnego JSON-a / zły format → kontrakt rubryki, wina zadania; poprawny werdykt z uzasadnieniem → czytaj kryteria |
-| judge rozjeżdża się między próbami przy podobnych diffach | `bench judge --task <t> --patch <patch.diff próby>` ×3 | duży rozrzut → rubryka do kalibracji (bench-rubric), wina zadania |
-| duży `patch.diff` poza zakresem | prompt.md + kryterium scope w werdykcie | prompt nie stawia granic → wina zadania; stawia → wina modelu |
-| niepusty `patch.diff`, a judge 0 | nagłówki hunków (`@@ -1,N +1,M @@` na całym pliku) | destrukcyjne nadpisanie zamiast edycji przyrostowej → wina modelu (werdykt sędziego to potwierdzi w uzasadnieniach) |
+| empty/near-empty `patch.diff` | `agent.log` | model does not call tools (e.g. literal `<tool_code` printed as text) → model fault; unclear prompt → task fault |
+| `execution.json` exit 124 | `agent.log` (was there progress) | going in circles → model fault; making progress but ran out of time → timeout too short, task fault |
+| `execution.json` exit 137 (or another 128+N) without a timeout | `signal.json`, tail of `agent.log` | agent killed by a signal — SIGKILL during install/build = resource exhaustion → infrastructure fault (since 0.11.0 the runner classifies this itself: retry, `resource_kill`, exclusion from evaluation; no `signal.json` = run predates that version, classify manually) |
+| `container.log` exists | `container.log`, `execution.json` | container died before the agent → infrastructure fault |
+| `trial.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
+| `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
+| assertion 0 in `checks.json` | assertion log + `bench assert --task <t> --patch <reference.diff>` | red on the reference solution too → assertion bug, task fault; green on the reference → model fault |
+| judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |
+| judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread → rubric needs calibration (bench-rubric), task fault |
+| large out-of-scope `patch.diff` | prompt.md + the scope criterion in the verdict | prompt sets no boundaries → task fault; it does → model fault |
+| non-empty `patch.diff`, yet judge 0 | hunk headers (`@@ -1,N +1,M @@` spanning the whole file) | destructive overwrite instead of incremental edits → model fault (the judge's verdict will confirm it in the justifications) |
 
-Reprodukcje z prawej kolumny wykonuj wg zasad 2 i 5 (dowód komendą,
-koszty jawne) — z dwoma zastrzeżeniami, bo reprodukcja to najdroższa
-czynność w całym skillu:
+Perform the reproductions from the right column per rules 2 and 5
+(proof by command, explicit costs) — with two caveats, because
+reproduction is the most expensive activity in this whole skill:
 
-- **Wyczerpaj artefakty przed pierwszą reprodukcją.** Artefakty są już
-  zapłacone; reprodukcja kosztuje kontener albo wywołania sędziego.
-  Bardzo często pełna diagnoza jest w `patch.diff` i ogonie logu — np.
-  sam kod wyjścia procesu plus ostatnie linie logu jednoznacznie
-  wskazują wyczerpanie zasobów, bez uruchamiania czegokolwiek.
-- **Grupuj reprodukcje.** Jeśli musisz odtworzyć asercję lub werdykt,
-  zrób to dla wszystkich podejrzanych prób naraz, nie próba po próbie
-  w miarę czytania: `bench assert --task <t> --patch <trial-1/patch.diff>
-  --patch <trial-2/patch.diff> …` to jedno wejście do środowiska,
-  N wyników; werdykty sędziego puszczaj równolegle w tle.
+- **Exhaust the artifacts before the first reproduction.** The
+  artifacts are already paid for; a reproduction costs a container or
+  judge calls. Very often the full diagnosis is in `patch.diff` and the
+  log tail — e.g. the process exit code alone plus the last log lines
+  unambiguously indicate resource exhaustion, without running anything.
+- **Batch the reproductions.** If you must replay an assertion or a
+  verdict, do it for all suspect trials at once, not trial by trial as
+  you read: `bench assert --task <t> --patch <trial-1/patch.diff>
+  --patch <trial-2/patch.diff> …` is one environment entry, N results;
+  run judge verdicts in parallel in the background.
 
-### 6. Klasyfikacja i delegacja
+### 6. Classification and delegation
 
-**Reguła stopu:** klasa przyczyny jest wyjściem skilla — gdy dowody
-wystarczają do jej wskazania, kończysz. Dokładniejsza analiza wewnątrz
-klasy należy do skilla naprawczego, który i tak zacznie od własnych
-pomiarów. I **diagnozy powtarzalne kieruj do skilla źródłowego**: jeśli
-ta sama klasa awarii wraca (wzorzec, nie incydent), wyjściem triage'u
-jest poprawka procedury w skillu, który ją produkuje — inaczej płacisz
-ten sam triage co run.
+**Stop rule:** the cause class is the skill's output — once the
+evidence suffices to name it, you are done. Deeper analysis within a
+class belongs to the fixing skill, which will start with its own
+measurements anyway. And **route recurring diagnoses to the source
+skill**: if the same failure class keeps coming back (a pattern, not an
+incident), the output of triage is a fix to the procedure in the skill
+that produces it — otherwise you pay the same triage every run.
 
-- **Wina modelu** — wynik zostaje, leaderboard mówi prawdę. W wyjściu
-  opisz wzorzec zachowania (to cenniejsze niż liczba: "gubi tool
-  calling", "nie trzyma zakresu").
-- **Wina zadania** — issue w repo instancji + delegacja: asercja /
-  overlay / prompt / timeout → bench-refresh-task (lub bench-new-task +
-  bench-build dla nowego zadania), rubryka → bench-rubric. Zaznacz
-  w issue, które
-  wyniki bieżącej ery są skażone — era i tak zamknie się przy naprawie.
-- **Wina infrastruktury** — issue w repo template'u (runner / workflow /
-  obraz) z `container.log` / `execution.json`; wyniki dotkniętych prób
-  oznacz jako nieinterpretowalne, run do powtórzenia po naprawie.
+- **Model fault** — the result stands, the leaderboard tells the truth.
+  In the output, describe the behavior pattern (more valuable than the
+  number: "loses tool calling", "does not respect scope").
+- **Task fault** — an issue in the instance repo + delegation:
+  assertion / overlay / prompt / timeout → bench-refresh-task (or
+  bench-new-task + bench-build for a new task), rubric → bench-rubric.
+  Note in the issue which results of the current era are tainted — the
+  era will close with the fix anyway.
+- **Infrastructure fault** — an issue in the template repo (runner /
+  workflow / image) with `container.log` / `execution.json`; mark the
+  affected trials' results as uninterpretable, the run to be repeated
+  after the fix.
 
-### 7. Wyjście
+### 7. Output
 
-Komentarz (przy PR/runie) albo issue wg
-[EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md): symptom → łańcuch dowodów →
-klasa → rekomendacja → koszt triage. Scoringu nie zmieniasz (zasada 1);
-jeśli naprawa jest pilna, uruchom właściwy skill osobno, po zgodzie
-użytkownika.
+A comment (on the PR/run) or an issue per
+[EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md): symptom → chain of
+evidence → class → recommendation → triage cost. You do not change the
+scoring (rule 1); if the fix is urgent, launch the appropriate skill
+separately, after the user's consent.
 
-### 8. Następny krok
+### 8. Next step
 
-Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan jednym
-zdaniem (co zdiagnozowane, gdzie issue), **jedna** rekomendacja
-z jednozdaniowym uzasadnieniem, maksymalnie dwie alternatywy z ceną,
-oraz — oddzielnie — to, co czeka na decyzję człowieka. Typowe przejścia
-wg klasy:
+End your summary response with a **Next step** section: the state in
+one sentence (what was diagnosed, where the issue is), **one**
+recommendation with a one-sentence justification, at most two
+alternatives with a price, and — separately — what awaits a human
+decision. Typical transitions by class:
 
-- **wina zadania** → bench-refresh-task albo bench-new-task + bench-build —
-  zależnie od tego, czy naprawa zachowuje intencję zadania;
-- **wina rubryki** → bench-rubric;
-- **wina infrastruktury** → run do powtórzenia po naprawie — wyniki
-  dotkniętych prób są nieinterpretowalne;
-- **wina modelu** → nic w benchmarku — to jest odpowiedź, nie problem
-  do naprawy.
+- **task fault** → bench-refresh-task or bench-new-task + bench-build —
+  depending on whether the fix preserves the task's intent;
+- **rubric fault** → bench-rubric;
+- **infrastructure fault** → repeat the run after the fix — the
+  affected trials' results are uninterpretable;
+- **model fault** → nothing in the benchmark — that is the answer, not
+  a problem to fix.
 
-Nie proponuj kolejnego runu, dopóki poprzedni nie jest zinterpretowany:
-jeśli w runie były próby zabite przez infrastrukturę, drugi run powtórzy
-tę samą awarię i tę samą fakturę.
+Do not propose another run until the previous one is interpreted: if
+the run had trials killed by infrastructure, a second run will repeat
+the same failure and the same invoice.

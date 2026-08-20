@@ -1,37 +1,39 @@
-# .agents/skills — strefa współdzielona (skille agentowe)
+# .agents/skills — shared zone (agent skills)
 
-Wszystko, co wymaga osądu, robi rozmowa z agentem — nie CLI. Tu żyją
-skille wspierające cykl życia instancji. Zestaw docelowy (koncepcja:
-SKILLS_DESIGN w repo projektowym):
+Everything that requires judgment happens in a conversation with an agent —
+not in the CLI. This is where the skills supporting the instance lifecycle
+live. Target set (concept: SKILLS_DESIGN in the project repo):
 
-- **bench-new-task** *(dostępny)* — krótki wywiad → zlecenie nowego
-  zadania w stanowym backlogu `tasks/backlog.md`; w jednej sesji można
-  zdefiniować 5–10 zleceń, bez budowania czegokolwiek.
-- **bench-build** *(dostępny)* — buduje zadania z oczekujących zleceń
-  backlogu: rozdziela je na subagentów, każdy wykonuje pełne autorstwo
-  (prompt + pin + overlay + asercje z deklaracjami `reference` + wagi,
-  wszystko sprawdzone na referencji przez `bench assert` /
-  `bench judge` / `bench validate --assert`); wynik zostaje jako pliki
-  w drzewie roboczym z raportem dowodów per zadanie — git po stronie
-  użytkownika.
-- **bench-wiring** *(dostępny)* — od świeżego `init` do zielonego
-  `validate`: repo bazowe, modele, sekrety, obraz pod stack firmy.
-- **bench-refresh-task** *(dostępny)* — odświeżenie przeterminowanego
-  zadania (nowy pin + asercje) → PR otwierający nową erę zadania.
-- **bench-rubric** *(dostępny)* — kalibracja rubryk LLM-as-judge:
-  zbiór kalibracyjny z diffów o znanej jakości, pomiar rozdzielczości
-  i stabilności sędziego (`bench calibrate`), iteracja kryteriów, PR
-  z podbiciem wersji rubryki (frontmatter `version`).
-- **bench-explain-results** *(dostępny)* — diagnoza wyników runu:
-  zejście z report.json przez result.json do artefaktów próby
-  i klasyfikacja przyczyny (wina modelu / zadania / infrastruktury)
-  z dowodami; wyjście to komentarz lub issue, nigdy zmiana scoringu.
+- **bench-new-task** *(available)* — a short interview → a new task
+  request in the stateful backlog `tasks/backlog.md`; a single session
+  can define 5–10 requests without building anything.
+- **bench-build** *(available)* — builds tasks from pending backlog
+  requests: distributes them across subagents, each of which performs
+  full authoring (prompt + pin + overlay + assertions with `reference`
+  declarations + weights, all verified against the reference via
+  `bench assert` / `bench judge` / `bench validate --assert`); the
+  result lands as files in the working tree with a per-task evidence
+  report — git stays on the user's side.
+- **bench-wiring** *(available)* — from a fresh `init` to a green
+  `validate`: base repo, models, secrets, an image matching the
+  company's stack.
+- **bench-refresh-task** *(available)* — refreshes an expired task
+  (new pin + assertions) → a PR opening a new era of the task.
+- **bench-rubric** *(available)* — calibrates LLM-as-judge rubrics:
+  a calibration set built from diffs of known quality, measuring the
+  judge's resolution and stability (`bench calibrate`), iterating on
+  criteria, and a PR bumping the rubric version (frontmatter `version`).
+- **bench-explain-results** *(available)* — diagnoses run results:
+  drilling down from report.json through result.json to the attempt
+  artifacts and classifying the root cause (model / task /
+  infrastructure fault) with evidence; the output is a comment or an
+  issue, never a scoring change.
 
-W template skille żyją pod tool-agnostycznym `.agents/skills/`;
-`10x bench-kit init` materializuje je w instancji pod ścieżką wybranego
-narzędzia agentowego (`.claude/skills/` dla Claude Code, `.agents/skills/`
-dla Codex itd. — wybór zapisany w `instance.json`).
+In the template, skills live under the tool-agnostic `.agents/skills/`;
+`10x bench-kit init` materializes them in the instance under the path of
+the chosen agent tool (`.claude/skills/` for Claude Code, `.agents/skills/`
+for Codex, etc. — the choice is recorded in `instance.json`).
 
-Kontrakt strefy przy `bench-kit update`: kit **proponuje diff** nowych
-wersji skilli — firma decyduje, co przyjąć. Lokalne modyfikacje są
-legalne i oczekiwane (customizacja per firma).
+Zone contract during `bench-kit update`: the kit **proposes a diff** of new
+skill versions — the company decides what to accept. Local modifications
+are legitimate and expected (per-company customization).

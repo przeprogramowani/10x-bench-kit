@@ -1,258 +1,293 @@
 ---
 name: bench-wiring
 description: >-
-  Przeprowadza świeżą instancję bench-kit od `bench-kit init` do zielonego
-  `bench validate` i pierwszego runu w CI. Ścieżka A (pierwszy czek,
-  budżet: minuta, lokalnie, bez kontenerów): uzupełnij braki po init +
-  `bench validate`. Ścieżka B (pierwszy run): repo instancji na GitHubie,
-  sekrety, dispatch workflow `bench-run`, zielony run. Użyj, gdy
-  użytkownik ma świeżą instancję benchmarku do skonfigurowania, chce
-  podłączyć repo bazowe lub modele, albo mówi "wiring / skonfiguruj
-  benchmark / podłącz benchmark".
+  Takes a fresh bench-kit instance from `bench-kit init` to a green
+  `bench validate` and the first run in CI. First a check that the
+  instance holds together (filling gaps left by init + `bench validate`,
+  locally, no containers, within a minute), then the first run: the
+  instance repo on GitHub, secrets, dispatching the `bench-run`
+  workflow, a green run. Use when the user has a fresh benchmark
+  instance to configure, wants to hook up a base repo or models, or
+  says "wiring / configure the benchmark / hook up the benchmark".
 ---
 
-# bench-wiring — od init do pierwszego zielonego runu
+# bench-wiring — from init to the first green run
 
-Domykasz decyzje, których `bench-kit init` świadomie nie podejmuje.
-Dwa podziały pracy wyznaczają całą procedurę:
+You close out the decisions that `bench-kit init` deliberately does not
+make. Two divisions of labor shape the entire procedure:
 
-- **Co zrobił init, nie jest pracą wiringu.** Init odpalony z wnętrza
-  repo produktowego wykrywa je, rejestruje w `base_repos` (https zamiast
-  SSH, gdy odpowiada), pinuje zadania-demo na HEAD i klonuje repo do
-  `.repos/<nazwa>/`. Wiring to czyta i uzupełnia braki — nie powtarza.
-- **Co może zrobić CI, nie jest pracą lokalnej maszyny.** Workflow
-  `bench-run` sam waliduje, buduje obrazy (cache w GHCR), odpala próby,
-  ocenia i agreguje. Pierwszy run dzieje się w GH Actions — lokalne
-  kontenery są potrzebne dopiero autorom zadań (bench-build).
+- **What init already did is not wiring work.** Init launched from
+  inside a product repo detects it, registers it in `base_repos`
+  (https instead of SSH when it responds), pins the demo tasks to its
+  HEAD, and clones the repo into `.repos/<name>/`. Wiring reads that
+  and fills the gaps — it does not repeat it.
+- **What CI can do is not local-machine work.** The `bench-run`
+  workflow validates, builds images (cached in GHCR), runs trials,
+  evaluates, and aggregates on its own. The first run happens in GH
+  Actions — local containers are only needed by task authors
+  (bench-build).
 
-Stąd dwie ścieżki:
+Hence two paths — **A and B are working names internal to this
+document, not words you use in conversation** (rule 8):
 
-- **Ścieżka A — pierwszy czek (budżet: minuta, lokalnie).** Dowód, że
-  instancja się spina: braki po init uzupełnione, `bench validate`
-  zielone. Bez kontenerów, bez rozmów o defaults.
-- **Ścieżka B — pierwszy run (w CI).** Repo instancji na GitHubie,
-  sekrety, dispatch `bench-run`, zielony run. Przekaz dla użytkownika
-  jest prosty: "zrób repozytorium (albo podepnij istniejące), odpal
-  pierwszy workflow i poczekaj na zielone".
+- **Path A — first check (budget: one minute, local).** Proof that the
+  instance holds together: gaps left by init filled, `bench validate`
+  green. No containers, no discussions about defaults.
+- **Path B — first run (in CI).** Instance repo on GitHub, secrets,
+  dispatch `bench-run`, green run. The message for the user is simple:
+  "create a repository (or hook up an existing one), launch the first
+  workflow, and wait for green".
 
-Zasada rozdziału decyzji: **co ma dobry default w template, nie jest
-rozmową**. Każdy stan "gotowe" potwierdzasz dowodem z runnera —
-lokalnie wyjściem `bench`, w CI zielonym runem workflow.
+The decision-split principle: **whatever has a good default in the
+template is not a conversation**. Confirm every "done" state with proof
+from the runner — locally with `bench` output, in CI with a green
+workflow run.
 
-## Twarde zasady
+## Hard rules
 
-1. **Wyjście przez PR.** Wiring zmienia `bench.config.yaml` (wpływa na
-   scoring: modele, sędzia, wersje rubryk) — gałąź `bench-wiring/<opis>`
-   + PR wg [PR_TEMPLATE.md](PR_TEMPLATE.md), człowiek merguje. Wyjątek:
-   pierwsza konfiguracja świeżej instancji, której master to jeszcze sam
-   szkielet z template'u — wtedy commit na master jest dopuszczalny za
-   wyraźną zgodą użytkownika (nie ma jeszcze żadnych wyników, które
-   zmiana mogłaby unieważnić); to ten wyjątek umożliwia pierwszy
-   dispatch, bo `workflow_dispatch` wymaga workflowów na gałęzi
-   domyślnej. Wyjątek obejmuje **także przepięcie zadania-demo**
-   z placeholdera na realny pin: formalnie to zmiana `task_hash`, ale
-   zadanie bez żadnych wyników nie ma ery do unieważnienia.
-2. **Sekretów nie dotykasz.** Generujesz checklistę NAZW sekretów
-   i weryfikujesz samą obecność (`gh secret list`, `[ -n "$VAR" ]`) —
-   nigdy nie czytasz, nie wypisujesz ani nie zapisujesz wartości.
-   Ustawianie wartości to zawsze krok użytkownika.
-3. **Nie dotykaj `.bench-kit/`** (strefa narzędzia). Bazowego Dockerfile'a
-   nie edytujesz; braki runnera zgłaszasz (issue), nie obchodzisz.
-4. **Runner jest twoim narzędziem.** Konfigurację potwierdza
-   `bench validate`, wykonanie — zielony run `bench-run` w CI (albo
-   lokalny smoke, gdy użytkownik świadomie wybrał pracę lokalną).
-   Nie oceniaj "na oko", że coś zadziała.
-5. **Sędzia ≠ modele oceniane.** Twarda reguła (validate ją egzekwuje);
-   sędzia to stały, mocny model — zmiana sędziego lub wersji rubryki
-   (frontmatter `version` w rubryce) zamyka erę porównywalności zadań,
-   które jej używają.
-6. **Budżet zamiast rytuału zgody.** `defaults.max_cost_usd` jest już
-   w template — runner przerywa run po przekroczeniu, więc nie pytasz
-   o zgodę przed każdym uruchomieniem. Zgoda człowieka jest potrzebna
-   tylko przy **podnoszeniu** budżetu. Po każdym runie raportuj koszt
-   faktyczny (`report.json`), nie negocjuj szacunków.
-7. **Świadomość er.** Wiring definiuje pierwszą erę instancji (sędzia +
-   wersje rubryk). PR mówi to wprost; późniejsze zmiany tych pól
-   unieważniają porównywalność dotychczasowych wyników.
+1. **Output via PR.** Wiring changes `bench.config.yaml` (which affects
+   scoring: models, judge, rubric versions) — branch
+   `bench-wiring/<description>` + PR per [PR_TEMPLATE.md](PR_TEMPLATE.md);
+   a human merges. Exception: the first configuration of a fresh
+   instance whose master is still just the template skeleton — there a
+   commit to master is acceptable with the user's explicit consent
+   (there are no results yet that the change could invalidate); this
+   exception is what enables the first dispatch, since
+   `workflow_dispatch` requires the workflows to exist on the default
+   branch. The exception **also covers re-pinning the demo task** from
+   the placeholder to a real pin: formally that is a `task_hash`
+   change, but a task with no results has no era to invalidate.
+2. **You never touch secrets.** You generate a checklist of secret
+   NAMES and verify mere presence (`gh secret list`, `[ -n "$VAR" ]`) —
+   you never read, print, or store values. Setting values is always the
+   user's step.
+3. **Do not touch `.bench-kit/`** (the tool's zone). Do not edit the
+   base Dockerfile; report runner gaps (as an issue), do not work
+   around them.
+4. **The runner is your instrument.** Configuration is confirmed by
+   `bench validate`; execution by a green `bench-run` in CI (or a local
+   smoke, when the user deliberately chose to work locally). Never
+   eyeball that something will work.
+5. **Judge ≠ evaluated models.** A hard rule (validate enforces it);
+   the judge is a fixed, strong model — changing the judge or the
+   rubric version (frontmatter `version` in the rubric) closes the
+   comparability era of the tasks that use it.
+6. **Budget instead of a consent ritual.** `defaults.max_cost_usd` is
+   already in the template — the runner aborts a run once it is
+   exceeded, so you do not ask for permission before every launch.
+   Human consent is only needed to **raise** the budget. After each run
+   report the actual cost (`report.json`); do not negotiate estimates.
+7. **Era awareness.** Wiring defines the instance's first era (judge +
+   rubric versions). The PR says so explicitly; later changes to those
+   fields invalidate the comparability of existing results.
+8. **Say what is happening to the instance — not what the step is
+   called.** "Path A/B", "step A1/B4", and this file's section names
+   are the procedure's internal structure; the user does not know them
+   and has no reason to. Never write "starting path A" or "this belongs
+   to path B" — say what you are doing and why, in the language of the
+   instance's state:
+   - instead of "starting with path A — reading what init left behind" →
+     "checking what `bench-kit init` already configured, so I don't
+     repeat its work",
+   - instead of "path A closed, moving to B" → "the instance holds
+     together — `bench validate` is green; now the first run in CI:
+     repository, secrets, workflow",
+   - instead of "step B2" → "checking the secrets in the instance repo".
+   The same rule covers unexplained tool jargon (dispatch, pin, era,
+   overlay) — use it only with a brief "meaning…" when it carries
+   substance. Report regularly: before a longer operation say what you
+   are about to do; afterwards, what came of it.
 
-## Narzędzia
+## Tools
 
-Z korzenia instancji: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts <komenda>` (dalej: `bench <komenda>`).
+From the instance root: `node --experimental-strip-types
+.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`).
 
-- `bench doctor` — deterministyczna checklista środowiska: tabela
-  OK/BRAK z instrukcją naprawy. Nie sprawdzaj tych rzeczy ręcznie i nie
-  powtarzaj potem tego, co doctor już potwierdził. Uwaga na exit code:
-  BRAK **silnika kontenerów nie blokuje wiringu** — pierwszy run biegnie
-  w CI, a lokalne kontenery są potrzebne dopiero przy `bench assert`
-  (bench-build). Blokujące dla ścieżki A są braki configu i runnera.
-- `bench validate` — pełna bramka: schematy, spójność evaluation[] z pulą,
-  wagi, sędzia ≠ oceniane, klonowalność repo bazowych + istnienie pinów.
-  Faza sieciowa to sekundy na repo. `--offline` pomija sieć (iteracja
-  nad błędami schematu), `--assert` wymaga kontenerów — w wiringu
-  potrzebne tylko, gdy istniejące zadania mają deklaracje `reference`.
-- **Workflow `bench-run`** (`workflow_dispatch` w GH Actions) — pełny
-  cykl bez pracy lokalnej: bramka validate, budowa obrazów z cache
-  w GHCR, próby równolegle, ocena, `report.json` jako artefakt.
-  Parametry: `models`, `tasks`, `trials` (puste = defaults z configu).
+- `bench doctor` — deterministic environment checklist: an OK/MISSING
+  table with fix instructions. Do not check these things manually and
+  do not later re-verify what doctor already confirmed. Mind the exit
+  code: a MISSING **container engine does not block wiring** — the
+  first run happens in CI, and local containers are only needed for
+  `bench assert` (bench-build). What does block at this stage are
+  config and runner gaps.
+- `bench validate` — the full gate: schemas, consistency of
+  evaluation[] with the pool, weights, judge ≠ evaluated, clonability
+  of base repos + existence of pins. The network phase takes seconds
+  per repo. `--offline` skips the network (for iterating on schema
+  errors), `--assert` requires containers — in wiring it is only needed
+  when existing tasks have `reference` declarations.
+- **The `bench-run` workflow** (`workflow_dispatch` in GH Actions) —
+  the full cycle with no local work: validate gate, image builds cached
+  in GHCR, trials in parallel, evaluation, `report.json` as an
+  artifact. Parameters: `models`, `tasks`, `trials` (empty = defaults
+  from the config).
 
-## Ścieżka A — pierwszy czek (budżet: minuta, lokalnie)
+## Path A — first check (budget: one minute, local)
 
-Cel: zielone `bench validate`. Bez kontenerów, bez sieci poza
-ls-remote/fetch, bez decyzji ponad te, których init nie podjął.
+Goal: a green `bench validate`. No containers, no network beyond
+ls-remote/fetch, no decisions beyond those init did not make.
 
-### A1. Przeczytaj, co zrobił init
+### A1. Read what init did
 
-`bench doctor` plus trzy pliki:
+`bench doctor` plus three files:
 
-- `.bench-kit/instance.json` — wersja template'u i `detectedBaseRepo`:
-  init odpalony z wnętrza repo produktowego już zarejestrował repo
-  w `base_repos`, zapinował zadania-demo na jego HEAD i sklonował
-  robocze `.repos/<nazwa>/`.
-- `bench.config.yaml` — czy `base_repos` ma realny wpis, czy placeholder
-  (`demo-app` / `example-org`). Defaults (modele, sędzia, budżet,
-  `resources.memory_mb`) zostawiasz jak są.
-- `.github/workflows/` — czy są `bench-run.yaml` i `leaderboard.yaml`;
-  jeśli nie (starszy init), skopiuj je z `.bench-kit/workflows/`.
+- `.bench-kit/instance.json` — template version and `detectedBaseRepo`:
+  init launched from inside a product repo has already registered the
+  repo in `base_repos`, pinned the demo tasks to its HEAD, and cloned
+  the working copy into `.repos/<name>/`.
+- `bench.config.yaml` — does `base_repos` have a real entry or a
+  placeholder (`demo-app` / `example-org`)? Leave the defaults (models,
+  judge, budget, `resources.memory_mb`) as they are.
+- `.github/workflows/` — are `bench-run.yaml` and `leaderboard.yaml`
+  present; if not (an older init), copy them from
+  `.bench-kit/workflows/`.
 
-### A2. Uzupełnij braki po init — tylko braki
+### A2. Fill the gaps left by init — gaps only
 
-Norma: init zrobił wszystko i ten krok jest pusty. Wyjątki:
+The norm: init did everything and this step is empty. Exceptions:
 
-- **Init standalone** (odpalony poza repo produktowym — config ma
-  placeholder): wpisz `base_repos` (`name` + `url`, zawsze `https://…`;
-  publiczne bez sekretów, prywatne → jeden `BASE_REPO_TOKEN` na
-  instancję: fine-grained PAT contents:read), przepnij zadanie-demo na
-  realny SHA istniejący na remote, sklonuj klon roboczy do
-  `.repos/<nazwa>/`.
-- **Dodatkowe repo bazowe** ponad wykryte: dopisz wpis + klon jw.
-  Zadania-demo nie przepinasz — jest już zapinowane.
+- **Standalone init** (launched outside a product repo — the config
+  has a placeholder): fill in `base_repos` (`name` + `url`, always
+  `https://…`; public repos need no secrets, private ones → a single
+  `BASE_REPO_TOKEN` per instance: fine-grained PAT, contents:read),
+  re-pin the demo task to a real SHA that exists on the remote, and
+  clone a working copy into `.repos/<name>/`.
+- **An additional base repo** beyond the detected one: add the entry +
+  clone as above. Do not re-pin the demo task — it is already pinned.
 
-Benchmark nigdy nie modyfikuje repo bazowych — jeśli użytkownik
-proponuje zapis do nich, to nieporozumienie do wyprostowania.
+The benchmark never modifies base repos — if the user proposes writing
+to them, that is a misunderstanding to straighten out.
 
-### A3. Bramka: validate
+### A3. Gate: validate
 
-`bench validate` (pełne, z siecią — to sekundy). Błędy schematu iteruj
-na `--offline`. **Zielone validate kończy pierwszy czek** — powiedz to
-użytkownikowi wprost: instancja się spina, defaults obowiązują,
-pierwszy run to ścieżka B. Czego w ścieżce A nie robisz: nie
-dyskutujesz modeli/sędziego/budżetu, nie budujesz obrazów, nie
-odpalasz nic w kontenerach, nie mierzysz zimnych cykli.
+`bench validate` (full, with network — it takes seconds). Iterate on
+schema errors with `--offline`. **A green validate concludes the first
+check** — tell the user so explicitly, but in terms of the instance's
+state (rule 8): the configuration holds together, the template's
+settings are in effect, the next step is the first run in CI. What you
+do NOT do at this stage: no discussing models/judge/budget, no building
+images, no running anything in containers, no measuring cold cycles.
 
-## Ścieżka B — pierwszy run (w CI)
+## Path B — first run (in CI)
 
-Przekaz dla użytkownika: "zrób repozytorium albo podepnij istniejące,
-odpal workflow i poczekaj na zielone". Twoja praca to domknięcie
-warunków, żeby to zdanie było prawdą.
+The message for the user: "create a repository or hook up an existing
+one, launch the workflow, and wait for green". Your job is to close out
+the conditions that make that sentence true.
 
-### B1. Zdalne repo instancji
+### B1. Remote instance repo
 
-`bench doctor` pokazał, czy origin istnieje. Jeśli nie — użytkownik
-tworzy repo (np. `gh repo create <owner/nazwa> --private`), a ty
-podpinasz i wypychasz master (świeża instancja: wyjątek z zasady 1,
-za wyraźną zgodą):
+`bench doctor` showed whether an origin exists. If not — the user
+creates the repo (e.g. `gh repo create <owner/name> --private`), and
+you hook it up and push master (fresh instance: the rule-1 exception,
+with explicit consent):
 
 ```
-git remote add origin https://github.com/<owner/repo-instancji>.git
+git remote add origin https://github.com/<owner/instance-repo>.git
 git push -u origin master
 ```
 
-### B2. Sekrety w repo instancji
+### B2. Secrets in the instance repo
 
-Doctor sprawdził lokalny env; workflows pracują na sekretach **repo** —
-to osobne miejsce. Lista nazw wynika z configu (i ewentualnych decyzji
-B3): klucz providera modeli ocenianych, klucz providera sędziego
-(często ten sam), `BASE_REPO_TOKEN` przy prywatnych repo bazowych.
-Weryfikacja: `gh secret list --repo <owner/repo-instancji>`. Braki
-wypisujesz jako gotowe komendy użytkownika:
+Doctor checked the local env; workflows run on **repo** secrets —
+a separate place. The list of names follows from the config (and any
+B3 decisions): the API key for the evaluated models' provider, the key
+for the judge's provider (often the same one), `BASE_REPO_TOKEN` for
+private base repos. Verification: `gh secret list --repo
+<owner/instance-repo>`. Print any gaps as ready-to-run user commands:
 
 ```
-gh secret set OPENROUTER_API_KEY --repo <owner/repo-instancji>
-gh secret set BASE_REPO_TOKEN --repo <owner/repo-instancji>
+gh secret set OPENROUTER_API_KEY --repo <owner/instance-repo>
+gh secret set BASE_REPO_TOKEN --repo <owner/instance-repo>
 ```
 
-(albo ścieżka w UI: Settings → Secrets and variables → Actions).
+(or the UI path: Settings → Secrets and variables → Actions).
 
-### B3. Modele i sędzia — tylko gdy defaults nie wystarczą
+### B3. Models and judge — only when the defaults are not enough
 
-Inaczej odnotuj "defaults template'u" i idź dalej:
+Otherwise note "template defaults" and move on:
 
-- **Modele oceniane** (`defaults.models`): format OpenCode
-  `<provider>/<model>`; prowadź w stronę jednego providera-agregatora
-  (np. `openrouter/…`) = jeden sekret na instancję.
-- **Sędzia** (`judge.model`): host-side wspierane `anthropic/…`
-  i `openrouter/…`; mocny, stabilny, INNY niż oceniane (zasada 5).
+- **Evaluated models** (`defaults.models`): OpenCode format
+  `<provider>/<model>`; steer toward a single aggregator provider
+  (e.g. `openrouter/…`) = one secret per instance.
+- **Judge** (`judge.model`): host-side support for `anthropic/…` and
+  `openrouter/…`; strong, stable, DIFFERENT from the evaluated models
+  (rule 5).
 - **`judge.max_tokens`** (8192), **`defaults.trials`** (3),
-  **`defaults.timeout_s`**, **`defaults.max_cost_usd`** — nie ruszaj
-  bez powodu; za niski limit tokenów ucina JSON werdyktu sędziego,
-  za krótki timeout mierzy szybkość, nie jakość. Podniesienie budżetu
-  wymaga zgody człowieka (zasada 6).
+  **`defaults.timeout_s`**, **`defaults.max_cost_usd`** — do not touch
+  without a reason; too low a token limit truncates the judge's JSON
+  verdict, too short a timeout measures speed, not quality. Raising the
+  budget requires human consent (rule 6).
 
-### B4. Smoke: dispatch i zielony run
+### B4. Smoke: dispatch and a green run
 
-`workflow_dispatch` workflow `bench-run` z parametrami smoke'a:
-`models=<najtańszy oceniany>`, `tasks=demo-hello-bench`, `trials=1`.
-Workflow sam przejdzie validate, zbuduje obrazy i oceni próbę —
-czekasz na zielony run, pobierasz artefakt `report` i czytasz
-z `report.json` total, koszt, czas. To jest dowód wiringu end-to-end:
-sekrety, klonowalność, obrazy i sędzia przetestowane tam, gdzie będą
-pracować. Nieudany run = wracasz do kroku, którego dotyczy przyczyna,
-z logami joba w ręku.
+`workflow_dispatch` the `bench-run` workflow with smoke parameters:
+`models=<cheapest evaluated>`, `tasks=demo-hello-bench`, `trials=1`.
+The workflow will run validate, build the images, and evaluate the
+trial on its own — you wait for a green run, download the `report`
+artifact, and read the total, cost, and duration from `report.json`.
+This is the end-to-end proof of the wiring: secrets, clonability,
+images, and the judge tested where they will actually work. A failed
+run = go back to the step the cause belongs to, with the job logs in
+hand.
 
-Wariant lokalny (opcjonalny, gdy użytkownik świadomie chce iterować
-bez CI): jednorazowa budowa obrazu bazowego trwa 2–4 min — odpal ją
-w tle zawczasu, potem `bench run --smoke --tasks demo-hello-bench
---models <tani>` + `bench evaluate --run <dir>`. Lokalny smoke nie
-testuje sekretów repo — zielony run w CI i tak pozostaje bramką.
+Local variant (optional, when the user deliberately wants to iterate
+without CI): the one-time base image build takes 2–4 min — start it in
+the background ahead of time, then `bench run --smoke --tasks
+demo-hello-bench --models <cheap>` + `bench evaluate --run <dir>`.
+A local smoke does not test the repo secrets — a green run in CI
+remains the gate.
 
-### B5. PR "wiring instancji"
+### B5. The "instance wiring" PR
 
-Dla świeżej instancji wiring wszedł na master (zasada 1) — PR-a nie
-ma, ale podsumowanie o tej samej treści zostaw w opisie pierwszego
-runu / README instancji. Dla **zmian** istniejącego wiringu: gałąź
-`bench-wiring/<opis>`, opis wg [PR_TEMPLATE.md](PR_TEMPLATE.md):
-decyzje ("defaults template'u" to też decyzja) z uzasadnieniem,
-checklista sekretów ze statusem, dowody (wyjście `validate`, link do
-zielonego runu `bench-run` z totalem i kosztem), sekcja "Skutki dla
-porównywalności" (pierwsza era: sędzia + wersje rubryk; co ją
-w przyszłości zamknie).
+For a fresh instance the wiring went to master (rule 1) — there is no
+PR, but leave a summary with the same content in the first run's
+description / the instance README. For **changes** to existing wiring:
+branch `bench-wiring/<description>`, description per
+[PR_TEMPLATE.md](PR_TEMPLATE.md): decisions ("template defaults" is
+also a decision) with justification, the secrets checklist with status,
+proofs (`validate` output, link to the green `bench-run` with total and
+cost), a "Comparability impact" section (the first era: judge + rubric
+versions; what will close it in the future).
 
-## Decyzje odroczone — nie blokują wiringu
+## Deferred decisions — they do not block wiring
 
-Template ma defaults na politykę środowiska; wracaj do nich dopiero,
-gdy pierwsze realne zadanie ich dotknie (zwykle w bench-build), a zmiany
-prowadź PR-em jak każdą zmianę configu:
+The template ships defaults for environment policy; return to them only
+when the first real task touches them (usually in bench-build), and
+drive changes via PR like any config change:
 
-- **Cache zależności asercji**: default `evaluation.deps_cache: true`
-  (trwały wolumen `bench-deps-cache`; w CI actions/cache). Wyłączenie —
-  pełna hermetyczność kosztem czasu — to świadoma decyzja per instancja
-  (`deps_cache: false`) albo per wywołanie (`--no-deps-cache`).
-- **Limity zasobów kontenerów**: template ustawia `resources.memory_mb`
-  (stempel ery `memory_limit_mb` — zmiana zamyka erę, więc jeśli
-  podnosić, to zanim pojawią się wyniki). Bez limitu agenci
-  weryfikujący swoją pracę buildem giną od OOM killera z gołym
-  SIGKILL-em, co wygląda jak wina modelu.
-- **Polityka weryfikacji w promptach** (czy agent ma uruchamiać projekt
-  dla weryfikacji): ustala ją autor zadań w `prompt.md` — kontrakt
-  skilla bench-build, nie wiringu.
-- **Koszt zimnego cyklu oceny** (ile trwa `bench assert` na realnym
-  zadaniu): mierzy go bench-build przy pierwszym realnym zadaniu —
-  wiring nie ma jeszcze zadania, na którym pomiar byłby miarodajny.
-- **Toolchain w próbie agenta**: bazowy obraz to node + git + pinowany
-  OpenCode; toolchain potrzebny asercjom instalują same komendy
-  `check.yaml` (etap oceny może używać sieci, offline są tylko próby
-  agenta). Jeśli stack wymaga toolchainu już w **próbie agenta**, to
-  dziś jest to brak runnera — zgłoś issue z konkretem (zasada 3),
-  nie edytuj bazowego Dockerfile'a.
+- **Assertion dependency cache**: default `evaluation.deps_cache: true`
+  (persistent `bench-deps-cache` volume; actions/cache in CI). Turning
+  it off — full hermeticity at the cost of time — is a deliberate
+  decision per instance (`deps_cache: false`) or per invocation
+  (`--no-deps-cache`).
+- **Container resource limits**: the template sets
+  `resources.memory_mb` (era stamp `memory_limit_mb` — changing it
+  closes the era, so if you are going to raise it, do so before any
+  results exist). Without a limit, agents verifying their work with a
+  build die from the OOM killer with a bare SIGKILL, which looks like
+  the model's fault.
+- **Verification policy in prompts** (whether the agent should run the
+  project to verify): set by the task author in `prompt.md` — the
+  bench-build skill's contract, not wiring's.
+- **Cost of a cold evaluation cycle** (how long `bench assert` takes on
+  a real task): measured by bench-build at the first real task —
+  wiring has no task yet on which the measurement would be meaningful.
+- **Toolchain in the agent's trial**: the base image is node + git +
+  pinned OpenCode; any toolchain the assertions need is installed by
+  the `check.yaml` commands themselves (the evaluation stage may use
+  the network; only agent trials are offline). If the stack requires a
+  toolchain already in the **agent's trial**, that is currently a
+  runner gap — file an issue with specifics (rule 3), do not edit the
+  base Dockerfile.
 
-## Następny krok
+## Next step
 
-Zakończ odpowiedź podsumowującą sekcją **Następny krok**: stan instancji
-jednym zdaniem (co skonfigurowane, co czeka na przegląd), **jedna**
-rekomendacja z jednozdaniowym uzasadnieniem, maksymalnie dwie
-alternatywy z ceną, oraz — oddzielnie — to, co czeka na decyzję
-człowieka (utworzenie repo, ustawienie sekretów, merge PR-a). Po
-ścieżce A naturalna rekomendacja to ścieżka B; po zielonym runie —
-**bench-new-task** (zlecenia do backlogu), potem **bench-build**,
-bo instancja bez zadań nic nie mierzy.
+End your summary response with a **Next step** section: the instance
+state in one sentence (what is configured, what awaits review), **one**
+recommendation with a one-sentence justification, at most two
+alternatives with their cost, and — separately — whatever awaits a
+human decision (creating the repo, setting secrets, merging the PR).
+Name steps by what they deliver (rule 8): after a green `validate` the
+natural recommendation is "first run in CI", not "path B"; after a
+green run — **bench-new-task** (commissions for the backlog), then
+**bench-build**, because an instance without tasks measures nothing.

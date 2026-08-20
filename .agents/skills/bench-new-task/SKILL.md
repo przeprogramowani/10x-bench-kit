@@ -1,109 +1,112 @@
 ---
 name: bench-new-task
 description: >-
-  Zbiera zlecenie nowego zadania benchmarku w krótkim wywiadzie i dopisuje
-  je do backlogu (`tasks/backlog.md`) — bez budowania. W jednej sesji można
-  zdefiniować 5–10 zleceń; budowaniem zajmuje się później skill bench-build.
-  Użyj, gdy użytkownik chce dodać zadanie do benchmarku, ma pomysł(y) na
-  zadania albo mówi "nowe zadanie / task do bencha / dopisz do backlogu".
+  Collects an order for a new benchmark task in a short interview and
+  appends it to the backlog (`tasks/backlog.md`) — without building
+  anything. A single session can define 5–10 orders; building is done
+  later by the bench-build skill. Use when the user wants to add a task
+  to the benchmark, has task idea(s), or says "new task / task for the
+  bench / add to the backlog".
 ---
 
-# bench-new-task — zlecenie zadania do backlogu
+# bench-new-task — ordering a task into the backlog
 
-Zamieniasz pomysł użytkownika na **zlecenie** w stanowym backlogu
-`tasks/backlog.md`. Zlecenie to komplet decyzji projektowych zadania —
-wszystko, co zmienia, CO zadanie mierzy — zapisany na tyle precyzyjnie,
-że subagent bench-build zbuduje z niego zadanie **bez dopytywania
-użytkownika**. Ten skill jest celowo szybki: sam wywiad, żadnego
-klonowania rep, kontenerów ani komend runnera.
+You turn the user's idea into an **order** in the stateful backlog
+`tasks/backlog.md`. An order is the complete set of the task's design
+decisions — everything that changes WHAT the task measures — written
+precisely enough that a bench-build subagent can build the task from it
+**without asking the user anything**. This skill is deliberately fast:
+interview only, no cloning repos, no containers, no runner commands.
 
-## Twarde zasady
+## Hard rules
 
-1. **Zero budowania.** Nie wybierasz pina, nie piszesz `prompt.md`,
-   overlaya ani asercji, nie wołasz komend `bench`. To praca
-   bench-build. Jeśli użytkownik chce budować od razu, dopisz zlecenie
-   i wskaż bench-build — nie buduj w ramach tego skilla.
-2. **Zero gita.** Wyjściem tego skilla jest edycja pliku
-   `tasks/backlog.md` w drzewie roboczym — nie commitujesz, nie
-   tworzysz gałęzi, nie pushujesz; kiedy i jak backlog trafia do gita,
-   decyduje użytkownik. Backlog to stan koordynacji, nie scoring
-   (runner ignoruje pliki w `tasks/` niebędące katalogami zadań).
-3. **Decyzje należą do użytkownika.** Pola zlecenia rozstrzyga wywiad,
-   nie twoje domysły — źle dobrany poziom naprowadzenia czy timeout
-   zmienia, co zadanie mierzy. Wnioski z opisu użytkownika to
-   propozycje do akceptacji, nie decyzje.
-4. **Jedno zlecenie = jedna intencja.** Pomysł "napraw X i przy okazji
-   zrefaktoruj Y" to dwa zlecenia.
-5. **Zlecenie ma być samowystarczalne.** Subagent bench-build dostanie
-   wpis backlogu i nic więcej — bez dostępu do tej rozmowy. Wszystko,
-   co ustaliliście, musi być we wpisie.
+1. **Zero building.** You do not pick a pin, write `prompt.md`, an
+   overlay, or assertions, and you do not call `bench` commands. That
+   is bench-build's job. If the user wants to build right away, record
+   the order and point them to bench-build — do not build within this
+   skill.
+2. **Zero git.** This skill's output is an edit to `tasks/backlog.md`
+   in the working tree — you do not commit, branch, or push; when and
+   how the backlog reaches git is the user's decision. The backlog is
+   coordination state, not scoring (the runner ignores files in
+   `tasks/` that are not task directories).
+3. **Decisions belong to the user.** Order fields are settled by the
+   interview, not by your guesses — a wrongly chosen guidance level or
+   timeout changes what the task measures. Inferences from the user's
+   description are proposals to be accepted, not decisions.
+4. **One order = one intent.** The idea "fix X and refactor Y while
+   you're at it" is two orders.
+5. **The order must be self-sufficient.** The bench-build subagent will
+   receive the backlog entry and nothing else — no access to this
+   conversation. Everything you agreed on must be in the entry.
 
-## Procedura
+## Procedure
 
-### 1. Wywiad (krótki)
+### 1. Interview (short)
 
-Zbierz od użytkownika pomysły — może ich podać kilka naraz. Dla każdego
-wyprowadź z opisu propozycje pól zlecenia (schemat wpisu:
-[BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md)) i oznacz, co jest
-wywnioskowane, a czego w opisie nie ma. Pytania zadawaj mechanizmem
-pytań twojego narzędzia (AskUserQuestion / request_user_input; gdy
-brak — zwykłe pytania w rozmowie), **jednym blokiem na całą paczkę
-zleceń**, wyłącznie o luki i niejednoznaczności — z dwoma wyjątkami,
-o które pytasz zawsze:
+Collect the user's ideas — they may give several at once. For each,
+derive proposed order field values from the description (entry schema:
+[BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md)) and mark what is inferred
+versus what the description does not say. Ask questions via your tool's
+question mechanism (AskUserQuestion / request_user_input; if
+unavailable — plain questions in the conversation), **in a single block
+for the whole batch of orders**, only about gaps and ambiguities — with
+two exceptions you always ask about:
 
-- **Oś oceny (kalibracja rubryki)** — co w TYM zadaniu ma różnicować
-  oceny między wykonaniami: użytkownik często ma w głowie konkretne
-  do's and don'ts (np. "liczy się minimalny diff", "nie wolno dotykać
-  API publicznego", "nagradzamy test regresyjny") i to one mają być
-  zapisane we wpisie, zamiast zostawiać różnicowanie domysłom agenta
-  budującego rubrykę. Jeśli użytkownik nie ma zdania, zaproponuj oś
-  wynikającą z typu zadania i uzyskaj akceptację; brak osi zapisz
-  wprost jako "do uznania bench-build".
-- **Poziom naprowadzenia promptu** — chyba że opis
-  rozstrzyga go wprost, z konsekwencjami podanymi przy opcjach:
-  - *produktowy* — sam objaw/cel, zero plików i symboli; mierzy
-    lokalizację w kodzie + wykonanie — trudniejsze, dłuższy timeout;
-  - *kierunkowy* — nazwany obszar/moduł; środek skali;
-  - *chirurgiczny* — konkretne pliki/symbole; mierzy samo wykonanie —
-    łatwiejsze, krótszy timeout.
+- **Evaluation axis (rubric calibration)** — what in THIS task should
+  differentiate scores between executions: the user often has specific
+  do's and don'ts in mind (e.g. "a minimal diff is what counts", "the
+  public API must not be touched", "we reward a regression test") and
+  those are what should be recorded in the entry, instead of leaving
+  the differentiation to the guesses of the agent building the rubric.
+  If the user has no opinion, propose an axis derived from the task
+  type and get acceptance; record a missing axis explicitly as "at
+  bench-build's discretion".
+- **Prompt guidance level** — unless the description settles it
+  explicitly, with the consequences stated alongside the options:
+  - *product-level* — symptom/goal only, no files or symbols; measures
+    locating the code + execution — harder, longer timeout;
+  - *directional* — a named area/module; middle of the scale;
+  - *surgical* — specific files/symbols; measures execution alone —
+    easier, shorter timeout.
 
-Gdy użytkownik wybierze poziom **chirurgiczny**, wpis backlogu musi
-wskazywać konkretne pliki/symbole — analizę repo bazowego z `.repos/`
-potrzebną do ich ustalenia wykonaj **niezależnym subagentem** (agent
-dostaje nazwę repo i intencję zadania, zwraca listę plików/symboli
-z krótkim uzasadnieniem). Nie czytaj repo bazowego samodzielnie w tej
-sesji — to jedyny dopuszczalny kontakt tego skilla z `.repos/` i nadal
-nie jest to budowanie (zasada 1).
+When the user chooses the **surgical** level, the backlog entry must
+name specific files/symbols — perform the base-repo analysis in
+`.repos/` needed to determine them via an **independent subagent** (the
+agent receives the repo name and the task's intent, and returns a list
+of files/symbols with a short justification). Do not read the base repo
+yourself in this session — this is this skill's only permitted contact
+with `.repos/`, and it still is not building (rule 1).
 
-Pozostałe pola (pytaj tylko, gdy opis ich nie rozstrzyga):
+Remaining fields (ask only when the description does not settle them):
 
-- **Co zadanie mierzy**: implementacja / naprawa buga / refaktor /
-  dokumentacja.
-- **Repo bazowe** — musi być w `base_repos` w bench.config.yaml
-  (sprawdź!); jeśli nie jest, to najpierw bench-wiring, nie to
-  zlecenie.
-- **Trudność i `timeout_s`** (typowo 300–900 s; spójny z poziomem
-  naprowadzenia — za krótki timeout mierzy szybkość, nie jakość).
-- **Nazwa zadania**: kebab-case, mówiąca co jest do zrobienia
-  (np. `fix-cart-total-rounding`), nie jak (`edit-cart-ts`).
+- **What the task measures**: implementation / bugfix / refactor /
+  documentation.
+- **Base repo** — must be in `base_repos` in bench.config.yaml
+  (check!); if it is not, bench-wiring comes first, not this order.
+- **Difficulty and `timeout_s`** (typically 300–900 s; consistent with
+  the guidance level — a too-short timeout measures speed, not
+  quality).
+- **Task name**: kebab-case, saying what is to be done
+  (e.g. `fix-cart-total-rounding`), not how (`edit-cart-ts`).
 
-### 2. Akceptacja paczki
+### 2. Batch acceptance
 
-Przedstaw zlecenia zbiorczo (tabelka: nazwa, typ, repo, naprowadzenie,
-timeout, oś oceny + jedno zdanie opisu) i uzyskaj akceptację użytkownika. Dopiero
-po niej pisz do backlogu.
+Present the orders collectively (a table: name, type, repo, guidance,
+timeout, evaluation axis + a one-sentence description) and get the
+user's acceptance. Only then write to the backlog.
 
-### 3. Zapis do backlogu
+### 3. Writing to the backlog
 
-Jeśli `tasks/backlog.md` nie istnieje, załóż go wg
-[BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md). Dopisz każde zlecenie jako
-wpis ze statusem `pending` i datą. Nazwa zlecenia nie może kolidować
-z istniejącym katalogiem `tasks/<nazwa>/` ani innym wpisem backlogu.
-Nic w gicie (zasada 2) — plik zostaje w drzewie roboczym.
+If `tasks/backlog.md` does not exist, create it per
+[BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md). Append each order as an
+entry with status `pending` and a date. An order's name must not
+collide with an existing `tasks/<name>/` directory or another backlog
+entry. Nothing in git (rule 2) — the file stays in the working tree.
 
-### 4. Następny krok
+### 4. Next step
 
-Zakończ odpowiedź podsumowującą sekcją **Następny krok**: ile zleceń
-czeka w backlogu (`pending`), **jedna** rekomendacja — zwykle: dopisać
-kolejne zlecenia (ten skill) albo uruchomić **bench-build**, gdy paczka
-jest gotowa — oraz to, co czeka na decyzję człowieka.
+End your summary response with a **Next step** section: how many orders
+are waiting in the backlog (`pending`), **one** recommendation —
+usually: add more orders (this skill) or launch **bench-build** when
+the batch is ready — and what awaits a human decision.

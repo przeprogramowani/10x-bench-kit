@@ -1,51 +1,52 @@
-# Szablon PR-a odświeżenia zadania (bench-refresh-task)
+# Task refresh PR template (bench-refresh-task)
 
-Tytuł: `bench-refresh-task: <nazwa-zadania>`
+Title: `bench-refresh-task: <task-name>`
 
 ```markdown
-## Powód odświeżenia
+## Reason for the refresh
 
-<warning `expires` z bench validate (data) albo powód wprost — np. repo
-bazowe odjechało od pina w obszarze zadania.>
+<the `expires` warning from bench validate (date), or the explicit
+reason — e.g. the base repo drifted from the pin in the task's area.>
 
-## Zmiana pina
+## Pin change
 
-- stary: `<SHA>` (z <data/kontekst>)
-- nowy: `<SHA>` (dlaczego ten commit — np. ostatni zielony na CI)
-- co zaszło między pinami w obszarze zadania: <podsumowanie
-  `git log stary..nowy -- <ścieżki>`; "nic" też jest odpowiedzią>
+- old: `<SHA>` (from <date/context>)
+- new: `<SHA>` (why this commit — e.g. latest green on CI)
+- what happened between the pins in the task's area: <summary of
+  `git log old..new -- <paths>`; "nothing" is also an answer>
 
-## Werdykt sensowności i adaptacje
+## Sense verdict and adaptations
 
-<sens bez zmian / sens po adaptacji / brak sensu (wtedy PR wycofuje
-zadanie). Per adaptacja (prompt/overlay/asercje/wzorzec): co i dlaczego;
-intencja zadania bez zmian. Asercje współdzielone: nowa wersja w puli,
-nie edycja in-place.>
+<sense unchanged / sense after adaptation / no longer makes sense (in
+which case the PR retires the task). Per adaptation
+(prompt/overlay/assertions/reference solution): what and why; the
+task's intent unchanged. Shared assertions: new version in the pool,
+no in-place edits.>
 
-## Dowody z nowej referencji
+## Proofs from the new reference
 
-<wklej wyniki komend — nie deklaracje:>
+<paste command outputs — not claims:>
 
-- stan startowy: `bench assert --task <nazwa>` → <wynik per asercja>
-- kontrdowód overlaya: `--no-overlay` / wzorzec → <wynik>
-- wzorcowe rozwiązanie: `bench assert --task <nazwa> --patch <wzorzec>`
-  → <wynik>; judge na wzorcu → <wynik>
-- pusty diff nie zalicza: <wynik>
-- `bench validate --assert` → 0 errorów, bez warningu expires
+- starting state: `bench assert --task <name>` → <result per assertion>
+- overlay counter-proof: `--no-overlay` / reference solution → <result>
+- reference solution: `bench assert --task <name> --patch <reference>`
+  → <result>; judge on the reference solution → <result>
+- empty diff does not pass: <result>
+- `bench validate --assert` → 0 errors, no expires warning
 
-## Skutki dla porównywalności
+## Comparability impact
 
-<to otwiera nową erę tego zadania (nowy task_hash) — dotychczasowe
-wyniki zostają w historii, nowe nie są z nimi porównywalne. Los zbioru
-kalibracyjnego sędziego: przeniesiony i przeliczony / dotyczy starej
-ery, rekalibracja przy najbliższym dryfie.>
+<this opens a new era for this task (new task_hash) — existing results
+remain as history; new ones are not comparable with them. Fate of the
+judge's calibration set: ported and re-measured / belongs to the old
+era, recalibration due at the next sign of drift.>
 
-## Nowa data expires
+## New expires date
 
-<data + horyzont>
+<date + horizon>
 
-## Koszt samosprawdzenia
+## Self-check cost
 
-<koszt próbnego runu / wywołań sędziego (model, $), albo "brak — nie
-odpalano modeli".>
+<cost of the trial run / judge calls (model, $), or "none — no models
+were run".>
 ```

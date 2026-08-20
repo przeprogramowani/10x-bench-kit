@@ -5,7 +5,6 @@
 repo: demo-app
 
 # Pinowany commit repo bazowego — punkt startowy workspace'u.
-# (placeholder — podmień na realny SHA po skonfigurowaniu base_repos)
 commit: "0000000000000000000000000000000000000000"
 
 # Twardy timeout wykonania agenta (sekundy).

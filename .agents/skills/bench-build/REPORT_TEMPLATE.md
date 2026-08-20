@@ -1,54 +1,56 @@
-# Szablon raportu zadania (bench-build)
+# Task report template (bench-build)
 
-Zadanie zostaje jako **pliki w drzewie roboczym** — subagent nie robi
-nic w gicie. Raport przejmuje rolę opisu zmiany: to on niesie dowody
-i to z niego użytkownik zbuduje ewentualny komunikat commita czy opis
-PR-a, gdy zdecyduje, co dalej. Sekcje poniżej są obowiązkowe — wklejaj
-wyniki komend, nie deklaracje.
+The task remains as **files in the working tree** — the subagent does
+nothing in git. The report takes over the role of a change description:
+it carries the evidence, and it is what the user will build an eventual
+commit message or PR description from, once they decide what happens
+next. The sections below are mandatory — paste command outputs, not
+declarations.
 
 ```markdown
-# <nazwa-zadania>
+# <task-name>
 
-## Pliki
+## Files
 
-<pełna lista utworzonych/zmienionych ścieżek: tasks/<nazwa>/…, nowe
-asercje w evaluation-pool/…, zbiór kalibracyjny
-w evaluation-pool/judge/<zadanie>-calibration/…; bez todo.md — plik
-postępu usuwasz przy oddaniu pracy>
+<full list of created/changed paths: tasks/<name>/…, new assertions in
+evaluation-pool/…, the calibration set in
+evaluation-pool/judge/<task>-calibration/…; without todo.md — you
+delete the progress file when handing off the work>
 
-## Co zadanie mierzy
+## What the task measures
 
-<typ: implementacja / naprawa / refaktor / dokumentacja; jedna intencja.
-Repo bazowe, pin (SHA + dlaczego ten commit), poziom naprowadzenia
-promptu (produktowy / kierunkowy / chirurgiczny — decyzja użytkownika
-ze zlecenia w backlogu), timeout i uzasadnienie.>
+<type: implementation / bugfix / refactor / documentation; one intent.
+Base repo, pin (SHA + why this commit), prompt guidance level
+(product-level / directional / surgical — the user's decision from the
+backlog order), timeout and its justification.>
 
-## Dowody z referencji
+## Evidence from the reference
 
-- stan startowy: `bench assert --task <nazwa>` → <wynik per asercja>
-- czysta referencja (zadania z overlayem): `bench assert --task <nazwa>
-  --no-overlay` → <wynik>
-- wzorcowe rozwiązanie: `bench assert --task <nazwa> --patch <wzorzec>`
-  → <wynik>
-- pusty diff nie zalicza: <wynik miary pracy / werdykt sędziego>
-- `bench validate --assert` → 0 errorów
+- starting state: `bench assert --task <name>` → <result per assertion>
+- clean reference (tasks with an overlay): `bench assert --task <name>
+  --no-overlay` → <result>
+- reference solution: `bench assert --task <name> --patch <reference>`
+  → <result>
+- an empty diff does not pass: <work-measure result / judge verdict>
+- `bench validate --assert` → 0 errors
 
-## Asercje i wagi
+## Assertions and weights
 
-<per asercja: reużyta z puli czy nowa, deklaracja reference (pass/fail)
-i dlaczego; wagi z uzasadnieniem, co która składowa odróżnia. Jeśli
-odszedłeś od rozstrzygnięcia asercji, które dał orkiestrator (reużycie
-zamiast nowej lub odwrotnie) — powiedz to wprost, żeby mógł domknąć
-ewentualny duplikat w puli.>
+<per assertion: reused from the pool or new, its reference declaration
+(pass/fail) and why; weights with justification — what each component
+actually discriminates. If you deviated from the orchestrator's
+assertion decision (reuse instead of new or vice versa) — say so
+explicitly, so the orchestrator can close out a possible duplicate in
+the pool.>
 
-## Skutki dla porównywalności
+## Comparability impact
 
-<nowe zadanie = nowa era tego zadania (task_hash). Jeśli zmiany
-obejmują też istniejące asercje w puli lub rubryki: które dotychczasowe
-wyniki przestają być porównywalne.>
+<a new task = a new era for this task (task_hash). If the changes also
+touch existing assertions in the pool or rubrics: which previous
+results stop being comparable.>
 
-## Koszt samosprawdzenia
+## Self-check cost
 
-<koszt próbnego runu / wywołań sędziego (model, $), albo "brak — nie
-odpalano modeli".>
+<cost of the trial run / judge calls (model, $), or "none — no models
+were run".>
 ```

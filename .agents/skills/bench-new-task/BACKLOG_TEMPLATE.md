@@ -1,55 +1,56 @@
-# Szablon backlogu zleceń — `tasks/backlog.md`
+# Order backlog template — `tasks/backlog.md`
 
-Backlog to stanowy dokument koordynacji między bench-new-task (dopisuje
-zlecenia) a bench-build (buduje z nich zadania). Runner go ignoruje
-(w `tasks/` czyta wyłącznie katalogi zadań), więc nie wpływa na
-scoring. Skille wyłącznie edytują ten plik w drzewie roboczym — gitem
-(commit, push) zarządza użytkownik.
+The backlog is a stateful coordination document between bench-new-task
+(which appends orders) and bench-build (which builds tasks from them).
+The runner ignores it (in `tasks/` it reads only task directories), so
+it does not affect scoring. Skills only edit this file in the working
+tree — git (commit, push) is managed by the user.
 
-Cykl statusów wpisu:
+Entry status lifecycle:
 
-`pending` → `in-progress` (bench-build wystartował subagenta) →
-`done` (komplet plików zadania gotowy w drzewie roboczym) albo z powrotem
-`pending` z notatką, gdy budowa się nie powiodła. Zlecenia porzucone oznaczaj
-`dropped` z jednozdaniowym powodem — nie kasuj wpisów, historia decyzji
-zostaje.
+`pending` → `in-progress` (bench-build launched a subagent) →
+`done` (the task's complete set of files is ready in the working tree)
+or back to `pending` with a note when the build failed. Mark abandoned
+orders as `dropped` with a one-sentence reason — do not delete entries,
+the decision history stays.
 
-Szablon dokumentu:
+Document template:
 
 ```markdown
-# Backlog zleceń zadań
+# Task order backlog
 
-Zlecenia tworzy skill **bench-new-task**, buduje je skill
-**bench-build**. Statusy: pending / in-progress / done / dropped.
-Skille tylko edytują ten plik — gitem zarządza użytkownik.
+Orders are created by the **bench-new-task** skill and built by the
+**bench-build** skill. Statuses: pending / in-progress / done / dropped.
+Skills only edit this file — git is managed by the user.
 
-## <nazwa-zadania>
+## <task-name>
 
 - **Status**: pending
-- **Dodano**: <RRRR-MM-DD>
-- **Typ**: <implementacja / naprawa buga / refaktor / dokumentacja>
-- **Repo bazowe**: <nazwa z base_repos w bench.config.yaml>
-- **Poziom naprowadzenia**: <produktowy / kierunkowy / chirurgiczny>
-- **Trudność / timeout**: <łatwe|średnie|trudne> / <timeout_s> s
-- **Oś oceny**: <co różnicuje oceny w tym zadaniu — do's and dont's
-  od użytkownika (np. "premiuj minimalny diff", "nie wolno zmieniać
-  API publicznego"); bench-build kalibruje pod to rubrykę i warianty.
-  Gdy użytkownik świadomie nie wskazał osi: "do uznania bench-build".>
-- **Opis**: <2–6 zdań: co jest do zrobienia, objaw/cel, granice
-  ("nie zmieniaj niczego poza…"). Dla zadań typu "napraw": jaki bug
-  ma zostać zasiany overlayem i po czym poznać, że jest naprawiony.>
-- **Notatki**: <opcjonalnie: pomysły na asercje/składowe oceny, czy
-  przewidywana jest składowa judge, oczekiwanie wobec weryfikacji
-  w promptcie, inne ustalenia z wywiadu>
+- **Added**: <YYYY-MM-DD>
+- **Type**: <implementation / bugfix / refactor / documentation>
+- **Base repo**: <name from base_repos in bench.config.yaml>
+- **Guidance level**: <product-level / directional / surgical>
+- **Difficulty / timeout**: <easy|medium|hard> / <timeout_s> s
+- **Evaluation axis**: <what differentiates scores in this task — the
+  user's do's and don'ts (e.g. "reward a minimal diff", "the public
+  API must not change"); bench-build calibrates the rubric and variants
+  against this. When the user deliberately named no axis: "at
+  bench-build's discretion".>
+- **Description**: <2–6 sentences: what is to be done, the symptom/goal,
+  boundaries ("change nothing beyond…"). For bugfix-type tasks: what
+  bug is to be seeded via the overlay and how to tell it is fixed.>
+- **Notes**: <optional: ideas for assertions/evaluation components,
+  whether a judge component is expected, the verification expectation
+  for the prompt, other decisions from the interview>
 ```
 
-Zasady wpisów:
+Entry rules:
 
-- Nazwa wpisu = docelowa nazwa katalogu `tasks/<nazwa>/` (kebab-case,
-  mówi CO jest do zrobienia). Bez kolizji z istniejącymi zadaniami
-  i innymi wpisami.
-- Wpis musi być samowystarczalny: subagent bench-build nie ma dostępu
-  do rozmowy, w której zlecenie powstało.
-- Pola **Opis** i **Notatki** to decyzje projektowe, nie treść
-  `prompt.md` — prompt napisze bench-build na zadeklarowanym poziomie
-  naprowadzenia.
+- The entry name = the target `tasks/<name>/` directory name
+  (kebab-case, says WHAT is to be done). No collisions with existing
+  tasks or other entries.
+- The entry must be self-sufficient: the bench-build subagent has no
+  access to the conversation in which the order was created.
+- The **Description** and **Notes** fields are design decisions, not
+  the content of `prompt.md` — bench-build will write the prompt at the
+  declared guidance level.

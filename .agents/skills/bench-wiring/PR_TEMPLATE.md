@@ -1,41 +1,41 @@
-# Szablon PR-a dla wiringu instancji (bench-wiring)
+# Instance wiring PR template (bench-wiring)
 
-Tytuł: `bench-wiring: <opis, np. "astro-starter + modele przez OpenRouter">`
+Title: `bench-wiring: <description, e.g. "astro-starter + models via OpenRouter">`
 
 ```markdown
-## Decyzje
+## Decisions
 
-<repozytoria bazowe (publiczne/prywatne, forma dostępu), modele oceniane,
-sędzia + wersje rubryk, budżet max_cost_usd — każda decyzja z jednym
-zdaniem uzasadnienia.>
+<base repos (public/private, access method), evaluated models, judge +
+rubric versions, max_cost_usd budget — every decision with a
+one-sentence justification.>
 
-## Checklista sekretów
+## Secrets checklist
 
-<nazwy, nigdy wartości; status obecności z `gh secret list` / env;
-przy statusie "DO USTAWIENIA" dopisz gotową komendę dodania do zdalnego
-repo instancji, np. `gh secret set <NAZWA> --repo <owner/repo>`:>
+<names, never values; presence status from `gh secret list` / env; for
+a "TO BE SET" status add the ready-to-run command to add it to the
+remote instance repo, e.g. `gh secret set <NAME> --repo <owner/repo>`:>
 
-- [ ] `OPENROUTER_API_KEY` — próby agenta + sędzia — <obecny w repo / DO USTAWIENIA>
-- [ ] `BASE_REPO_TOKEN` — klonowanie prywatnych repo bazowych (fine-grained PAT, contents:read) — <status / "zbędny — same repo publiczne">
+- [ ] `OPENROUTER_API_KEY` — agent trials + judge — <present in repo / TO BE SET>
+- [ ] `BASE_REPO_TOKEN` — cloning private base repos (fine-grained PAT, contents:read) — <status / "not needed — all base repos public">
 
-## Dowody
+## Proofs
 
-<wyjścia komend, nie deklaracje:>
+<command outputs, not claims:>
 
-- `bench validate` → <0 errorów / lista>
-- `bench validate --assert` (jeśli zadania mają reference) → <wynik>
-- zielony run `bench-run` w GH Actions: <link> — `<model>` × `<zadanie>` → total <x>, koszt $<y>, czas <z> s
-- lokalny smoke (opcjonalny, nie testuje sekretów repo): <wynik / "nie odpalano">
+- `bench validate` → <0 errors / list>
+- `bench validate --assert` (if tasks have reference declarations) → <result>
+- green `bench-run` in GH Actions: <link> — `<model>` × `<task>` → total <x>, cost $<y>, duration <z> s
+- local smoke (optional, does not test repo secrets): <result / "not run">
 
-## Skutki dla porównywalności
+## Comparability impact
 
-<pierwsza era instancji: sędzia <model> + wersje rubryk (frontmatter). Co ją
-w przyszłości zamknie: zmiana sędziego, rubryk, definicji zadań. Jeśli
-PR zmienia istniejący wiring: które dotychczasowe wyniki przestają być
-porównywalne.>
+<the instance's first era: judge <model> + rubric versions
+(frontmatter). What will close it in the future: changing the judge,
+rubrics, or task definitions. If the PR changes existing wiring: which
+existing results stop being comparable.>
 
-## Koszt wiringu
+## Wiring cost
 
-<koszt smoke runu / wywołań sędziego (model, $), albo "brak — nie
-odpalano modeli".>
+<cost of the smoke run / judge calls (model, $), or "none — no models
+were run".>
 ```

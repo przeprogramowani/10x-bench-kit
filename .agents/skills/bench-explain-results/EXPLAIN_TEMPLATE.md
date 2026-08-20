@@ -1,36 +1,36 @@
-# Szablon diagnozy (bench-explain-results)
+# Diagnosis template (bench-explain-results)
 
-Tytuł (issue/komentarz): `triage: <model> × <zadanie> — <symptom w 3-5 słowach>`
+Title (issue/comment): `triage: <model> × <task> — <symptom in 3-5 words>`
 
 ```markdown
 ## Symptom
 
-<co zaskoczyło: run, model, zadanie, liczby z report.json
-(mediana, pass@1/pass@k) + stamps ery, której dotyczy diagnoza.>
+<what was surprising: run, model, task, numbers from report.json
+(median, pass@1/pass@k) + the era stamps the diagnosis applies to.>
 
-## Łańcuch dowodów
+## Chain of evidence
 
-<od report.json w dół — per próba: która składowa ciągnie w dół
-(result.json), co pokazał artefakt (cytat z agent.log / checks.json /
-judge.json / execution.json), wyniki reprodukcji komendami
-(bench assert / bench judge) z dokładnym wywołaniem.>
+<from report.json downward — per trial: which component drags the score
+down (result.json), what the artifact showed (quote from agent.log /
+checks.json / judge.json / execution.json), reproduction results from
+commands (bench assert / bench judge) with the exact invocation.>
 
-## Klasyfikacja
+## Classification
 
-<wina modelu / wina zadania / wina infrastruktury — jedna klasa per
-zdiagnozowana przyczyna (przyczyn może być kilka). Jeśli dowodów nie
-starcza: "nierozstrzygnięte" + czego zabrakło.>
+<model fault / task fault / infrastructure fault — one class per
+diagnosed cause (there may be several causes). If the evidence is
+insufficient: "unresolved" + what was missing.>
 
-## Rekomendacja
+## Recommendation
 
-<wina modelu → wynik zostaje, opisany wzorzec zachowania;
-wina zadania → co naprawić i którym skillem (bench-refresh-task /
-bench-build / bench-rubric), które wyniki ery są skażone;
-wina infrastruktury → issue w repo template'u, które próby
-nieinterpretowalne, czy run powtórzyć.>
+<model fault → the result stands, with the behavior pattern described;
+task fault → what to fix and with which skill (bench-refresh-task /
+bench-build / bench-rubric), which results of the era are tainted;
+infrastructure fault → an issue in the template repo, which trials are
+uninterpretable, whether to repeat the run.>
 
-## Koszt triage
+## Triage cost
 
-<koszt reprodukcji (wywołania sędziego / kontenery, $), albo "brak —
-tylko czytanie artefaktów".>
+<cost of reproduction (judge calls / containers, $), or "none — only
+reading artifacts".>
 ```

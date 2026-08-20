@@ -1,4 +1,4 @@
-# Konfiguracja instancji benchmarku (strefa firmy — nietykalna przy update).
+# Konfiguracja instancji benchmarku.
 # Schemat: .bench-kit/runner/src/schemas/config.ts
 
 # Repozytoria bazowe — projekty produktowe, na których agenci wykonują
@@ -8,7 +8,6 @@
 # w gita sam. Repo publiczne działają bez sekretu.
 base_repos:
   - name: demo-app
-    # (placeholder — podmień na realne repo firmy)
     url: https://github.com/example-org/demo-app.git
 
 # LLM-as-judge: stały, mocny model — INNY niż modele oceniane.

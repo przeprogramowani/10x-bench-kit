@@ -2,60 +2,76 @@
 
 # 10x-bench-kit
 
-Template repo wewnętrznego benchmarku agentów AI. Z tego repo powstaje
-**instancja benchmarku** firmy przy pomocy [10xCLI](https://github.com/przeprogramowani/10x-cli)
-(`10x bench-kit init`) — osobne repo, które trzyma zadania, pulę ocen
-i konfigurację, i uruchamia próby agentów na repozytoriach produktowych
-firmy w pełnej izolacji.
+Template repo for an internal AI agent benchmark. This repo is the basis
+for a company's **benchmark instance**, created with [10xCLI](https://github.com/przeprogramowani/10x-cli)
+(`10x bench-kit init`) — a separate repo that holds the tasks, the
+evaluation pool, and the configuration, and runs agent trials against the
+company's product repositories in full isolation.
 
-Harness na start: **OpenCode** (wyłącznie). Mierzone: jakość (ocena
-automatyczna + LLM-as-judge), koszt i czas wykonania.
+Initial harness: **OpenCode** (exclusively). Measured: quality (automated
+scoring + LLM-as-judge), cost, and execution time.
 
-## Trzy składowe
+## Prerequisites
 
-Struktura repo dzieli się na składowe o różnych właścicielach i różnym
-zachowaniu przy `10x bench-kit update`:
+[10xCLI](https://github.com/przeprogramowani/10x-cli) — no global install
+needed, run it directly with npx:
 
-| Strefa | Właściciel | Przy `update` |
+```bash
+npx @przeprogramowani/10x-cli bench-kit init <directory>
+
+# Or install globally for the shorter `10x` command
+npm install -g @przeprogramowani/10x-cli
+```
+
+The examples below use the short `10x` form.
+
+## Three zones
+
+The repo structure is split into zones with different owners and different
+behavior during `10x bench-kit update`:
+
+| Zone | Owner | On `update` |
 |---|---|---|
-| `.bench-kit/` | kit (my) | podmiana w całości (atomowa) |
-| `.agents/skills/` | współdzielona | propozycja diffu — firma decyduje |
-| `tasks/`, `evaluation-pool/`, `bench.config.yaml` | firma | nietykalne |
+| `.bench-kit/` | kit (us) | replaced wholesale (atomic) |
+| `.agents/skills/` | shared | proposed diff — the company decides |
+| `tasks/`, `evaluation-pool/`, `bench.config.yaml` | company | untouchable |
 
-Szczegóły kontraktu każdej strefy — w README danej strefy.
+Details of each zone's contract live in that zone's README.
 
-## Quickstart (instancja)
+## Quickstart (instance)
 
-1. `10x bench-kit init <katalog>` — materializuje template, robi świeży
-   `git init`, zapisuje wersję w manifeście instancji.
-2. Wiring sekretów: klucze API ocenianych modeli, klucz modelu-sędziego,
-   a przy prywatnych repozytoriach bazowych `BASE_REPO_TOKEN`
-   (fine-grained PAT, tylko contents:read).
-3. Customizacja przez skille (rozmowa z agentem): obraz pod stack firmy,
-   wypełnienie `evaluation-pool/`, kalibracja rubryk, pierwsze zadania.
-4. `bench validate` — bramka przed pierwszym runem.
-5. Run: `workflow_dispatch` w GH Actions (`models`, `tasks`, `trials`).
+1. `10x bench-kit init <directory>` — materializes the template, runs a
+   fresh `git init`, and records the version in the instance manifest.
+2. Secrets wiring: API keys for the evaluated models, the judge model's
+   key, and — for private base repos — `BASE_REPO_TOKEN`
+   (fine-grained PAT, contents:read only).
+3. Customization via skills (a conversation with an agent): an image
+   matching the company's stack, populating `evaluation-pool/`,
+   calibrating rubrics, first tasks.
+4. `bench validate` — the gate before the first run.
+5. Run: `workflow_dispatch` in GH Actions (`models`, `tasks`, `trials`).
 
-## Cykl życia próby
+## Trial lifecycle
 
-Jedna próba = jeden job macierzy **model × zadanie × próba** w jednorazowym
-kontenerze:
+One trial = one **model × task × trial** matrix job in a throwaway
+container:
 
-1. **Workspace** — świeża kopia repo bazowego na pinowanym commicie +
-   overlay zadania; pusty `XDG_DATA_HOME`; zero materiałów oceny.
-2. **Wykonanie** — `opencode run` nieinteraktywnie z `prompt.md`, pod
-   twardym timeoutem.
-3. **Metryki** — adapter czyta storage OpenCode → `metrics.json`; diff
-   workspace → `patch.diff`.
-4. **Ocena** — bez agenta, dopiero teraz montowane asercje z puli:
-   static → tests → e2e → LLM-as-judge; wynik = ważona suma wg `task.yaml`.
-5. **Artefakt** — `result.json` ze stemplami wersji (era porównywalności).
+1. **Workspace** — a fresh copy of the base repo at the pinned commit +
+   the task overlay; empty `XDG_DATA_HOME`; zero evaluation materials.
+2. **Execution** — `opencode run` non-interactively with `prompt.md`,
+   under a hard timeout.
+3. **Metrics** — the adapter reads OpenCode storage → `metrics.json`;
+   workspace diff → `patch.diff`.
+4. **Evaluation** — with no agent present, assertions from the pool are
+   mounted only now: static → tests → e2e → LLM-as-judge; the score is
+   a weighted sum per `task.yaml`.
+5. **Artifact** — `result.json` with version stamps (comparability era).
 
-## Wersjonowanie i „ery"
+## Versioning and "eras"
 
-Każdy wynik jest stemplowany wersją template'u, hashem katalogu zadania,
-modelem sędziego i wersją rubryki. Wyniki porównują się tylko w obrębie ery;
-release'y oznaczone w [CHANGELOG.md](CHANGELOG.md) jako `scoring-breaking`
-zamykają erę.
+Every result is stamped with the template version, the task directory
+hash, the judge model, and the rubric version. Results are comparable
+only within an era; releases marked `scoring-breaking` in
+[CHANGELOG.md](CHANGELOG.md) close an era.
 
-Pełny dokument koncepcyjny: DESIGN benchmarku (repo wewnętrzne).
+Full concept document: the benchmark DESIGN (internal repo).

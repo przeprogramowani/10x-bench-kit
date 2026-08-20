@@ -6,6 +6,23 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.17.0 — 2026-08-20 (neutralny)
+
+Zmiana wyłącznie językowo-dokumentacyjna — bez wpływu na scoring,
+schematy i runnera.
+
+**Tłumaczenie na angielski** — wszystkie skille w `.agents/skills/`
+(SKILL.md + szablony), README strefy skilli i główny README przechodzą
+na angielski. Tłumaczenie idiomatyczne, nie 1:1 — workflow, kroki
+i twarde zasady bez zmian merytorycznych. Ujednolicona terminologia:
+order, guidance level (product-level / directional / surgical),
+reference solution, task aging, precision ladder, model / task /
+infrastructure fault. Placeholder-y w przykładach komend też po
+angielsku (`wzorzec.diff` → `reference.diff`, `<nazwa>` → `<name>`).
+Dodatkowo: sekcja Prerequisites w głównym README (użycie 10xCLI przez
+npx) i drobne porządki w komentarzach `bench.config.yaml`
+i zadania demo.
+
 ## 0.16.0 — 2026-08-20 (neutralny)
 
 Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
