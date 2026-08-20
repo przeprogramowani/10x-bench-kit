@@ -280,14 +280,50 @@ drive changes via PR like any config change:
   runner gap — file an issue with specifics (rule 3), do not edit the
   base Dockerfile.
 
-## Next step
+## Closing message — checklist + call to action
 
-End your summary response with a **Next step** section: the instance
-state in one sentence (what is configured, what awaits review), **one**
-recommendation with a one-sentence justification, at most two
-alternatives with their cost, and — separately — whatever awaits a
-human decision (creating the repo, setting secrets, merging the PR).
-Name steps by what they deliver (rule 8): after a green `validate` the
-natural recommendation is "first run in CI", not "path B"; after a
+Every summary response ends with a fixed, scannable structure. The
+reader must be able to extract "what is true, what changed, what do I
+do" without rereading prose. Three checklists, then one call to action:
+
+**1. Confirmed** — facts proven by the runner or by inspection, each
+with its proof in brackets. Examples: "config holds together
+(`bench validate`: 0 errors)", "demo task pinned to a real SHA
+(existence confirmed by fetch)", "base repo is private (unauthenticated
+clone → 401)". Never list anything here you merely expect to be true
+(rule 4).
+
+**2. Done in this session** — every change you made to the instance,
+however small, as its own line with the file it touched. If you changed
+nothing, say "no changes — init had done everything" as the single line.
+
+**3. Your steps** — the actions only the user can take, as a numbered
+checklist in execution order, each with the ready-to-run command or
+exact file/field to edit. Include only the ones actually open, drawn
+from this standard set:
+
+- **Models in `bench.config.yaml`** — confirm the template defaults or
+  edit `defaults.models` / `judge.model` (state the current values so
+  confirming takes one glance).
+- **Remote instance repo** — `gh repo create <owner/name> --private`
+  (or the name of an existing repo to hook up).
+- **Repo secrets** — the `gh secret set … --repo …` commands with
+  concrete names (rule 2: names and presence only, never values).
+- **Provider credit** — if any evaluated model or the judge is paid
+  (e.g. via OpenRouter), remind the user to check/top up the account
+  balance; an empty balance fails the first run in a way no validate
+  catches. Skip this line only when every configured model is free.
+- **Decisions awaiting a human** — push consent, budget raise, PR
+  merge.
+
+**Call to action** — one closing sentence naming exactly what you need
+back to continue (e.g. "reply with the repo name and push consent —
+I'll take it from there: hook up origin, dispatch the smoke run, and
+report total and cost"). One ask, not a menu. If you also want to give
+a recommendation with alternatives, do it *above* the checklists —
+never let alternatives dilute the final ask.
+
+Name everything by what it delivers (rule 8): after a green `validate`
+the natural recommendation is "first run in CI", not "path B"; after a
 green run — **bench-new-task** (commissions for the backlog), then
 **bench-build**, because an instance without tasks measures nothing.
