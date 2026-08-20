@@ -43,6 +43,13 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `run` / `evaluate`),
   nie deklaracja.
+- **Zmiana w skillach = release** — każda pushowana zmiana w skillach
+  (lub innej strefie współdzielonej template'u) dostaje bump wersji
+  wg SemVer stosownie do wpływu (patch: doprecyzowanie w obrębie
+  jednego skilla; minor: nowa struktura/procedura; major lub
+  `[scoring-breaking]`: zmiana łamiąca schematy albo porównywalność
+  wyników), wpis w `CHANGELOG.md` (neutralny / `[scoring-breaking]`),
+  commit `chore(release): X.Y.Z — …` i tag `vX.Y.Z`.
 
 ## Lokalne klony rep bazowych — `.repos/<nazwa>/`
 

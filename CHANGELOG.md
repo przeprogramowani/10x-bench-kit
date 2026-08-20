@@ -6,6 +6,26 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.17.1 — 2026-08-20 (neutralny)
+
+Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy
+i runnera.
+
+**bench-wiring: zakończenie jako checklista + jedno wezwanie do
+działania** — luźna sekcja „Next step" ustępuje stałej strukturze
+zamknięcia: potwierdzone fakty (każdy z dowodem od runnera), zmiany
+wykonane w sesji (z plikiem), ponumerowane kroki użytkownika
+w kolejności wykonania (modele w `bench.config.yaml` z podanymi
+bieżącymi wartościami, zdalne repo, komendy `gh secret set`,
+doładowanie konta providera przy płatnych modelach, decyzje czekające
+na człowieka) i dokładnie jedno zdanie wezwania do działania.
+Rekomendacja z alternatywami — jeśli jest — idzie nad checklisty, żeby
+nie rozmywać finalnej prośby.
+
+Dodatkowo w `AGENTS.md`: zasada „zmiana w skillach = release" — każda
+pushowana zmiana strefy współdzielonej dostaje bump wersji wg SemVer
+stosownie do wpływu, wpis w changelogu i tag.
+
 ## 0.17.0 — 2026-08-20 (neutralny)
 
 Zmiana wyłącznie językowo-dokumentacyjna — bez wpływu na scoring,
