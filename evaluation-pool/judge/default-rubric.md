@@ -1,12 +1,12 @@
 ---
-version: "3"
+version: "4"
 weights:
   correctness: 0.6
   scope: 0.25
   quality: 0.15
 ---
 
-# Rubryka: default-rubric (v3)
+# Rubryka: default-rubric (v4)
 
 Ogólna rubryka jakości zmiany — punkt wyjścia do kalibracji per firma.
 v2 po pierwszej kalibracji (fix-auth-validation): kryteria ważone —
@@ -14,7 +14,15 @@ correctness dominuje, żeby częściowe wykonanie nie rozmywało się
 w średniej; kotwice ograniczają uznaniowość. v3 dokłada kontrakt
 zwięzłości odpowiedzi — u sędziów z rozumowaniem długie uzasadnienia
 prowokują ucięcie JSON-a na limicie tokenów (na kalibracji: po tej
-zmianie 12/12 poprawnych werdyktów, rozrzut 0.000).
+zmianie 12/12 poprawnych werdyktów, rozrzut 0.000). v4 dokłada
+klauzulę anty-nitpickingową (kontrakt puli: sędzia ocenia treść
+implementacji, nie zgadywanie kształtu wyobrażonego przez autora).
+
+**Klauzula anty-nitpickingowa (obowiązuje we wszystkich kryteriach):**
+wybory pozostawione agentowi — układ plików, nazewnictwo, dekompozycja,
+wewnętrzne helpery — nigdy nie obniżają oceny; oceniasz wyłącznie
+naruszenia kryteriów nazwanych niżej. Nie oceniasz też niczego, co
+wymagałoby uruchomienia kodu (to mierzą guardy wykonania).
 
 Wersję rubryki deklaruje frontmatter (`version`) — stempel ery jest per
 rubryka, więc kalibracja tej rubryki nie unieważnia wyników zadań,
@@ -39,7 +47,9 @@ ocenia wyłącznie kryteria (arytmetyka modelu jest poza pętlą oceny).
    - 0.0 — wiele niepowiązanych zmian / przebudowa poza zadaniem.
 3. **quality** (waga 0.15) — zgodność z konwencjami otaczającego kodu
    (styl, nazewnictwo, idiomy); 0.5 przy odstępstwach kosmetycznych,
-   0.0 przy łamaniu konwencji projektu.
+   0.0 przy łamaniu konwencji projektu. Łamanie zastanej konwencji to
+   naruszenie; wybór spośród równoprawnych opcji, których projekt nie
+   przesądza, nie obniża oceny (klauzula anty-nitpickingowa).
 
 ## Format odpowiedzi sędziego (wymagany JSON)
 

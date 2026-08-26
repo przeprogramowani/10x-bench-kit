@@ -89,8 +89,9 @@ do not invent tasks yourself.
      each agent's own scan.
    - **Cross-check it against the order notes**: backlog notes say
      which assertions an order needs. Spot pairs of orders targeting
-     the same thing (e.g. two tasks both wanting "no `localStorage`
-     read on the SSR path").
+     the same thing — for execution guards this is the norm: two tasks
+     on the same base repo share ONE guard set (its lint/build/suite),
+     they do not each get their own.
    - **Decide the coverage** and pass the decision in the prompts:
      *an existing assertion covers it* → name it and instruct reuse
      instead of creating; *a new one is needed, shared by two orders* →
@@ -179,7 +180,7 @@ launch a subagent via your tool's mechanism, and pass in its prompt:
   work in progress, so it must be written as it happens, not
   backfilled just before the report;
 - the final report format: REPORT_TEMPLATE.md (file list, evidence from
-  the starting state, hidden-test robustness checklist, criteria digest,
+  the starting state, shape-neutrality checklist, criteria digest,
   cost) + problems.
 
 **Match the subagent's power to the order's profile** (the Type field

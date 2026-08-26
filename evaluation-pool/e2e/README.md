@@ -9,4 +9,8 @@ Konwencje:
   port, warunek gotowości),
 - wymagane zależności przeglądarek dokłada obraz pochodny instancji
   (patrz `.bench-kit/docker/Dockerfile`), nie sama asercja,
-- wynik = frakcja przechodzących scenariuszy (0–1).
+- wynik = frakcja przechodzących scenariuszy (0–1),
+- scenariusze ćwiczą zachowanie widoczne dla użytkownika, utrwalone
+  w prompcie zadania — selektory i przepływy tylko z UI, którego
+  kształt prompt ustala; nic, co zależy od wyborów implementacyjnych
+  agenta (zasada neutralności kształtu — README puli).

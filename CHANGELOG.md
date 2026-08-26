@@ -6,6 +6,45 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.20.0 — 2026-08-26 (neutralny)
+
+**Zasada neutralności kształtu — koniec ukrytych testów
+behawioralnych.** Ukryte testy szyte pod zadanie (montowane
+z `$ASSERTION_DIR`, importujące moduły po ścieżkach/symbolach z planu,
+odkrywające pliki agenta grepem, wymuszające środowisko jsdom) okazały
+się w praktyce flaky u korzenia: zadanie wielo-plikowe ma wiele
+poprawnych implementacji, a taki test mierzy "czy zakodowano tak, jak
+wyobraził sobie autor", nie pracę — kanarki środowiska i dynamiczna
+detekcja to były łaty na ten problem, nie rozwiązanie. Nowa doktryna:
+
+- **Asercje skryptowe = wyłącznie repo-natywne guardy wykonania**
+  (lint/typecheck/build/suita własnymi komendami repo bazowego).
+  Wiążący papierek lakmusowy: dwie poprawne implementacje muszą
+  dostać identyczny wynik z każdej asercji skryptowej. Jeden zestaw
+  guardów per repo, współdzielony przez zadania.
+- **Sędzia główną miarą treści implementacji** (domyślnie waga
+  0.7–0.9): rubryka opisuje dobre i złe implementacje językiem
+  zachowań; obowiązkowa **klauzula anty-nitpickingowa** (wybory
+  pozostawione agentowi — układ plików, nazewnictwo, dekompozycja —
+  nigdy nie są karane) i podział pracy z guardami (żadnych kryteriów
+  wymagających uruchomienia kodu). `default-rubric` → v4 z klauzulą.
+- **Overlay bugfixowy**: dwie ścieżki obserwowalności — guard-observed
+  (suita repo czerwona na seedzie, kontrdowody jak dotąd) albo
+  judge-observed (symptom buga verbatim w kryteriach rubryki; dowód =
+  podłoga pustego diffa). Zakaz dowodzenia obserwowalności ukrytym
+  testem.
+- Procedury zaktualizowane spójnie: TASK_AUTHORING (krok 4 przepisany,
+  self-check "shape-neutrality review" zamiast przeglądu odporności),
+  REPORT_TEMPLATE, bench-new-task (osie jako zachowania), bench-rubric
+  (trzy kontrakty rubryki), bench-refresh-task, bench-explain-results
+  (diagnoza suspect-harness), README-y puli (`tests/` przepisane jako
+  guard suity repo).
+
+Runner bez zmian — schematy `check.yaml`/`task.yaml` te same; zmiana
+jest proceduralna w skillach i konwencjach puli. Neutralny: nie
+unieważnia policzonych wyników; bump `default-rubric` do v4 dotyczy
+tylko zadań używających tej rubryki (w template — zadanie-demo).
+
 ## 0.19.1 — 2026-08-26 (neutralny)
 
 **Niezawodny release: skrypt + bramka CI na spójność wersji.** Przy

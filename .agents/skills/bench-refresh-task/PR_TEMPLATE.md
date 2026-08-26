@@ -30,8 +30,8 @@ no in-place edits.>
 - starting state: `bench assert --task <name>` → <result per assertion>
 - overlay counter-proof: `--no-overlay` green, or bug-inverse probe
   green (`--patch <probe.diff>`, probe diff pasted here) → <result>
-- hidden-test robustness review on the new pin: <paths/env assumptions
-  re-checked; findings>
+- shape-neutrality review on the new pin: <repo-native commands
+  re-checked against the new pin's toolchain; findings>
 - empty diff does not pass: <result>
 - `bench validate --assert` → 0 errors, no expires warning
 - smoke run on the new pin: <result per component; assertions no

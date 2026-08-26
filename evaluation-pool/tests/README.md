@@ -1,46 +1,34 @@
-# tests — testy weryfikacyjne
+# tests — guard wykonania: suita repo bazowego
 
-Asercja `tests/<nazwa>/` to zestaw testów weryfikujących wykonanie
-zadania — ukrytych przed agentem (nigdy nie ma ich w workspace podczas
-próby; montowane dopiero na etapie oceny).
+Asercja `tests/<nazwa>/` uruchamia **własną suitę testów repo
+bazowego** na workspace po próbie — tym samym runnerem i tą samą
+komendą, której używa samo repo (`pnpm run test` itp.). Wynik =
+frakcja przechodzących testów (0–1) albo 0/1, wg mapowania
+w `check.yaml`.
 
-Konwencje:
+## Wycofane: ukryte testy behawioralne
 
-- testy pisane pod repo bazowe i pinowany commit zadania,
-- **muszą przechodzić na wersji referencyjnej** (rozwiązaniu wzorcowym) —
-  sprawdza to `bench validate`,
-- wynik = frakcja przechodzących testów (0–1),
-- aktualizacja testów po odświeżeniu pinu zadania = nowa era zadania.
+Wcześniejsza konwencja — testy szyte pod zadanie, montowane
+z `$ASSERTION_DIR`, importujące moduły po ścieżkach i symbolach,
+odkrywające pliki agenta grepem, wymuszające środowisko testowe —
+jest **wycofana**. Zadanie wielo-plikowe ma wiele poprawnych
+implementacji, a taki test mierzył "czy zakodowano tak, jak wyobraził
+sobie autor", nie pracę; do tego każdy wymagał kanarków środowiska,
+detekcji routingu jsdom i innych łat na ten sam problem u korzenia.
+To, co taki test próbował mierzyć, wyraża dziś rubryka sędziego
+(`evaluation-pool/judge/`) językiem naturalnym — opisem dobrych
+i złych implementacji.
 
-## Wzorzec: asercja zero zależności
+## Konwencje
 
-Najstabilniejsza klasa asercji to taka, która **niczego nie instaluje** —
-im mniej asercja instaluje, tym mniej mierzy pogodę na npmjs zamiast
-pracy agenta. Testy leżą w katalogu asercji (`$ASSERTION_DIR`, montowany
-:ro), importują czyste funkcje prosto z `/workspace` i biegną wbudowanym
-`node --test`:
-
-```yaml
-# evaluation-pool/tests/<nazwa>/check.yaml
-score: fraction
-checks:
-  - name: unit
-    # node --test na plikach z katalogu asercji; testy importują moduły
-    # z /workspace bezpośrednio (ESM), więc nie trzeba nic instalować.
-    run: node --test "$ASSERTION_DIR"/*.test.mjs
-```
-
-```js
-// evaluation-pool/tests/<nazwa>/validation.test.mjs
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { isValidEmail } from "/workspace/src/lib/validation.js";
-
-test("akceptuje poprawny e-mail", () => {
-  assert.equal(isValidEmail("a@b.co"), true);
-});
-```
-
-Instalacja bywa nieunikniona (TypeScript bez builda, testy przez runner
-frameworka) — wtedy detekcję package managera rób po lockfile'u, jak
-w `static/lint/check.yaml`.
+- wyłącznie komendy zdefiniowane przez repo bazowe; detekcja package
+  managera po lockfile'u (wzorzec: `static/lint/check.yaml`),
+- zero założeń o kształcie implementacji agenta — zasada neutralności
+  kształtu (README puli): żadnych ścieżek, symboli, grepowania po
+  workspace, dogrywanych plików testowych,
+- nie karz za zastane problemy repo bazowego: czerwone testy na stanie
+  startowym → mapowanie względem stanu startowego albo — dla zadania
+  seedującego buga, którego suita repo dowodnie łapie — deklaracja
+  `reference: fail` w task.yaml,
+- jeden zestaw guardów per repo bazowe, współdzielony przez wszystkie
+  zadania na tym repo.

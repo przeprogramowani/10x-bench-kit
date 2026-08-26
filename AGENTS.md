@@ -33,8 +33,10 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Udowodnij na stanie startowym, zanim zaproponujesz** — asercja czy
   overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR).
   Benchmark nie utrzymuje implementacji referencyjnych: kierunek
-  "da się zaliczyć" chronią reguły odporności ukrytych testów
-  (TASK_AUTHORING.md) i smoke run jako sonda wykonalności.
+  "da się zaliczyć" chroni zasada neutralności kształtu asercji
+  (TASK_AUTHORING.md — skrypty to wyłącznie repo-natywne guardy
+  wykonania; treść implementacji ocenia rubryka sędziego opisem
+  dobrych i złych implementacji) i smoke run jako sonda wykonalności.
 - **Świadomość er** — zmiany `task_hash`, rubryki lub sędziego zamykają
   erę porównywalności; raport/PR mówi to wprost.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia

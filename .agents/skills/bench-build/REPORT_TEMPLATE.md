@@ -30,27 +30,32 @@ backlog order), timeout and its justification.>
   --no-overlay` → <result>; for an overlay adding files — the
   bug-inverse probe: `--patch <probe.diff>` → <result> + the probe
   diff pasted here (the file itself is deleted at handoff)
-- an empty diff does not pass: <work-measure result / judge verdict>
+- an empty diff does not pass: <judge verdict; for a guard-observed
+  bugfix seed also the red guard>
 - `bench validate --assert` → 0 errors
 - smoke run: <result per component, or "deferred — no secrets in the
   session"; the smoke run is the solvability probe — an assertion no
   attempt greens is flagged suspect-harness here, not counted against
   models>
 
-## Hidden-test robustness checklist
+## Shape-neutrality checklist
 
-<per hidden test: which prompt/plan-fixed surfaces it depends on (and
-where they are fixed verbatim); how agent-chosen names are avoided or
-discovered dynamically; the environment canary; dependency
-self-install.>
+<per scripted assertion: the repo-native commands it runs;
+confirmation it encodes no implementation shape (no paths, symbols,
+grep discovery, copied-in test files, forced environments — paths the
+prompt fixes verbatim are the only exception); how pre-existing repo
+problems are not punished; dependency self-install.>
 
 ## Criteria digest for bench-rubric
 
-<only for tasks with a judge component: per evaluation axis from the
-order — the concrete, greppable signals in this repo (paths, symbols,
-patterns) that distinguish compliance from violation; milestone map
-for partial credit if the order defines phases. bench-rubric builds
-the rubric and its synthetic calibration set from this.>
+<the task's main assertion artifact, for tasks with a judge component:
+per evaluation axis from the order — what a good implementation looks
+like and what a bad one looks like, in behavioural terms (never exact
+paths/symbols unless the prompt fixes them verbatim), plus the
+concrete signals in this repo that distinguish compliance from
+violation; milestone map for partial credit if the order defines
+phases. bench-rubric builds the rubric and its synthetic calibration
+set from this.>
 
 ## Assertions and weights
 

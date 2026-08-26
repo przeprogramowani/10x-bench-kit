@@ -84,8 +84,28 @@ For a single ad-hoc verdict (e.g. comparing judges) there is
 axis and bench-build's criteria digest: each axis becomes a criterion
 (or a named penalty), milestone/phase maps become the partial-credit
 scale, safety-flavoured axes ("a single leak is a hard fail") become
-dominating clauses, not deductions. Only what the criteria cannot
-express as text needs no criterion — it is already an assertion.
+dominating clauses, not deductions.
+
+Three contracts every rubric must honour:
+
+- **Good/bad in behavioural language.** Criteria and anchors describe
+  what a good implementation *does* and what a bad one *does* — never
+  "file X contains symbol Y". A multi-file task has many correct
+  shapes; the rubric grades substance the way a senior reviewer would,
+  and exact paths/symbols appear only when the prompt itself fixes
+  them verbatim.
+- **The anti-nitpicking clause (mandatory, verbatim in every
+  rubric):** implementation choices the prompt left to the agent —
+  file layout, naming, decomposition, internal helpers — are never
+  penalized; only violations of stated criteria are. This is what
+  makes "code review without nitpicking" enforceable rather than
+  aspirational.
+- **Division of labour with the guards.** The judge reads the diff as
+  text and never executes it — do not write criteria that require
+  running the code ("all tests pass", "the build is green"): that is
+  what the execution guards measure. The judge's turf is what review
+  can see: completeness, architecture, scope, whether real tests were
+  written for the new behaviour.
 
 **Then the set**: 4–6 diffs of designed quality per task, each with an
 expected score range, fabricated per
@@ -115,6 +135,9 @@ Entry checklist, **before the first measurement**:
 - [ ] The rubric's criteria trace back to the order's axes / criteria
       digest — no criterion is your invention without a source, no axis
       is left uncovered.
+- [ ] The three contracts hold: behavioural anchors (no paths/symbols
+      the prompt does not fix), the anti-nitpicking clause present
+      verbatim, no criterion that requires executing the code.
 - [ ] Every synthetic diff passes the realism rules of
       CALIBRATION_SET.md (real paths/symbols at the pin, plausible
       hunks, proportional size) — verified against the repo, not from

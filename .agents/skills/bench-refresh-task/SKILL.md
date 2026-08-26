@@ -34,10 +34,11 @@ rescuing it artificially.
 3. **Prove on the starting state from scratch.** No assertion,
    `reference` declaration, or overlay makes it into the PR "because it
    worked on the old pin" — re-run every proof on the new pin via
-   `bench assert` / `bench validate --assert`. The hidden-test
-   robustness rules from bench-build's TASK_AUTHORING.md apply
-   unchanged — a refresh is a fresh chance for a path or environment
-   assumption to rot.
+   `bench assert` / `bench validate --assert`. The shape-neutrality
+   rule from bench-build's TASK_AUTHORING.md applies unchanged —
+   scripted assertions run only the repo's own commands, and a refresh
+   is a fresh chance for the repo to have renamed those commands or
+   moved its toolchain.
 4. **A refresh preserves intent.** Adapt the prompt/overlay/assertions
    to the new code minimally; changing WHAT the task measures is a new
    task (commissioned via bench-new-task, built via bench-build), not a
@@ -146,24 +147,28 @@ differ from the new pin's file **solely by the bug seed**. If the repo
 file has drifted — port the bug seed onto its new version.
 
 Then redo the observability proof from scratch, as in bench-build
-(TASK_AUTHORING.md):
+(TASK_AUTHORING.md, step 2):
 
-- starting state (new pin + overlay): the work measure is red —
-  `bench assert <ref> --task <name>` → exit 1,
-- counter-proof: overlay modifying existing files → `--no-overlay`
-  green; overlay adding files → a **bug-inverse probe** green
-  (`--patch <probe.diff>` — a minimal disposable diff un-doing the
-  seed and nothing else; pasted into the PR, not kept in the
-  instance).
+- guard-observed seed: on the starting state (new pin + overlay) the
+  repo-native guard is red — `bench assert <ref> --task <name>` →
+  exit 1 — with the counter-proof: overlay modifying existing files →
+  `--no-overlay` green; overlay adding files → a **bug-inverse probe**
+  green (`--patch <probe.diff>` — a minimal disposable diff un-doing
+  the seed and nothing else; pasted into the PR, not kept in the
+  instance),
+- judge-observed seed: re-check that the bug's symptom is still
+  described accurately in the rubric's criteria against the new pin's
+  code, and that the empty-diff floor holds (self-check point 2).
 
 ### 5. Assertions and calibration material
 
 - **Full "prove on the starting state" table** for all of the task's
-  assertions: starting state → work measures red, guards green;
-  counter-proofs per step 4. `reference` declarations in
-  task.yaml stay, or change deliberately (with justification in the PR).
-  Re-run the hidden-test robustness review (rule 3) — paths and
-  environment assumptions are exactly what drifts between pins.
+  assertions: guards behave as declared on the new pin (green, or red
+  for a guard-observed bug seed); counter-proofs per step 4.
+  `reference` declarations in task.yaml stay, or change deliberately
+  (with justification in the PR). Re-run the shape-neutrality review
+  (rule 3) — the repo's own commands and toolchain are exactly what
+  drifts between pins.
 - **Shared assertions**: changes only via a new version in the pool
   (rule 5).
 - **Judge**: the calibration set was fabricated against the old pin
@@ -191,9 +196,9 @@ multiple entries, launch the calls in parallel in the background and
 collect the results together. In order, each must pass:
 
 1. `bench validate --assert` — green, no `expires` warning.
-2. An empty diff does not pass: the work measure is red at the start;
-   if there is a judge component — `bench judge --patch <empty.diff>`
-   scores low.
+2. An empty diff does not pass: `bench judge --patch <empty.diff>`
+   scores low; for a guard-observed bug seed, the red guard at the
+   start is additional evidence.
 3. Trial `bench run --smoke` + `evaluate` on one cheap model (the
    instance budget guards costs — rule 8). As in bench-build, the
    smoke run doubles as the solvability probe on the new pin: an

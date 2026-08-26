@@ -49,7 +49,7 @@ fix — never with changing the results.
    usual or for raising the budget.
 6. **Link evaluation materials, do not copy them.** In comments/issues,
    quote the minimal fragments needed as proof plus paths in the
-   instance repo; do not paste entire hidden tests or rubrics.
+   instance repo; do not paste entire assertions or rubrics.
 
 ## Where the artifacts are
 
@@ -145,7 +145,7 @@ difference usually points to one component, not all of them.
 | `container.log` exists | `container.log`, `execution.json` | container died before the agent → infrastructure fault |
 | `trial.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
 | `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
-| assertion 0 in `checks.json` | assertion log + read the hidden test + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (agent-chosen path guessed, broken env — check the canary output), task fault; green for some attempts → model fault |
+| assertion 0 in `checks.json` | assertion log + read the assertion + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (broken env, repo command drift — and a shape-neutrality violation: the script assuming an implementation shape, the retired convention), task fault; green for some attempts → model fault |
 | judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |
 | judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread → rubric needs calibration (bench-rubric), task fault |
 | large out-of-scope `patch.diff` | prompt.md + the scope criterion in the verdict | prompt sets no boundaries → task fault; it does → model fault |

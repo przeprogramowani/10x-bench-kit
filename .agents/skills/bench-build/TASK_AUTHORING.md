@@ -41,17 +41,20 @@ task built on guesses.
    `evaluation-pool/` may be copied or referenced in `tasks/<name>/`
    (the only exception: `evaluation: [...]` entries in task.yaml).
    `prompt.md` must not reveal how the task will be evaluated or quote
-   hidden tests.
-3. **Prove on the starting state before you propose.** Every assertion
-   must be run through `bench assert` before handoff and behave as
-   declared on the starting state — work measures red, guards green.
-   You declare this in `reference` in task.yaml (the declarations
-   describe the starting state; the runner verifies them with
-   `bench validate --assert`). The green direction — "can this
-   assertion be satisfied at all?" — is guarded not by a reference
-   implementation but by the robustness rules for hidden tests
-   (step 4) and by the batch smoke run (step 6), which doubles as the
-   solvability probe.
+   rubric criteria.
+3. **Prove on the starting state before you propose.** Every scripted
+   assertion must be run through `bench assert` before handoff and
+   behave as declared on the starting state — guards green (or red,
+   when the task seeds a bug that a guard observes — step 2). You
+   declare this in `reference` in task.yaml (the declarations describe
+   the starting state; the runner verifies them with
+   `bench validate --assert`). The "not passable with an empty diff"
+   property is the judge's job — the rubric's floor (empty diff ≈ 0)
+   is proven in self-check and at calibration, not by a scripted work
+   measure. The green direction — "can this task be satisfied at
+   all?" — is guarded by the shape-neutrality rule (step 4) and by
+   the batch smoke run (step 6), which doubles as the solvability
+   probe.
 4. **The runner is your tool.** Do not reimplement its logic, do not
    evaluate "by eye" — call the `bench` commands and read their output.
    If the runner lacks something, report it (an issue), do not work
@@ -180,27 +183,39 @@ URL).
 You **introduce the bug yourself** as files in `tasks/<name>/overlay/`
 (they override the repo's files at the start of a trial), following the
 bug description from the order. Requirement: the bug must be
-**observable** — an assertion exists that catches it:
+**observable**. Two acceptable observability routes:
 
-- on the starting state (with the overlay) the assertion is **red** —
-  `bench assert <ref> --task <name>` → exit 1,
-- a counter-proof that the red comes from the bug, not a broken
-  assertion:
+- **Guard-observed (preferred when available):** a repo-native guard
+  (the repo's own test suite or build) goes **red** on the seeded
+  state — `bench assert <ref> --task <name>` → exit 1 — with a
+  counter-proof that the red comes from the bug, not a broken guard:
   - the overlay **modifies** existing files → green on the clean
     repo@pin: `bench assert <ref> --task <name> --no-overlay` → exit 0,
-  - the overlay **adds** new files (on the clean repo@pin the
-    assertion has nothing to test) → the counter-proof is a
-    **bug-inverse probe**: a minimal disposable diff that un-does the
-    seeded bug and nothing else (its size is bounded by the overlay's
-    size — it is the seed's inverse, not a task implementation):
+  - the overlay **adds** new files (on the clean repo@pin the guard
+    has nothing to catch) → the counter-proof is a **bug-inverse
+    probe**: a minimal disposable diff that un-does the seeded bug and
+    nothing else (its size is bounded by the overlay's size — it is
+    the seed's inverse, not a task implementation):
     `bench assert <ref> --task <name> --patch <probe.diff>` → exit 0.
     The probe is proof material only — it is not kept in the instance
     and is never used for grading; paste it into the report.
 
-If you cannot show both results, the bug is unobservable or the
-assertion is wrong — go back to the design; if that does not help
-either, refuse with a diagnosis (see the header). The overlay must be
-minimal: a bug seed, not a project rebuild.
+  Seeding the bug so the repo's own suite catches it does not make the
+  task trivial — the agent still has to run the suite, localize, and
+  fix, which is the realistic workflow.
+- **Judge-observed:** no repo-native command reaches the bug (nothing
+  in the repo's own suite covers the area). Then the bug's observable
+  symptom and mechanism go verbatim into the evaluation-axis criteria
+  — the rubric will say what a real fix removes, and a diff that does
+  not touch it scores 0 on correctness — and the proof is the
+  empty-diff floor (step 6.3) plus bench-rubric's calibration probes.
+  Record the delegation explicitly in the report.
+
+Never make the bug observable by writing a bespoke hidden test — that
+is the retired convention (step 4). If neither route works, the bug is
+unobservable — go back to the design; if that does not help either,
+refuse with a diagnosis (see the header). The overlay must be minimal:
+a bug seed, not a project rebuild.
 
 ### 3. prompt.md
 
@@ -223,85 +238,85 @@ the project — you end up measuring temperament, not skill.
 
 ### 4. Assertions
 
-Assertions are shared across many tasks, so **reuse is decided by the
-orchestrator before you start**: your prompt contains the pool
-inventory and the decision — what to reuse under a specific name, what
-to build as new and under which name prefix. Stick to it. Re-scanning
-`evaluation-pool/` mid-work settles nothing: other subagents are
-building next to you and the pool changes underneath you, and an
-assertion you cannot see yet may already be in the making. If the
-decision turns out not to fit (the assertion designated for reuse does
-not measure what is needed; you need an assertion outside the
-decision) — build your own under your prefix and **report the
-divergence**, so the orchestrator can close out a possible duplicate;
-do not merge or edit other people's assertions. Create new ones **in
-the pool** (a `evaluation-pool/<type>/<name>/check.yaml` directory),
-never in the task directory. Keep hidden test files in the assertion's
-directory (inside the evaluation container they live under
-`$ASSERTION_DIR`).
+The grading layers divide cleanly, and the division is binding:
 
-**Robustness rules for hidden tests.** There is no reference
-implementation to prove an assertion satisfiable, so satisfiability is
-designed in, not measured in. Every hidden test must obey:
+- **Execution guards** (`static/`, `tests/`, `e2e/`) — scripted checks
+  answering the one question the judge cannot (it reads the diff as
+  text, it never runs anything): does the workspace still lint /
+  typecheck / build / test green, using the base repo's **own
+  toolchain and commands**. Objective, shape-neutral, reusable across
+  every task on the same repo.
+- **Review criteria** (`judge/`) — everything about the substance of
+  the implementation: completeness against the order's milestones,
+  architecture and layering, scope discipline, whether real tests were
+  added for the new behaviour. Expressed as natural-language
+  descriptions of good and bad implementations; graded as a code
+  review, without nitpicking.
 
-- **Test only through surfaces the agent is told about.** Paths,
-  symbols, commands, and contracts a hidden test depends on must be
-  fixed **verbatim** in material the agent receives (prompt.md, or a
-  plan file the prompt points at). Anything the agent legitimately
-  chooses itself — file names, module layout, internal helpers — must
-  be discovered dynamically (glob/grep over the workspace) or left to
-  the judge. A hidden test that imports
-  `src/lib/complexity/levelState.ts` when the plan only fixes the
-  directory measures guessing-the-author, not the work.
-- **Environment canary.** Each hidden test file starts with a
-  self-check that fails **loudly and distinguishably** when the
-  environment is broken (e.g. `document` missing where a DOM test
-  expects jsdom, a dependency absent) — an environment failure must
-  never be attributable to the agent. Check the repo's test routing
-  before writing DOM-flavoured tests (e.g. a vitest config that maps
-  only certain paths to jsdom).
-- An assertion must install its own dependencies (the evaluation stage
-  may use the network) and must not punish the agent for pre-existing
-  problems of the base repo (the founding lesson).
+**The shape-neutrality rule (binding).** A multi-file task has many
+correct implementations, and a script cannot enumerate them. A
+scripted assertion may therefore encode **no assumption about the
+shape of the agent's work**: no expected file paths or module layout,
+no symbol or export names, no grep-discovery of agent-written files,
+no bespoke test files copied into the workspace, no forced test
+environments. Litmus test: **any two correct implementations must
+score identically on every scripted assertion.** The moment you feel
+the need for grep, dynamic discovery, copied-in tests, or environment
+forcing, the thing you are checking is review-visible — move it into
+the review criteria. Bespoke hidden behavioural tests (the previous
+convention) are retired for exactly this reason: they measured
+"was it coded the way the author imagined", not the work.
 
-Entering the evaluation container rebuilds the environment from scratch
-and costs minutes — so work up a ladder of gates, cheapest to most
-expensive:
+What a guard may contain: the repo's own commands (`pnpm run check`,
+`npm run lint`, the repo's build and test scripts), package-manager
+detection by lockfile, and result mapping that does not punish
+pre-existing problems of the base repo (the founding lesson) — e.g.
+lint scored relative to the starting-state error count. A guard
+installs its own dependencies (the evaluation stage may use the
+network).
 
-- **Prototype the assertion outside the container**, in the local
-  `.repos/<name>/` clone (worktree at the pin, rule 8), until it works.
-  The local loop is an order of magnitude faster than the container
-  loop; you enter the container with a finished assertion, not a
-  hypothesis.
-- **One container entry per full set of material**, not a call per
-  artifact: `bench assert --task <name>` proves the whole starting
-  state (all assertions) in one entry; add `--patch` entries only when
-  step 2 requires a bug-inverse probe. If you must enter several times
-  anyway, run the calls in parallel in the background and collect the
-  results together (remembering: no output from a background command
-  means "still running" OR "died silently" — settle which before you
-  build a conclusion on it).
+Assertions are shared across many tasks — for guards this is the norm:
+one base repo usually needs **one** guard set, reused by every task on
+that repo. Reuse is decided by the orchestrator before you start (your
+prompt contains the pool inventory and the decision — what to reuse
+under a specific name, what to build as new and under which name
+prefix). Stick to it; re-scanning `evaluation-pool/` mid-work settles
+nothing, because other subagents are building next to you. If the
+decision does not fit, build your own under your prefix and **report
+the divergence** — do not merge or edit other people's assertions.
+Create new ones **in the pool**
+(`evaluation-pool/<type>/<name>/check.yaml`), never in the task
+directory.
 
-Every assertion passes the "prove on the starting state" rule (rule 3):
+Entering the evaluation container rebuilds the environment from
+scratch and costs minutes — prototype the guard outside the container,
+in the local `.repos/<name>/` clone (worktree at the pin, rule 8),
+until it works; then one container entry proves everything:
+`bench assert --task <name>` covers the whole starting state, with
+`--patch` entries added only for step 2's bug-inverse probe. If you
+must enter several times, run the calls in parallel in the background
+and collect the results together (no output from a background command
+means "still running" OR "died silently" — settle which before you
+build a conclusion on it).
 
-| State | Expectation | Command |
-|---|---|---|
-| starting (with overlay) | work measures red, guards green | `bench assert --task <name>` |
-| clean repo@pin / bug-inverse probe (bugfix tasks) | counter-proof green | `bench assert --task <name> --no-overlay` or `--patch <probe.diff>` |
+Record the starting-state behaviour in `reference` in task.yaml:
+guards on a healthy start → `pass`; a guard the overlay deliberately
+breaks (step 2, guard-observed route) → `fail`.
 
-Record the results in `reference` in task.yaml: guards (lint/build) →
-`pass`, work measures (hidden tests) → `fail`.
-
-For a `judge/*` component: create/calibrate the rubric with the
+**Review criteria are the task's main assertion artifact.** For the
+`judge/*` component: the rubric is created and calibrated by the
 **bench-rubric** skill, not by hand within this procedure. The rubric
 material is the order's **Evaluation axis** (do's, don'ts, milestones)
-— it is binding when present; pass it to bench-rubric verbatim as the
-starting point for the criteria. You fabricate no calibration diffs —
-bench-rubric builds a **synthetic** calibration set from the criteria
-(see its CALIBRATION_SET.md). What you *should* hand over, because you
-have the repo context open now, is a short **criteria digest** in your
-report: per axis, the concrete greppable signals in this repo (paths,
-symbols, patterns) that distinguish compliance from violation.
+— binding when present; pass it to bench-rubric verbatim. You
+fabricate no calibration diffs — bench-rubric builds a **synthetic**
+calibration set from the criteria (see its CALIBRATION_SET.md). Your
+deliverable, because you have the repo context open now, is the
+**criteria digest** in your report: per axis, a natural-language
+description of what a good implementation looks like and what a bad
+one looks like (behaviour, structural qualities, milestones for
+partial credit — never exact paths or symbol names unless the prompt
+itself fixes them verbatim), plus the concrete signals in this repo
+that distinguish compliance from violation.
 
 ### 5. Weights
 
@@ -311,10 +326,13 @@ justification is reasoned, not measured — say per component which
 difference between two future attempts it would surface. A component
 that does not distinguish a good execution from a bad one (e.g. lint
 green regardless of solution quality) gets weight 0 or is dropped from
-`evaluation[]`. On large tasks where most attempts will land partial
-work, the judge component typically carries most of the weight — the
-assertions grade the automatable subset, the rubric grades how far the
-attempt got and how well what landed is built. Weights sum to 1.
+`evaluation[]`. On multi-file tasks the judge carries most of the
+weight **by default** (≈0.7–0.9): guards only grade "the workspace is
+still green", the rubric grades the work — how far the attempt got and
+how well what landed is built. Give a guard more than token weight
+only when it genuinely discriminates (e.g. a guard-observed bugfix
+seed, where the repo's suite going green IS the fix). Weights sum
+to 1.
 
 ### 6. Self-check
 
@@ -323,10 +341,12 @@ The order is deliberately cheap→expensive: reading before `validate`,
 run is last, because only it requires everything at once. In order,
 each must pass before you move on:
 
-1. **Robustness review of the hidden tests** (a reading step, free):
-   re-check every hidden test against the robustness rules of step 4 —
-   no dependency on agent-chosen names/paths, environment canary
-   present, dependencies self-installed. Record the checklist result
+1. **Shape-neutrality review of the assertions** (a reading step,
+   free): re-read every scripted assertion the task uses against the
+   shape-neutrality rule of step 4 — repo-native commands only; a
+   scan of the assertion scripts for path/symbol literals, grep
+   discovery, or copied-in test files must come back empty (paths the
+   prompt fixes verbatim are the only exception). Record the result
    in the report.
 2. `bench validate --assert` — green (`reference` declarations match
    the starting state). The gate covers the whole instance — if the
@@ -334,10 +354,12 @@ each must pass before you move on:
    builds it may be another subagent's unfinished work), note it in
    the report in one sentence and do not "fix" other people's files to
    get green.
-3. An empty diff **must not** score at or above the passing threshold:
-   the starting state has a red work measure (point 2) and — if there
-   is a judge component —
-   `bench judge --task <name> --patch <empty.diff>` yields a low score.
+3. An empty diff **must not** score at or above the passing threshold.
+   With guards green on the starting state this rests on the judge:
+   `bench judge --task <name> --patch <empty.diff>` yields a low
+   score (the calibrated floor is re-proven later by bench-rubric's
+   empty-diff probe). For a bugfix task on the guard-observed route,
+   the red guard from step 2 is additional evidence.
 4. A trial `bench run --smoke --tasks <name> --models <cheap-model>` +
    `bench evaluate` (the instance budget guards costs — rule 6) —
    **provided the session has provider API keys**. The smoke run is
@@ -373,7 +395,7 @@ Your output is read by the bench-build orchestrator. Return a report
 per [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — task name, full list of
 created/changed files, what the task measures, evidence from the
 starting state (command results from steps 2/4/6 — per point: command →
-result), the robustness checklist for hidden tests, the criteria digest
+result), the shape-neutrality checklist, the criteria digest
 for bench-rubric (step 4), assertions and weights, comparability impact
 (rule 7), actual cost (trial run, judge calls). In addition:
 

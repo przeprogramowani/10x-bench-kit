@@ -63,7 +63,12 @@ two exceptions you always ask about:
   no reference implementation, so the rubric and its synthetic
   calibration set are derived from these criteria — the more concrete
   the do's/don'ts (and, for large tasks, the milestone/phase map for
-  partial credit), the better the task grades.
+  partial credit), the better the task grades. Phrase the axes as
+  **behaviour** — what a good implementation does and what a bad one
+  does — never as expected file names or symbols: scripted assertions
+  are repo-native execution guards only (the repo's own lint / build /
+  suite), and everything about the implementation's shape is graded by
+  the judge as a code review, without nitpicking.
   If the user has no opinion, propose an axis derived from the task
   type and get acceptance; record a missing axis explicitly as "at
   bench-build's discretion".
