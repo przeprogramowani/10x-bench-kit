@@ -13,6 +13,9 @@
  *    execution.json (status/timeout).
  * 3. Artefakty per próba w <out>/<zadanie>/<model>/trial-<n>/; runner
  *    dokłada trial.json (metadane próby). Ocena to `bench evaluate`.
+ *    Zadania wskazane w artifacts.workspace (bench.config.yaml) dostają
+ *    dodatkowo workspace.tar.gz — stan workspace'u po pracy agenta,
+ *    do ręcznego odtworzenia i uruchomienia poza benchmarkiem.
  *
  * Sekrety modeli przechodzą do kontenera wyłącznie przez env
  * (*_API_KEY oraz OPENCODE_*), nigdy nie są zapiekane w obraz.
@@ -252,6 +255,12 @@ export async function runCommand(args: string[]): Promise<number> {
       // nadpisanie per zadanie; wartość idzie do trial.json i stempli ery.
       const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
       const limitArgs = resourceLimitArgs(memoryMb, config.resources.pids_limit ?? null);
+      // Archiwum workspace'u per zadanie (artifacts.workspace w configu):
+      // trial.sh pakuje /workspace po pracy agenta do workspace.tar.gz
+      // w /bench/out — artefakt do ręcznego odtworzenia i uruchomienia.
+      const archive = config.artifacts.workspace[name] ?? null;
+      const archiveArgs = archive ? ["-e", "BENCH_ARCHIVE_WORKSPACE=1", "-e", `BENCH_ARCHIVE_EXCLUDE=${archive.exclude.join(",")}`] : [];
+      if (archive) console.log(`archive: ${name} → workspace.tar.gz per próba (pomijane: ${archive.exclude.join(", ") || "nic"})`);
       for (const model of models) {
         for (const trial of trialNumbers) {
           const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
@@ -274,7 +283,7 @@ export async function runCommand(args: string[]): Promise<number> {
             console.log(`trial:  ${label} …`);
             const result = sh(
               engine,
-              ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
+              ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, ...archiveArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
               { timeout: (task.timeout_s + 300) * 1000 },
             );
 

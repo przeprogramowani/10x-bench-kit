@@ -52,3 +52,20 @@ resources:
   # Lokalnie maszyna silnika potrzebuje >= limitu + zapas (podman machine
   # set -m 8192); `bench doctor` porównuje jedno z drugim.
   memory_mb: 6144
+
+# Artefakty dodatkowe prób (obserwowalność, nie scoring).
+# artifacts.workspace: dla wskazanych zadań każda próba zostawia
+# workspace.tar.gz — stan workspace'u po pracy agenta (także po
+# timeoucie) — obok patch.diff w <out>/<zadanie>/<model>/trial-<n>/.
+# W CI archiwum ląduje w artefakcie `results-<slug>` joba próby;
+# pobierz, rozpakuj, doinstaluj zależności (`npm install` itp.),
+# skonfiguruj (.env) i uruchom ręcznie.
+# Klucz mapy to nazwa zadania z tasks/; wpis bez wartości = defaults
+# (pomijane: node_modules). Ustawienie ŚWIADOMIE żyje tu, nie
+# w task.yaml — nie jest częścią definicji pomiaru, więc
+# włączanie/wyłączanie nie zmienia task_hash i nie zamyka ery.
+# artifacts:
+#   workspace:
+#     demo-hello-bench:
+#     ciezkie-zadanie:
+#       exclude: [node_modules, dist, .next]

@@ -29,6 +29,20 @@ wall_s=$((end_epoch - start_epoch))
 git add -A
 git diff --cached --binary "$(cat /bench/start-sha)" >"$out/patch.diff"
 
+# Archiwum workspace'u (obserwowalność, nie scoring): włączane per zadanie
+# przez artifacts.workspace w bench.config.yaml (runner podaje env).
+# Stan /workspace po pracy agenta — także po timeoucie — do pobrania,
+# rozpakowania i ręcznego uruchomienia poza benchmarkiem.
+if [ "${BENCH_ARCHIVE_WORKSPACE:-0}" = "1" ]; then
+  tar_args=()
+  IFS=',' read -r -a excludes <<<"${BENCH_ARCHIVE_EXCLUDE:-}"
+  for pattern in ${excludes[@]:+"${excludes[@]}"}; do
+    [ -n "$pattern" ] && tar_args+=("--exclude=./$pattern")
+  done
+  tar -czf "$out/workspace.tar.gz" -C /workspace ${tar_args[@]:+"${tar_args[@]}"} . ||
+    echo "bench: archiwizacja workspace nie powiodła się (exit $?)" >>"$out/agent.log"
+fi
+
 # Metryki ze storage OpenCode (świeży XDG_DATA_HOME tej próby).
 node --experimental-sqlite /bench/metrics-adapter.mjs \
   "$XDG_DATA_HOME" "$out/metrics.json" "$wall_s"

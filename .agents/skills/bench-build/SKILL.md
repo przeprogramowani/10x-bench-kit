@@ -212,11 +212,24 @@ the entry to `done` or restore `pending` with a note on
 refusal/failure. Do not fix a subagent's work yourself — a failed order
 goes back into the queue with a diagnosis, not with your patch.
 
+**Workspace archive is applied by you, not the subagent.** When an
+order with `Workspace archive: yes` reaches `done`, add its entry to
+`artifacts.workspace` in `bench.config.yaml` (with the `exclude` from
+the order, if any) — a single writer, because the config is shared and
+parallel subagents must not edit it (rule 5); subagents do not need to
+know about archiving at all. Only for `done` orders — an entry for a
+refused task would trip the `bench validate` warning about a
+nonexistent task. Observability, not scoring: the section lives
+outside `task_hash`, so this edit does not close any era. A
+working-tree edit like every other (rule 3).
+
 ### 5. Next step
 
 End your summary response with a **Next step** section: batch status
 (how many tasks are ready in the working tree — with file lists and
-per-task reports, how many orders went back to `pending`, total costs),
+per-task reports, which tasks got an `artifacts.workspace` entry in
+`bench.config.yaml`, how many orders went back to `pending`, total
+costs),
 **one** recommendation with a one-sentence justification, at most two
 alternatives with a price, and — separately — what awaits a human
 decision. The fate of the built files — commit, PR, review, rejection —

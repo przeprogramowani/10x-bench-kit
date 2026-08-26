@@ -6,6 +6,35 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.18.0 — 2026-08-26 (neutralny)
+
+**Archiwum workspace'u próby — `artifacts.workspace` w
+`bench.config.yaml`** — dla wskazanych zadań każda próba zostawia
+`workspace.tar.gz` (stan `/workspace` po pracy agenta, także po
+timeoucie) obok `patch.diff` w katalogu próby; w CI archiwum jedzie
+w istniejącym artefakcie `results-<slug>` joba próby. Cel:
+obserwowalność — pobrać kod, który wyprodukował model, doinstalować
+zależności, skonfigurować i uruchomić ręcznie, bez rekonstruowania
+workspace'u z obrazu zadania i patch.diff.
+
+Konfiguracja to mapa zadanie → opcje (`exclude`, default pomija
+`node_modules`); wpis bez wartości = defaults. Ustawienie świadomie
+żyje w `bench.config.yaml`, nie w `task.yaml`: nie jest częścią
+definicji pomiaru, więc włączanie/wyłączanie nie zmienia `task_hash`
+i nie zamyka ery porównywalności. Schemat configu rozszerzony
+addytywnie (sekcja opcjonalna z defaults) — istniejące instancje
+parsują się bez zmian; `bench validate` ostrzega o wpisach
+wskazujących nieistniejące zadania. Zmiana `trial.sh` zmienia hash
+obrazu bazowego w CI (jednorazowy rebuild + push do GHCR).
+
+Decyzja o archiwum wchodzi też w cykl skilli: **bench-new-task** pyta
+o nią w wywiadzie (pole opcjonalne z proponowanym defaultem — „tak"
+dla zadań wartych ręcznego uruchomienia, „nie" gdy patch.diff mówi
+wszystko; nowe pole `Workspace archive` w szablonie backlogu),
+a **bench-build** — wyłącznie orkiestrator, nigdy subagenci (wspólny
+plik a równoległość) — dopisuje wpis do `artifacts.workspace` po
+przejściu zlecenia w `done` i raportuje to w sekcji „Next step".
+
 ## 0.17.1 — 2026-08-20 (neutralny)
 
 Zmiana wyłącznie w skillu autorskim — bez wpływu na scoring, schematy

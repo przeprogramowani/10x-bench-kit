@@ -31,6 +31,10 @@ Skills only edit this file — git is managed by the user.
 - **Base repo**: <name from base_repos in bench.config.yaml>
 - **Guidance level**: <product-level / directional / surgical>
 - **Difficulty / timeout**: <easy|medium|hard> / <timeout_s> s
+- **Workspace archive**: <yes (optionally: exclude: dist, .next) / no —
+  whether trials should keep workspace.tar.gz for manual launch;
+  bench-build applies it to `artifacts.workspace` in bench.config.yaml
+  after the task is built (observability, not scoring)>
 - **Evaluation axis**: <what differentiates scores in this task — the
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
   API must not change"); bench-build calibrates the rubric and variants

@@ -87,6 +87,16 @@ Remaining fields (ask only when the description does not settle them):
 - **Difficulty and `timeout_s`** (typically 300–900 s; consistent with
   the guidance level — a too-short timeout measures speed, not
   quality).
+- **Workspace archive** — should each trial keep a `workspace.tar.gz`
+  (the agent's full post-run workspace, for downloading and launching
+  by hand)? Observability only — it does not change what the task
+  measures (bench-build records it in `bench.config.yaml`
+  `artifacts.workspace`, outside `task_hash`). Propose a default in
+  the question block: **yes** when the output is worth running
+  manually (UI features, e2e-flavored work), **no** when `patch.diff`
+  tells the whole story (pure refactors, docs). With "yes", note any
+  extra `exclude` patterns for heavy build dirs (default skips
+  `node_modules`).
 - **Task name**: kebab-case, saying what is to be done
   (e.g. `fix-cart-total-rounding`), not how (`edit-cart-ts`).
 

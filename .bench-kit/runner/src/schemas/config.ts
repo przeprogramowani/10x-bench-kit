@@ -82,6 +82,37 @@ export const BenchConfigSchema = z.object({
       pids_limit: z.number().int().positive().optional(),
     })
     .default({}),
+  /**
+   * Artefakty dodatkowe prób (obserwowalność, nie scoring).
+   * workspace: mapa zadanie → konfiguracja archiwum workspace'u — dla
+   * wskazanych zadań próba zostawia workspace.tar.gz (stan /workspace
+   * po pracy agenta) obok patch.diff, do ręcznego odtworzenia
+   * i uruchomienia poza benchmarkiem. Ustawienie ŚWIADOMIE żyje tu,
+   * nie w task.yaml: nie jest częścią definicji pomiaru, więc
+   * włączanie/wyłączanie nie zmienia task_hash i nie zamyka ery
+   * porównywalności.
+   */
+  artifacts: z
+    .object({
+      workspace: z
+        .record(
+          z.string(),
+          // Wpis `nazwa-zadania:` bez wartości (null w YAML) = defaults.
+          z.preprocess(
+            (v) => v ?? {},
+            z.object({
+              /**
+               * Katalogi/pliki pomijane w archiwum (względem /workspace).
+               * Default pomija node_modules — odtwarzalne z lockfile'a,
+               * a ich brak trzyma archiwum w limitach artefaktów CI.
+               */
+              exclude: z.array(z.string().min(1)).default(["node_modules"]),
+            }),
+          ),
+        )
+        .default({}),
+    })
+    .default({ workspace: {} }),
 });
 
 export type BenchConfig = z.infer<typeof BenchConfigSchema>;
