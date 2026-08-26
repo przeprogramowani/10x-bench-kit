@@ -5,8 +5,8 @@ description: >-
   evaluation axes) and calibrates it on a synthetic calibration set —
   diffs of designed quality fabricated per CALIBRATION_SET.md, plus
   real attempt diffs as runs accrue. Measures the judge's resolution
-  and stability, iterates on the criteria, and finalizes with a PR
-  that bumps the rubric version. Use when creating a rubric for a new
+  and stability, iterates on the criteria, and finalizes with a
+  rubric version bump. Use when creating a rubric for a new
   task, when judge scores look random or drift, or when the user says
   "calibrate the rubric / the judge".
 ---
@@ -36,32 +36,29 @@ For a single ad-hoc verdict (e.g. comparing judges) there is
 
 ## Hard rules
 
-1. **Output via PR.** A rubric change or version bump never goes
-   straight to the instance's master — branch + PR with calibration
-   results in the description (proof, not claims).
-2. **A rubric change = a new era for the tasks that use it.** The
+1. **A rubric change = a new era for the tasks that use it.** The
    version is declared in the rubric's frontmatter (`version`); the era
    stamp is per rubric, so a bump invalidates comparability only for
-   tasks with that rubric in their `evaluation[]` — the PR lists them
-   explicitly. Calibrating a freshly created rubric before its first
+   tasks with that rubric in their `evaluation[]` — list them
+   explicitly in your summary. Calibrating a freshly created rubric before its first
    use does not close an era — which is why you calibrate right after
    building the task with bench-build, before its first run, not after
    results have been computed.
    (The global `judge.rubric_version` in the config is a legacy
    contract for rubrics without frontmatter — migrate them at their
    first calibration.)
-3. **The calibration set is evaluation material.** It lives in
+2. **The calibration set is evaluation material.** It lives in
    `evaluation-pool/judge/<task>-calibration/`, never in `tasks/`
    (it would leak into the agent's workspace). Successive rubric
    iterations are measured on THE SAME set — otherwise you are
    comparing rubrics on different data.
-4. **Budget instead of a consent ritual.** Calibration means dozens of
+3. **Budget instead of a consent ritual.** Calibration means dozens of
    judge calls, but costs are guarded by the instance budget, not by
    negotiating estimates — report the actual cost after measuring
    (`bench calibrate` prints it from the judge's usage). User consent
    is only needed for a measurement clearly larger than usual (e.g.
    comparing several judges on a large set).
-5. **The response format is a contract.** New rubrics declare criterion
+4. **The response format is a contract.** New rubrics declare criterion
    weights in YAML frontmatter (`weights:`, sum = 1) — the runner
    computes the total from `criteria[*].score`, so the ```json block
    contains only `criteria` with keys matching the weights
@@ -247,15 +244,15 @@ round covers the full set. Stop when ranking + separation + stability
 are achieved; do not keep tuning (overfitting the rubric to the set is
 also a failure).
 
-### 4. PR
+### 4. Finalize
 
 - the new/changed rubric in `evaluation-pool/judge/`,
 - the calibration set + `expected.md` + raw measurement results
   (`results.json` with `bench calibrate` rounds) in
   `…/<task>-calibration/`,
 - a `version` bump in the rubric's frontmatter **only if** the changed
-  rubric has already been used in computed results (rule 2),
-- in the PR description: the medians table from step 2, conclusions,
+  rubric has already been used in computed results (rule 1),
+- in your summary: the medians table from step 2, conclusions,
   calibration cost.
 
 ### 5. Next step
@@ -264,5 +261,5 @@ End your summary response with a **Next step** section: the instance
 state in one sentence, **one** recommendation with a one-sentence
 justification, at most two alternatives with their cost, and —
 separately — whatever awaits a human decision. Typical transition:
-rubric calibrated, PR updated → **merge + a full run on 2+ models** —
+rubric calibrated → **a full run on 2+ models** —
 calibration predicts the results, the run verifies them.

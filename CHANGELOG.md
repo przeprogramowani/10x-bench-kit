@@ -6,6 +6,17 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.21.1 — 2026-08-26 (neutralny)
+
+- **bench-rubric bez rytuału PR** (bench-rubric/SKILL.md). Usunięta
+  twarda reguła "Output via PR" — kalibracja rubryki to normalna praca
+  na working tree instancji, nie zmiana wymagająca gałęzi i PR. Sekcja
+  "PR" procedury przemianowana na "Finalize": te same artefakty
+  (rubryka, zestaw kalibracyjny, bump `version` w frontmatterze), ale
+  tabela median, wnioski i koszt kalibracji trafiają do podsumowania
+  zamiast do opisu PR. Reguła er (lista zadań z rubryką w
+  `evaluation[]`) też raportowana w podsumowaniu.
+
 ## 0.21.0 — 2026-08-26 (neutralny)
 
 **Wnioski z pierwszej instancji z zadaniem plan-execution
