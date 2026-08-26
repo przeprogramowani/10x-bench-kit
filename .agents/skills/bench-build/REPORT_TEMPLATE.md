@@ -7,6 +7,17 @@ commit message or PR description from, once they decide what happens
 next. The sections below are mandatory — paste command outputs, not
 declarations.
 
+**The report is a file, not a message.** Write it to
+`reports/<task-name>-build.md` at the instance root (create `reports/`
+if absent) — deliberately **outside** `tasks/<name>/`, so it never
+enters `task_hash` and never leaks into an agent's workspace, and
+outside `evaluation-pool/`, because it is a change description, not
+evaluation material. A report that exists only in a chat message
+evaporates at handoff and leaves the `reference` declarations in
+task.yaml as exactly the kind of unverifiable claim this benchmark
+forbids. The subagent's final message to the orchestrator is a pointer
+to the file plus problems encountered — never the report's only copy.
+
 ```markdown
 # <task-name>
 
@@ -21,7 +32,10 @@ those when handing off the work>
 <type: implementation / bugfix / refactor / documentation; one intent.
 Base repo, pin (SHA + why this commit), prompt guidance level
 (product-level / directional / surgical — the user's decision from the
-backlog order), timeout and its justification.>
+backlog order), timeout and its justification. Human-in-the-loop scan
+(step 3 of TASK_AUTHORING): which documents the prompt points the agent
+at were scanned for instructions presupposing an interactive human, and
+what the prompt overrides — or "none found".>
 
 ## Evidence from the starting state
 
@@ -54,7 +68,11 @@ like and what a bad one looks like, in behavioural terms (never exact
 paths/symbols unless the prompt fixes them verbatim), plus the
 concrete signals in this repo that distinguish compliance from
 violation; milestone map for partial credit if the order defines
-phases. bench-rubric builds the rubric and its synthetic calibration
+phases. For phased orders, also name which property axes only become
+observable in a later phase — bench-rubric needs this to price
+incompletion once (in the completion criterion), not again in every
+property criterion an unfinished attempt cannot reach.
+bench-rubric builds the rubric and its synthetic calibration
 set from this.>
 
 ## Assertions and weights
@@ -76,4 +94,17 @@ results stop being comparable.>
 
 <cost of the trial run / judge calls (model, $), or "none — no models
 were run".>
+
+## Full-run cost projection
+
+<rough cost of one full matrix for this task: defaults.trials ×
+defaults.models × expected trial cost (anchor it on the task's scale
+and timeout; the smoke run's actual cost, when available, is the best
+anchor), compared against defaults.max_cost_usd — remember the budget
+covers the whole run, so a batch shares it across all its tasks. If the
+projection does not fit: say so explicitly and recommend the mitigation
+(single-model smoke dispatch first, or a budget raise — which stays a
+human decision). A truncated matrix wastes the spend and produces a
+partial, misleading leaderboard; this section is what lets the user see
+that before dispatching.>
 ```

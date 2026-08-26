@@ -18,7 +18,7 @@ Kolejność odpowiada cyklowi życia instancji:
 |---|---|---|---|
 | 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszego runu w CI: braki po init, sekrety, dispatch `bench-run` | raz, przy powstaniu instancji (i przy zmianach wiringu) |
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
-| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na stanie startowym (bez implementacji referencyjnej — oczekiwania wobec przyszłych prób wyraża rubryka i asercje); gotowe pliki + raport w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
+| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na stanie startowym (bez implementacji referencyjnej — oczekiwania wobec przyszłych prób wyraża rubryka i asercje); gotowe pliki + raport-plik `reports/<zadanie>-build.md` w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Rubryka LLM-as-judge z kryteriów oceny zadania (osie ze zlecenia) + kalibracja na syntetycznym zbiorze o zaprojektowanej jakości i diffach z realnych runów | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
 | 5 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
 | 6 | **bench-explain-results** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
@@ -28,7 +28,9 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Zmiany scoringu z dowodem i śladem** — rubryki i
   `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania buduje
   bench-build jako pliki w drzewie roboczym z dowodami ze stanu
-  startowego w raporcie (REPORT_TEMPLATE.md skilla) — **do gita wnosi
+  startowego w raporcie-pliku `reports/<zadanie>-build.md`
+  (REPORT_TEMPLATE.md skilla; raport wyłącznie w wiadomości czatu =
+  raport nieistniejący) — **do gita wnosi
   je użytkownik**, skille nie commitują i nie pushują niczego.
 - **Udowodnij na stanie startowym, zanim zaproponujesz** — asercja czy
   overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR).

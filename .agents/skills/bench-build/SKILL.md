@@ -36,7 +36,8 @@ do not invent tasks yourself.
 3. **Zero git — files and reports, nothing more.** Neither you nor the
    subagents commit, branch, or push. The output of a batch is finished
    `tasks/<name>/` directories (+ new assertions in the pool) in the
-   working tree, plus a per-task report per
+   working tree, plus a per-task report **file** at
+   `reports/<task-name>-build.md` per
    [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) with evidence from the
    starting state — what happens next (commit, PR, review, rejection) is
    solely the user's decision. Keep tasks from one batch separate:
@@ -191,9 +192,11 @@ launch a subagent via your tool's mechanism, and pass in its prompt:
   immediately after each step — this file is how you and the user watch
   work in progress, so it must be written as it happens, not
   backfilled just before the report;
-- the final report format: REPORT_TEMPLATE.md (file list, evidence from
-  the starting state, shape-neutrality checklist, criteria digest,
-  cost) + problems.
+- the final report format: REPORT_TEMPLATE.md, written as a **file** to
+  `reports/<task-name>-build.md` (file list, evidence from the starting
+  state, shape-neutrality checklist, criteria digest, cost, full-run
+  cost projection) — the subagent's closing message is a pointer to that
+  file + problems, never the report's only copy.
 
 **Match the subagent's power to the order's profile** (the Type field
 of the entry): launch documentation/conceptual tasks with reduced
@@ -223,7 +226,17 @@ enter `task_hash`).
 After each subagent: (in the default mode its files are already in the
 instance tree; only with isolated copies move them — rule 5), update
 the entry to `done` or restore `pending` with a note on
-refusal/failure. Do not fix a subagent's work yourself — a failed order
+refusal/failure. **The `done` gate includes the report file**: before
+switching an entry to `done`, confirm that
+`reports/<task-name>-build.md` exists in the working tree and that its
+evidence sections carry **pasted command output** — in particular a
+`bench assert` result backing every `reference` declaration in
+task.yaml, and `bench validate --assert`. A report that arrived only in
+the subagent's message, or whose evidence sections are declarations
+without output, is a missing report: send the subagent back to persist
+it (or restore `pending` with that note) — "runner output confirms
+states, not declarations" applies to the build itself, not just to
+runs. Do not fix a subagent's work yourself — a failed order
 goes back into the queue with a diagnosis, not with your patch.
 
 **Workspace archive is applied by you, not the subagent.** When an
@@ -265,4 +278,10 @@ it. Typical transitions:
   probe** (there is no reference implementation): an assertion that no
   smoke attempt greens is suspect-harness — flag it for diagnosis
   instead of letting it count against models.
+- **A report's full-run cost projection exceeds `max_cost_usd`** →
+  surface it here, before anything is dispatched: the recommendation is
+  a single-model dispatch (or the smoke gate alone) first, with the
+  budget raise listed under "awaits a human decision" — a full matrix
+  that truncates mid-run wastes the spend and yields a partial,
+  misleading leaderboard.
 - **Tasks ready and accepted by the user** → full run.

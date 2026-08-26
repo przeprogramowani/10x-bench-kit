@@ -6,6 +6,62 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.21.0 — 2026-08-26 (neutralny)
+
+**Wnioski z pierwszej instancji z zadaniem plan-execution
+(bench-platforma-edu): raport buduje się jako plik, rubryka wycenia
+niekompletność raz, prompt neutralizuje instrukcje human-in-the-loop.**
+Przegląd end-state realnej budowy zadania pokazał, że procedury
+działały — z jednym rozjazdem procesowym (raport dowodowy nie
+przetrwał handoffu) i dwoma lukami projektowymi. Pięć zmian:
+
+- **Raport bench-build to plik, nie wiadomość** (bench-build/SKILL.md,
+  TASK_AUTHORING.md, REPORT_TEMPLATE.md, AGENTS.md). Kanoniczna
+  ścieżka: `reports/<zadanie>-build.md` w rocie instancji — celowo poza
+  `tasks/<name>/` (nie wchodzi do `task_hash`, nie wycieka do workspace
+  agenta) i poza `evaluation-pool/`. Krok 8 TASK_AUTHORING kazał raport
+  "zwrócić" orkiestratorowi — więc lądował w czacie i wyparowywał,
+  zostawiając deklaracje `reference:` w task.yaml bez śladu dowodowego.
+  Bramka `done` u orkiestratora: wpis backlogu przechodzi na `done`
+  dopiero, gdy plik raportu istnieje, a sekcje dowodowe niosą wklejone
+  wyjścia komend (`bench assert` za każdą deklaracją `reference`,
+  `bench validate --assert`) — nie deklaracje.
+- **Wycena niekompletności raz — zakaz "completion bleed"**
+  (bench-rubric/SKILL.md, REPORT_TEMPLATE.md). Kryterium-własność,
+  które daje 0.0, gdy faza z danym zachowaniem w ogóle nie powstała,
+  jest ukrytym drugim kryterium kompletności: kompletność steruje wtedy
+  własną wagą plus każdą taką osią, a rubryka traci rozdzielczość
+  dokładnie wśród prób częściowych, które ma rangować. Runner liczy
+  total mechanicznie (brak mechanizmu N/A), więc reguła jest
+  projektowa: kotwice własności oceniają fragment zachowania, który
+  powstał, a własność bez prekursora we wcześniejszych fazach wchodzi
+  w kotwice kompletności zamiast dostawać osobne kryterium. Zestaw
+  kalibracyjny zadań fazowych dostaje obowiązkową parę "wczesne fazy
+  zrobione dobrze, późniejsza nieobecna" vs "ta sama kompletność,
+  niechlujnie" — brak separacji = symptom bleedu, naprawiany
+  re-kotwiczeniem, nie korektą oczekiwań. Digest kryteriów w raporcie
+  bench-build nazywa osie obserwowalne dopiero w późniejszych fazach.
+- **Skan human-in-the-loop w materiałach zadania** (TASK_AUTHORING.md
+  krok 3, REPORT_TEMPLATE.md). Plany pisane dla ludzi rutynowo
+  zawierają "pause for manual confirmation" / "zapytaj przed" — agent,
+  który posłucha, staje po pierwszej fazie, a stall czyta się jako
+  porażkę modelu, będąc porażką harnessu. Prompt jawnie nadpisuje każdą
+  taką instrukcję z dokumentów, na które wskazuje; wynik skanu
+  (per dokument) trafia do raportu.
+- **Projekcja kosztu pełnego runu w raporcie** (REPORT_TEMPLATE.md,
+  bench-build/SKILL.md "Next step"). Szacunek trials × models × koszt
+  próby vs `defaults.max_cost_usd` (budżet jest współdzielony przez
+  cały run); gdy się nie mieści — rekomendacja dispatchu
+  jednomodelowego / samej bramki smoke, podniesienie budżetu osobno
+  jako decyzja człowieka. Macierz ucięta w połowie marnuje wydatek
+  i daje częściowy, mylący leaderboard.
+- **Higiena komentarzy współdzielonych asercji** (TASK_AUTHORING.md
+  krok 4). Nagłówek asercji opisuje, co guard sprawdza i czemu jest
+  neutralny kształtem — nigdy, które zadania go konsumują (konsumenci
+  są odkrywalni z `evaluation[]` w task.yaml; atrybucja starzeje się
+  przy pierwszym reuse). Zastana atrybucja przy reuse = dług zgłaszany
+  w raporcie.
+
 ## 0.20.1 — 2026-08-26 (neutralny)
 
 **Skille: `bench` to internals benchmarku, nie komenda użytkownika.**

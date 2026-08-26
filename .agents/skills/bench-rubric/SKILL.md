@@ -86,6 +86,24 @@ axis and bench-build's criteria digest: each axis becomes a criterion
 scale, safety-flavoured axes ("a single leak is a hard fail") become
 dominating clauses, not deductions.
 
+**Price incompletion once (phased tasks).** On a task where most
+attempts will land partial, a property criterion that scores 0.0
+whenever the phase containing the behaviour was never reached is a
+hidden second completion criterion: completion then controls its own
+weight *plus* every such axis, and the rubric loses resolution exactly
+among the partial attempts it exists to rank (two attempts that both
+finished the early phases — one carefully, one sloppily — become
+indistinguishable on those axes). The runner computes the total
+mechanically from `criteria[*].score` × frontmatter weights, so there
+is no N/A mechanism — design around it instead: anchor property
+criteria so they grade **whatever fragment of the behaviour landed**
+(most properties have precursors in earlier phases — how secrets are
+handled wherever they exist so far, how text enters the DOM wherever it
+does); where a property genuinely has no precursor before its phase,
+fold it into that phase's completion anchors rather than giving it a
+standalone criterion whose only reachable score for an honest partial
+attempt is 0.0.
+
 Three contracts every rubric must honour:
 
 - **Good/bad in behavioural language.** Criteria and anchors describe
@@ -120,6 +138,14 @@ expected score range, fabricated per
 | complete and good | full scope sketched, following the axes | high (≈1) |
 | real diffs from runs | `patch.diff` from trial artifacts, once runs exist | per your manual assessment |
 
+**Phased tasks add a mandatory pair**: *early phases done well, later
+phase absent* vs *the same completion, done sloppily* (breaking
+non-dominating do's within the finished phases). Calibration fails if
+these two do not separate — overlap here is the completion-bleed
+symptom (see step 1): the property criteria are pricing the missing
+phase again instead of grading the work that exists, and the fix is
+re-anchoring those criteria, not adjusting expectations.
+
 Synthetic diffs are **judge-only material**: the judge reads the diff
 as text and never applies or builds it, so a synthetic diff does not
 have to apply or compile — but it must be **realistic**: real paths and
@@ -138,6 +164,10 @@ Entry checklist, **before the first measurement**:
 - [ ] The three contracts hold: behavioural anchors (no paths/symbols
       the prompt does not fix), the anti-nitpicking clause present
       verbatim, no criterion that requires executing the code.
+- [ ] Phased task → incompletion is priced once: every property
+      criterion is scoreable by an honest partial attempt (grades the
+      fragment that exists), and the calibration set contains the
+      mandatory pair from the roster.
 - [ ] Every synthetic diff passes the realism rules of
       CALIBRATION_SET.md (real paths/symbols at the pin, plausible
       hunks, proportional size) — verified against the repo, not from
@@ -202,6 +232,13 @@ that recur regardless of domain and that are fixed by reading alone
    change beyond what was needed" is a counting anchor; the judge will
    apply it literally and punish three harmless nits more harshly than
    one risky rewrite. Anchors should describe **impact**, not counts.
+3. **Completion bleed on phased tasks.** A property criterion whose
+   anchors bottom out at 0.0 when a later phase simply does not exist
+   re-prices incompletion outside the completion criterion (see the
+   "price incompletion once" rule in step 1). Check each property
+   criterion: can an honest attempt that finished only the early phases
+   score on it at all? If not, re-anchor it to grade the fragment that
+   exists, or fold it into the completion anchors.
 
 After changing the rubric, measure the **whole set** (otherwise you are
 comparing rubrics on different data) — but a diagnostic round may be

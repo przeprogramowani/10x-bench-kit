@@ -31,7 +31,8 @@ task built on guesses.
 
 1. **Zero git.** You do not commit, branch, push, or stage — no `git`
    commands against the instance repo. The output of your work is
-   **files in the working tree** + a report per
+   **files in the working tree** + a report **file** at
+   `reports/<task-name>-build.md` per
    [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) with evidence from the
    reference; what happens to them next (commit, PR, review) is the
    user's decision. Rubrics and `bench.config.yaml` are NOT your scope
@@ -232,6 +233,18 @@ leaks from evaluation materials (rule 2). The prompt is the agent's
 **only** input — everything you do not write, the agent must infer from
 the code.
 
+**Neutralize human-in-the-loop instructions in the task's materials.**
+Scan every document the prompt points the agent at — in-repo specs and
+plans, overlay files — for instructions that presuppose an interactive
+human: "pause for manual confirmation", "ask before proceeding", "wait
+for review", staged sign-offs. A trial has nobody to answer, so an
+agent that obeys such an instruction stalls — and the stall is then
+misread as a model failure when it is a harness failure. Override each
+one explicitly in the prompt ("that instruction does not apply here:
+there is no human in the loop — decide and proceed") or justify in the
+report why none exist. This is a per-document scan, not a guess: plans
+written for humans routinely contain these.
+
 Add to the prompt's boundaries an **expectation about verification** —
 consistent with the policy set in the instance's wiring: whether the
 agent should verify its work by running the project/tests, or should
@@ -290,7 +303,13 @@ decision does not fit, build your own under your prefix and **report
 the divergence** — do not merge or edit other people's assertions.
 Create new ones **in the pool**
 (`evaluation-pool/<type>/<name>/check.yaml`), never in the task
-directory.
+directory. In a shared assertion's header comment, describe **what it
+guards and why it is shape-neutral — never which tasks consume it**:
+consumers are discoverable from `evaluation[]` in the task.yaml files,
+and attribution comments go stale the moment the next task reuses the
+guard or the named task is deleted. When reusing an assertion that
+carries such an attribution, flag it in your report as debt (you do not
+edit other people's assertions yourself).
 
 Entering the evaluation container rebuilds the environment from
 scratch and costs minutes — prototype the guard outside the container,
@@ -384,7 +403,8 @@ each must pass before you move on:
 ### 7. Handoff
 
 Leave the complete set of files in the working tree: the task directory
-+ any new assertions in the pool. Nothing in git (rule 1) — the
++ any new assertions in the pool + the report file
+`reports/<task-name>-build.md` (step 8). Nothing in git (rule 1) — the
 commit/PR is the user's decision. Working proof material (a bug-inverse
 probe diff, an empty diff) is not part of the task: paste what matters
 into the report and delete the files — nothing evaluation-flavoured may
@@ -395,13 +415,20 @@ would enter `task_hash`.
 
 ### 8. Final report
 
-Your output is read by the bench-build orchestrator. Return a report
-per [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — task name, full list of
-created/changed files, what the task measures, evidence from the
+**Write the report to `reports/<task-name>-build.md`** per
+[REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — task name, full list of
+created/changed files, what the task measures (including the
+human-in-the-loop scan from step 3), evidence from the
 starting state (command results from steps 2/4/6 — per point: command →
-result), the shape-neutrality checklist, the criteria digest
+result, pasted output — every `reference` declaration in task.yaml must
+be backed by a pasted `bench assert` result here), the
+shape-neutrality checklist, the criteria digest
 for bench-rubric (step 4), assertions and weights, comparability impact
-(rule 7), actual cost (trial run, judge calls). In addition:
+(rule 7), actual cost (trial run, judge calls) and the full-run cost
+projection against `defaults.max_cost_usd`. Your final message to the
+orchestrator is a **pointer to the report file** plus problems — the
+file is the deliverable; a report that exists only in your message is a
+missing report. In addition:
 
 - a **refusal** + reason instead of a report, when the order turned out
   to be infeasible (see the header);
