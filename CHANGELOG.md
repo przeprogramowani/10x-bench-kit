@@ -6,6 +6,25 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.19.1 — 2026-08-26 (neutralny)
+
+**Niezawodny release: skrypt + bramka CI na spójność wersji.** Przy
+0.19.0 tag i CHANGELOG poszły bez bumpu `.bench-kit/VERSION` — a to
+z tego pliku (nie z tagów) CLI czyta wersję template'u, więc
+`bench-kit update` odpowiadał "Already on template 0.18.0" i tag
+trzeba było przesuwać siłą. Poprawki:
+
+- **`.github/scripts/release.mjs <wersja> "<opis>"`** — jedyna
+  wspierana ścieżka wydania: waliduje (semver, najnowszy wpis
+  CHANGELOG == wersja, tag nie istnieje, gałąź master), bumpuje
+  `.bench-kit/VERSION`, commituje, taguje i pushuje atomowo. Żyje
+  w `.github/` — instancje go nie dostają.
+- **CI (job check)**: bramka `.bench-kit/VERSION == najnowszy wpis
+  CHANGELOG` na każdym pushu i PR — łapie dokładnie klasę rozjazdu
+  z 0.19.0.
+- **AGENTS.md**: reguła release'u wymienia bump `.bench-kit/VERSION`
+  wprost i każe wydawać skryptem.
+
 ## 0.19.0 — 2026-08-26 (neutralny)
 
 **Koniec implementacji referencyjnych — zadania definiują kryteria

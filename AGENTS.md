@@ -52,7 +52,12 @@ Kolejność odpowiada cyklowi życia instancji:
   jednego skilla; minor: nowa struktura/procedura; major lub
   `[scoring-breaking]`: zmiana łamiąca schematy albo porównywalność
   wyników), wpis w `CHANGELOG.md` (neutralny / `[scoring-breaking]`),
-  commit `chore(release): X.Y.Z — …` i tag `vX.Y.Z`.
+  bump `.bench-kit/VERSION` (z tego pliku CLI czyta wersję template'u
+  przy `bench-kit update` — nie z tagów), commit
+  `chore(release): X.Y.Z — …` i tag `vX.Y.Z`. W repo template'u wydawaj
+  **wyłącznie skryptem** `.github/scripts/release.mjs <wersja> "<opis>"`
+  — robi walidację i wszystkie kroki atomowo; spójność
+  VERSION↔CHANGELOG pilnuje też CI.
 
 ## Lokalne klony rep bazowych — `.repos/<nazwa>/`
 
