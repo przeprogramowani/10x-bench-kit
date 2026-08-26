@@ -32,7 +32,11 @@ fix — never with changing the results.
    Trial artifacts are read-only.
 2. **Hypothesis → proof by command.** Verify suspicions about an
    assertion or the judge with the runner (`bench assert`,
-   `bench judge`), not "by eye". A diagnosis without reproduction is
+   `bench judge` — no `bench` executable exists in PATH; from the
+   instance root run `node --experimental-strip-types
+   .bench-kit/runner/src/index.ts <command>`, after a one-time
+   `npm ci --prefix .bench-kit/runner`; you run these yourself, never
+   as instructions handed to the user), not "by eye". A diagnosis without reproduction is
    speculation — label it as such.
 3. **Classification is mandatory.** Every diagnosis ends with one of
    the three classes + evidence. When evidence is missing, say plainly

@@ -61,7 +61,12 @@ rescuing it artificially.
 ## Runner tools
 
 From the instance root: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`).
+.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`;
+one-time prerequisite: `npm ci --prefix .bench-kit/runner`). There is no
+`bench` executable in PATH — the shorthand is benchmark internals. You
+run these commands yourself; never hand the user a `bench …` command to
+execute. The user's surface is the `bench-run` workflow, secrets, and
+git.
 
 - `bench validate` — the warning `task expired (expires: …)` is the
   canonical trigger for this skill; after the refresh, gate with

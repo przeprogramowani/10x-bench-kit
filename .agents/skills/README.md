@@ -2,7 +2,16 @@
 
 Everything that requires judgment happens in a conversation with an agent —
 not in the CLI. This is where the skills supporting the instance lifecycle
-live. Target set (concept: SKILLS_DESIGN in the project repo):
+live.
+
+Convention: `bench <command>` in these skills is shorthand for the runner
+entrypoint (`node --experimental-strip-types .bench-kit/runner/src/index.ts
+<command>`, run from the instance root after `npm ci --prefix
+.bench-kit/runner`) — there is no `bench` executable in PATH. It is
+benchmark internals: agents run it themselves and never instruct the user
+to; the user's surface is the `bench-run` workflow, secrets, and git.
+
+Target set (concept: SKILLS_DESIGN in the project repo):
 
 - **bench-new-task** *(available)* — a short interview → a new task
   request in the stateful backlog `tasks/backlog.md`; a single session

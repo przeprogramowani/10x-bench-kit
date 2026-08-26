@@ -6,6 +6,30 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.20.1 — 2026-08-26 (neutralny)
+
+**Skille: `bench` to internals benchmarku, nie komenda użytkownika.**
+Skille zakładały skrót `bench <command>`, którego część dokumentów nigdy
+nie definiowała — a w PATH nie ma żadnego executable `bench` (bin
+z `.bench-kit/runner/package.json` nigdzie nie jest linkowany; CI woła
+runner przez `npm run bench --prefix`). Ujednolicenie wokół dwóch
+perspektyw:
+
+- Konwencja zdefiniowana raz w `.agents/skills/README.md` i powtórzona
+  w każdym miejscu definicji skrótu: `bench <command>` = entrypoint
+  runnera (`node --experimental-strip-types
+  .bench-kit/runner/src/index.ts <command>` z rootu instancji, po
+  jednorazowym `npm ci --prefix .bench-kit/runner`).
+- **Agent uruchamia `bench` sam i nigdy nie instruuje użytkownika, by
+  odpalał `bench …`** — powierzchnia użytkownika to workflow
+  `bench-run`, sekrety/klucze API i git. W raportach subagentów komendy
+  `bench` mogą występować jako dowód wykonania, nie jako instrukcje.
+- Uzupełnione luki: bench-build/SKILL.md (orkiestrator używał komend bez
+  definicji — sekcja "Runner tools" + doprecyzowany wykonawca
+  odroczonego smoke'a), bench-explain-results (definicja inline przy
+  regule "proof by command"), bench-wiring i bench-refresh-task
+  (prerequisite npm ci + reguła POV).
+
 ## 0.20.0 — 2026-08-26 (neutralny)
 
 **Zasada neutralności kształtu — koniec ukrytych testów

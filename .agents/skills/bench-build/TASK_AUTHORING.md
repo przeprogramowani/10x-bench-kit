@@ -98,6 +98,10 @@ task built on guesses.
 
 Run from the instance root: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts <command>` (below: `bench <command>`).
+There is no `bench` executable in PATH — the shorthand is benchmark
+internals for you to run; in your report, `bench` commands may appear
+as evidence of what you ran, never as instructions for the user to
+execute.
 
 The evaluation environment (the `bench-base` image, runner
 dependencies, docker) was prepared and verified by the orchestrator

@@ -101,7 +101,12 @@ workflow run.
 ## Tools
 
 From the instance root: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`).
+.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`;
+one-time prerequisite: `npm ci --prefix .bench-kit/runner`). There is no
+`bench` executable in PATH — the shorthand is benchmark internals. You
+run these commands yourself; never hand the user a `bench …` command to
+execute. The user's surface is the `bench-run` workflow, secrets, and
+git.
 
 - `bench doctor` — deterministic environment checklist: an OK/MISSING
   table with fix instructions. Do not check these things manually and

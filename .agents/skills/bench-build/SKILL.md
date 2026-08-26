@@ -110,6 +110,18 @@ do not invent tasks yourself.
    being built; the scope rules from TASK_AUTHORING.md bind the
    subagents, and their sum binds you.
 
+## Runner tools
+
+From the instance root: `node --experimental-strip-types
+.bench-kit/runner/src/index.ts <command>` (hereafter: `bench <command>`;
+one-time prerequisite: `npm ci --prefix .bench-kit/runner`). There is
+no `bench` executable in PATH — the shorthand names the runner
+entrypoint, which is benchmark internals. **You run it; never hand the
+user a `bench …` command to execute.** When execution needs an
+environment you lack (API keys, containers), the user-facing options
+are: providing keys to this session, or dispatching the `bench-run`
+workflow in GitHub Actions — phrased that way, not as runner commands.
+
 ## Procedure
 
 ### 1. Scope
@@ -246,7 +258,9 @@ it. Typical transitions:
 - **Reports note a deferred smoke test (no secrets in the session)** →
   after the user accepts the files, one trial
   `bench run --smoke` on all of the batch's new tasks at once, in an
-  environment with keys (the user's session or CI) — before the full
+  environment with keys — you run it once the user provides keys to the
+  session, or it runs as a `bench-run` workflow dispatch in CI (never
+  ask the user to run `bench` themselves) — before the full
   run, as the batch gate. The smoke run doubles as the **solvability
   probe** (there is no reference implementation): an assertion that no
   smoke attempt greens is suspect-harness — flag it for diagnosis
