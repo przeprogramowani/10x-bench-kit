@@ -59,6 +59,11 @@ two exceptions you always ask about:
   public API must not be touched", "we reward a regression test") and
   those are what should be recorded in the entry, instead of leaving
   the differentiation to the guesses of the agent building the rubric.
+  This is the task's **primary grading source**: the benchmark keeps
+  no reference implementation, so the rubric and its synthetic
+  calibration set are derived from these criteria — the more concrete
+  the do's/don'ts (and, for large tasks, the milestone/phase map for
+  partial credit), the better the task grades.
   If the user has no opinion, propose an axis derived from the task
   type and get acceptance; record a missing axis explicitly as "at
   bench-build's discretion".

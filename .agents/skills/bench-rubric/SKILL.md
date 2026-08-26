@@ -1,11 +1,13 @@
 ---
 name: bench-rubric
 description: >-
-  Calibrates the benchmark's LLM-as-judge rubric on diffs of known
-  quality: builds a calibration set, measures the judge's resolution
-  and stability, iterates on the criteria, and finalizes with a PR that
-  bumps the rubric version. Use when creating a rubric for a new task,
-  when judge scores look random or drift, or when the user says
+  Builds the rubric from the task's review criteria (the order's
+  evaluation axes) and calibrates it on a synthetic calibration set —
+  diffs of designed quality fabricated per CALIBRATION_SET.md, plus
+  real attempt diffs as runs accrue. Measures the judge's resolution
+  and stability, iterates on the criteria, and finalizes with a PR
+  that bumps the rubric version. Use when creating a rubric for a new
+  task, when judge scores look random or drift, or when the user says
   "calibrate the rubric / the judge".
 ---
 
@@ -13,8 +15,16 @@ description: >-
 
 A rubric without calibration is a number generator, not an evaluation.
 You calibrate it empirically: the judge gets diffs whose quality you
-**know in advance**, and you check whether its ranking and values match
-yours — repeatably. The tool is `bench calibrate --task <name> --set
+**know in advance** — because you designed them that way — and you
+check whether its ranking and values match yours, repeatably. There is
+**no reference implementation** in this benchmark: the rubric's
+criteria come from the task's review criteria (the order's Evaluation
+axis — do's, don'ts, milestones — and bench-build's criteria digest in
+its report), and the calibration set is **synthetic**, fabricated from
+those criteria per [CALIBRATION_SET.md](CALIBRATION_SET.md). Real
+attempt diffs (`patch.diff` from run artifacts) join the set as runs
+accrue — they are the best material, they just cannot exist before the
+first run. The tool is `bench calibrate --task <name> --set
 <set-directory>` (from the instance root: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts calibrate …`) — the same evaluation path
 as `bench evaluate`, so calibration results transfer 1:1 to real runs.
@@ -68,40 +78,51 @@ For a single ad-hoc verdict (e.g. comparing judges) there is
 
 ## Procedure
 
-### 1. Calibration set
+### 1. Rubric v1 + synthetic calibration set
 
-3–5 diffs of known quality per task, each with an expected score range.
-The canonical set:
+**The rubric first.** Derive the criteria from the order's Evaluation
+axis and bench-build's criteria digest: each axis becomes a criterion
+(or a named penalty), milestone/phase maps become the partial-credit
+scale, safety-flavoured axes ("a single leak is a hard fail") become
+dominating clauses, not deductions. Only what the criteria cannot
+express as text needs no criterion — it is already an assertion.
 
-| Diff | Source | Expectation |
+**Then the set**: 4–6 diffs of designed quality per task, each with an
+expected score range, fabricated per
+[CALIBRATION_SET.md](CALIBRATION_SET.md). The canonical roster:
+
+| Diff | How it is made | Expectation |
 |---|---|---|
-| reference solution | task author (bench-build, "Assertions" step) | high (≈1) |
-| partial solution | reference with part of the fix cut out | middle, clearly < reference |
-| out of scope | reference + changes nobody asked for | below reference (scope penalty) |
 | empty diff | `: > empty.diff` | ≈0 |
-| real diffs from runs | `patch.diff` from trial artifacts | per your manual assessment |
+| hard violation | a small realistic diff that violates a dominating axis (e.g. leaks the secret into server code) while otherwise looking competent | ≈0 / below threshold — the violation must dominate |
+| partial milestone | a plausible sketch of only the first milestone/phase | middle, clearly above empty |
+| complete but sloppy | full scope sketched, but breaking the non-dominating do's (scope creep, untestable layering, hardcoded copy) | above partial, clearly below good |
+| complete and good | full scope sketched, following the axes | high (≈1) |
+| real diffs from runs | `patch.diff` from trial artifacts, once runs exist | per your manual assessment |
 
-The diffs must **apply to the task's starting state** (repo@pin +
-overlay). Store the set in `evaluation-pool/judge/<task>-calibration/`
-together with `expected.md` (expectations + rationale).
+Synthetic diffs are **judge-only material**: the judge reads the diff
+as text and never applies or builds it, so a synthetic diff does not
+have to apply or compile — but it must be **realistic**: real paths and
+symbols from the repo at the task's pin, plausible hunks and context
+lines, size proportional to what it claims to be. A judge calibrated
+on fantasy code is calibrated on nothing — CALIBRATION_SET.md's realism
+rules are binding. Store the set in
+`evaluation-pool/judge/<task>-calibration/` together with `expected.md`
+(expectations + rationale, and per diff: which axis it exercises).
 
-"Applies" does not mean "works" — do not measure material you have not
-verified. Entry checklist, **before the first measurement**:
+Entry checklist, **before the first measurement**:
 
-- [ ] The set comes from bench-build (produced alongside the task,
-      while the repo context was fresh) — if it does not exist, produce
-      the full set in one sitting in the repo, not diff by diff.
-- [ ] Every diff applies to the task's starting state.
-- [ ] Every diff **compiles / runs** — a gate one rung cheaper than the
-      judge, and it catches dead material (the judge reads the diff, it
-      does not build the project — it will not detect a diff that does
-      not compile, and one such entry wastes a whole round of verdicts).
-- [ ] Every diff has a measured score on the task's **non-LLM
-      components** — in a single container entry: `bench assert --task
-      <t> --patch a.diff --patch b.diff …`. This is not duplicate work:
-      those numbers are needed anyway for the variant's real final
-      score, and along the way they verify that the diff does what
-      `expected.md` claims.
+- [ ] The rubric's criteria trace back to the order's axes / criteria
+      digest — no criterion is your invention without a source, no axis
+      is left uncovered.
+- [ ] Every synthetic diff passes the realism rules of
+      CALIBRATION_SET.md (real paths/symbols at the pin, plausible
+      hunks, proportional size) — verified against the repo, not from
+      memory.
+- [ ] Each diff exercises a **named** axis or scale point — a diff you
+      cannot say the expected ranking of has no place in the set.
+- [ ] Real attempt diffs (if any runs exist) are included and manually
+      assessed in `expected.md`.
 - [ ] Only now the first `calibrate`.
 
 ### 2. Resolution measurement
@@ -129,7 +150,7 @@ table.
 On the measurement table, check:
 
 - **Ranking**: do the medians line up with expectations
-  (reference > partial > out-of-scope ≥ … > empty)?
+  (good > sloppy > partial > … > hard violation ≈ empty)?
 - **Separation**: do the ranges of adjacent diffs avoid overlapping?
   (max of the worse < min of the better — otherwise the judge cannot
   tell them apart)

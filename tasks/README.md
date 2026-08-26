@@ -29,7 +29,7 @@ plik — gitem zarządza użytkownik.
   Izolacja z konstrukcji, nie ze starannego wycinania.
 - Zadania powstają i są odświeżane skillami, ale skille nie dotykają
   gita. Nowe zadania bench-build zostawia jako pliki w drzewie
-  roboczym z raportem dowodów z referencji per zadanie — commit, PR
+  roboczym z raportem dowodów ze stanu startowego per zadanie — commit, PR
   czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh-task)
   i rubryki (bench-rubric) przechodzą przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie

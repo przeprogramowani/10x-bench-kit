@@ -19,20 +19,23 @@ reason — e.g. the base repo drifted from the pin in the task's area.>
 
 <sense unchanged / sense after adaptation / no longer makes sense (in
 which case the PR retires the task). Per adaptation
-(prompt/overlay/assertions/reference solution): what and why; the
+(prompt/overlay/assertions/calibration set): what and why; the
 task's intent unchanged. Shared assertions: new version in the pool,
 no in-place edits.>
 
-## Proofs from the new reference
+## Proofs from the new starting state
 
 <paste command outputs — not claims:>
 
 - starting state: `bench assert --task <name>` → <result per assertion>
-- overlay counter-proof: `--no-overlay` / reference solution → <result>
-- reference solution: `bench assert --task <name> --patch <reference>`
-  → <result>; judge on the reference solution → <result>
+- overlay counter-proof: `--no-overlay` green, or bug-inverse probe
+  green (`--patch <probe.diff>`, probe diff pasted here) → <result>
+- hidden-test robustness review on the new pin: <paths/env assumptions
+  re-checked; findings>
 - empty diff does not pass: <result>
 - `bench validate --assert` → 0 errors, no expires warning
+- smoke run on the new pin: <result per component; assertions no
+  attempt greens are diagnosed, not shipped>
 
 ## Comparability impact
 

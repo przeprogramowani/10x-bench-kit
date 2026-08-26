@@ -10,19 +10,22 @@ live. Target set (concept: SKILLS_DESIGN in the project repo):
 - **bench-build** *(available)* — builds tasks from pending backlog
   requests: distributes them across subagents, each of which performs
   full authoring (prompt + pin + overlay + assertions with `reference`
-  declarations + weights, all verified against the reference via
-  `bench assert` / `bench judge` / `bench validate --assert`); the
-  result lands as files in the working tree with a per-task evidence
-  report — git stays on the user's side.
+  declarations + weights, all proven on the starting state via
+  `bench assert` / `bench validate --assert`; no reference
+  implementation — expectations for future attempts live in the review
+  criteria and assertions); the result lands as files in the working
+  tree with a per-task evidence report — git stays on the user's side.
 - **bench-wiring** *(available)* — from a fresh `init` to a green
   `validate`: base repo, models, secrets, an image matching the
   company's stack.
 - **bench-refresh-task** *(available)* — refreshes an expired task
   (new pin + assertions) → a PR opening a new era of the task.
-- **bench-rubric** *(available)* — calibrates LLM-as-judge rubrics:
-  a calibration set built from diffs of known quality, measuring the
-  judge's resolution and stability (`bench calibrate`), iterating on
-  criteria, and a PR bumping the rubric version (frontmatter `version`).
+- **bench-rubric** *(available)* — builds LLM-as-judge rubrics from
+  the task's review criteria and calibrates them on a synthetic
+  calibration set of designed quality (CALIBRATION_SET.md; real
+  attempt diffs join as runs accrue), measuring the judge's resolution
+  and stability (`bench calibrate`), iterating on criteria, and a PR
+  bumping the rubric version (frontmatter `version`).
 - **bench-explain-results** *(available)* — diagnoses run results:
   drilling down from report.json through result.json to the attempt
   artifacts and classifying the root cause (model / task /

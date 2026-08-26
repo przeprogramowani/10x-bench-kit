@@ -3,7 +3,7 @@ name: bench-refresh-task
 description: >-
   Refreshes an expired benchmark task: new pinned commit of the base
   repo, re-verification of the overlay, assertions, and reference
-  declarations against the new reference, updated expires — finalized
+  declarations on the new starting state, updated expires — finalized
   with a PR that opens a new era for the task. Use after an `expires`
   warning from bench validate, when the base repo has drifted from the
   pin, or when the user says "refresh the task / the task has expired".
@@ -13,8 +13,8 @@ description: >-
 
 The task is pinned to a months-old commit while the base repo keeps
 moving. A refresh is not a SHA swap: it is a full re-pass of the
-**"test against the reference before you propose"** principle for the
-entire task on the new pin — overlay, assertions, reference solution,
+**"prove on the starting state before you propose"** principle for the
+entire task on the new pin — overlay, assertions,
 `reference` declarations. Changing anything in `tasks/<name>/` changes
 the `task_hash`, so a refresh by definition opens a new era for the
 task — the PR says so explicitly. If the task no longer makes sense on
@@ -31,10 +31,13 @@ rescuing it artificially.
    impact" section: existing results for the task remain visible as
    history; new results are not comparable with them. There is no such
    thing as a "scoring-neutral" refresh.
-3. **Test against the reference from scratch.** No assertion,
+3. **Prove on the starting state from scratch.** No assertion,
    `reference` declaration, or overlay makes it into the PR "because it
    worked on the old pin" — re-run every proof on the new pin via
-   `bench assert` / `bench judge` / `bench validate --assert`.
+   `bench assert` / `bench validate --assert`. The hidden-test
+   robustness rules from bench-build's TASK_AUTHORING.md apply
+   unchanged — a refresh is a fresh chance for a path or environment
+   assumption to rot.
 4. **A refresh preserves intent.** Adapt the prompt/overlay/assertions
    to the new code minimally; changing WHAT the task measures is a new
    task (commissioned via bench-new-task, built via bench-build), not a
@@ -45,9 +48,9 @@ rescuing it artificially.
    changing and someone else uses it: create a new version in the pool
    (e.g. `tests/<name>-v2`) and swap it in this task's `evaluation[]`.
 6. **Isolation of evaluation materials.** As in bench-build: nothing
-   from `evaluation-pool/` goes into `tasks/<name>/`; the reference
-   solution lives in `evaluation-pool/judge/<task>-calibration/`,
-   never in `tasks/`.
+   from `evaluation-pool/` goes into `tasks/<name>/`; the calibration
+   set lives in `evaluation-pool/judge/<task>-calibration/`, never in
+   `tasks/`.
 7. **Do not touch `.bench-kit/`** or other people's tasks.
 8. **Budget instead of a consent ritual.** Costs are guarded by
    `defaults.max_cost_usd` in bench.config.yaml — do not ask for
@@ -65,8 +68,8 @@ From the instance root: `node --experimental-strip-types
 - `bench assert <ref...> --task <name> [--no-overlay] [--patch <file>]...`
   — observability and feasibility proofs on the new pin; repeating
   `--patch` = the full set of diffs in a single container entry.
-- `bench judge --task <name> --patch <file>` — judge verdict on the
-  updated reference solution / empty diff.
+- `bench judge --task <name> --patch <file>` — judge verdict on a
+  calibration diff / empty diff.
 - `bench run` + `bench evaluate` — optional smoke run (step 7).
 
 ## Procedure
@@ -79,8 +82,8 @@ Read before changing anything:
   stated reason for the refresh),
 - `tasks/<name>/`: task.yaml (repo, pin, evaluation, reference,
   weights, expires), prompt.md, overlay/,
-- related materials: the reference solution and calibration set in
-  `evaluation-pool/judge/<task>-calibration/` (you will need them on
+- related materials: the calibration set in
+  `evaluation-pool/judge/<task>-calibration/` (you will need it on
   the new pin),
 - the task's most recent results (report/bench-data) — after the
   refresh they stop being comparable; it is worth knowing what you are
@@ -130,16 +133,16 @@ Three possible outcomes — name which one applies:
 ### 4. Overlay on the new pin
 
 **Adapt the material before running the gates, not after they go red.**
-If the area diff (step 2) shows a file has drifted, then the overlay,
-the reference solution, and the calibration diffs all need porting —
-do it right away, in one sitting in the repo, instead of discovering
-each one via another red pass through the container.
+If the area diff (step 2) shows a file has drifted, then the overlay
+and the calibration set need porting — do it right away, in one
+sitting in the repo, instead of discovering each one via another red
+pass through the container.
 
 Overlay files **overwrite** repo files at trial start. On the new pin,
 the old overlay may overwrite a newer version of a file — i.e. revert
 repo changes and measure the wrong thing. Check the diff of every
 overlay file against its counterpart on the new pin: the overlay must
-differ from the new reference **solely by the bug seed**. If the repo
+differ from the new pin's file **solely by the bug seed**. If the repo
 file has drifted — port the bug seed onto its new version.
 
 Then redo the observability proof from scratch, as in bench-build
@@ -148,24 +151,29 @@ Then redo the observability proof from scratch, as in bench-build
 - starting state (new pin + overlay): the work measure is red —
   `bench assert <ref> --task <name>` → exit 1,
 - counter-proof: overlay modifying existing files → `--no-overlay`
-  green; overlay adding files → reference solution green (`--patch`).
+  green; overlay adding files → a **bug-inverse probe** green
+  (`--patch <probe.diff>` — a minimal disposable diff un-doing the
+  seed and nothing else; pasted into the PR, not kept in the
+  instance).
 
-### 5. Assertions and the reference solution
+### 5. Assertions and calibration material
 
-- **Reference solution**: the old `reference.diff` may not apply to
-  the new starting state — update it and store it alongside the
-  calibration set.
-- **Full "test against the reference" table** for all of the task's
+- **Full "prove on the starting state" table** for all of the task's
   assertions: starting state → work measures red, guards green;
-  reference solution → everything green. `reference` declarations in
+  counter-proofs per step 4. `reference` declarations in
   task.yaml stay, or change deliberately (with justification in the PR).
+  Re-run the hidden-test robustness review (rule 3) — paths and
+  environment assumptions are exactly what drifts between pins.
 - **Shared assertions**: changes only via a new version in the pool
   (rule 5).
-- **Judge**: the calibration set applied to the old pin. If the
-  calibration diffs can be ported — port them and re-measure
-  (`bench judge`); if not — note in the PR that the set belongs to the
-  old era and that recalibration (the bench-rubric skill) is due at the
-  next sign of drift. Do not change the rubric as part of a refresh.
+- **Judge**: the calibration set was fabricated against the old pin
+  (its realism rules tie paths and context lines to the pin — see
+  bench-rubric's CALIBRATION_SET.md). Port the diffs whose context
+  survived; re-fabricate the ones whose files drifted; then re-measure
+  (`bench judge` / `bench calibrate`). If the set cannot be salvaged —
+  note in the PR that it belongs to the old era and that recalibration
+  (the bench-rubric skill) is due before the next run. Do not change
+  the rubric as part of a refresh.
 
 ### 6. New `expires` date
 
@@ -176,28 +184,29 @@ then", not a formality.
 ### 7. Self-check
 
 Entering the evaluation container costs minutes — collect the **full
-set of proofs in a single entry**: `bench assert --task <name> --patch
-reference.diff --patch empty.diff …` evaluates multiple diffs in one
-entry (an empty file = the starting state); if you still need multiple
-entries, launch the calls in parallel in the background and collect
-the results together. In order, each must pass:
+set of proofs in a single entry**: `bench assert --task <name>` covers
+all assertions at once, and repeated `--patch` entries (bug-inverse
+probe, empty diff) ride along in the same entry; if you still need
+multiple entries, launch the calls in parallel in the background and
+collect the results together. In order, each must pass:
 
 1. `bench validate --assert` — green, no `expires` warning.
-2. Reference solution: `bench assert --task <name> --patch
-   <reference.diff>` → exit 0; if there is a judge component —
-   `bench judge` on the reference solution scores high.
-3. An empty diff does not pass: the work measure is red at the start;
+2. An empty diff does not pass: the work measure is red at the start;
    if there is a judge component — `bench judge --patch <empty.diff>`
    scores low.
-4. Trial `bench run --smoke` + `evaluate` on one cheap model (the
-   instance budget guards costs — rule 8).
+3. Trial `bench run --smoke` + `evaluate` on one cheap model (the
+   instance budget guards costs — rule 8). As in bench-build, the
+   smoke run doubles as the solvability probe on the new pin: an
+   assertion no attempt greens is suspect-harness — diagnose it before
+   the PR, do not ship it.
 
 ### 8. PR
 
 Branch `bench-refresh-task/<name>`, description per
 [PR_TEMPLATE.md](PR_TEMPLATE.md): old → new pin with what happened
 between them; adaptations with justification; the full set of proofs
-from the new reference; a "this opens a new era for this task" section;
+from the new starting state; a "this opens a new era for this task"
+section;
 the self-check cost. Put the previous results (step 1) next to the new
 ones as a **point of reference**: identical numbers on the new pin are
 the strongest signal that the refresh broke nothing, and they shorten

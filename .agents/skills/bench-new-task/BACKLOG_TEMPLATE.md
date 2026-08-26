@@ -37,9 +37,12 @@ Skills only edit this file — git is managed by the user.
   after the task is built (observability, not scoring)>
 - **Evaluation axis**: <what differentiates scores in this task — the
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
-  API must not change"); bench-build calibrates the rubric and variants
-  against this. When the user deliberately named no axis: "at
-  bench-build's discretion".>
+  API must not change"), and for large tasks the milestone/phase map
+  for partial credit. This is the primary grading source: there is no
+  reference implementation — the rubric and the synthetic calibration
+  set are derived from these criteria (bench-build → bench-rubric).
+  When the user deliberately named no axis: "at bench-build's
+  discretion".>
 - **Description**: <2–6 sentences: what is to be done, the symptom/goal,
   boundaries ("change nothing beyond…"). For bugfix-type tasks: what
   bug is to be seeded via the overlay and how to tell it is fixed.>

@@ -6,6 +6,50 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.19.0 — 2026-08-26 (neutralny)
+
+**Koniec implementacji referencyjnych — zadania definiują kryteria
+oceny, nie diffy wzorcowe.** Dotychczas bench-build wymagał od
+subagenta zaimplementowania całego zadania (reference.diff + warianty
+kalibracyjne) jako materiału dowodowego i kalibracyjnego — przy dużych
+zleceniach (kilkanaście plików, >1000 linii) nieutrzymywalne i zbędne
+przy LLM-as-judge. Nowa doktryna: oczekiwania wobec przyszłych prób
+wyraża **rubryka zbudowana z kryteriów oceny** (osie ze zlecenia:
+do's/don'ts, mapa kamieni milowych) plus asercje **udowodnione na
+stanie startowym**. Runner bez zmian — `reference:` w task.yaml zawsze
+opisywał stan startowy, a sędzia czyta diff jako tekst; zmiana jest
+wyłącznie proceduralna w skillach:
+
+- **bench-build / TASK_AUTHORING.md**: zasada „you never implement the
+  task"; dowody tylko ze stanu startowego; nowe **reguły odporności
+  ukrytych testów** (test wyłącznie przez powierzchnie utrwalone
+  verbatim w prompcie/planie, dynamiczne odkrywanie nazw wybieranych
+  przez agenta, obowiązkowy kanarek środowiskowy); smoke run pełni
+  rolę **sondy wykonalności** z regułą kwarantanny (asercja, której
+  żadna próba nie zazielenia = suspect-harness, diagnoza lub waga 0 —
+  nigdy obciążenie modeli); subagent oddaje **digest kryteriów**
+  (greppowalne sygnały per oś) zamiast diffów kalibracyjnych.
+- **Overlay bez zmian koncepcyjnych**; kontrdowód dla overlayi
+  dodających pliki to teraz **sonda odwrotności buga** — minimalny,
+  jednorazowy diff odsiewający seed (rozmiar ograniczony overlayem),
+  wklejany do raportu i kasowany.
+- **bench-rubric**: rubryka wyprowadzana z osi zlecenia; kalibracja na
+  **zbiorze syntetycznym** wg nowego przewodnika `CALIBRATION_SET.md`
+  (kanoniczny zestaw: empty / hard-violation / partial-milestone /
+  complete-but-sloppy / complete-and-good; wiążące reguły realizmu —
+  prawdziwe ścieżki i kontekst z repo na pinie; jeden diff = jedno
+  pytanie; realne patch.diff z runów zastępują syntetyki z czasem).
+- **bench-refresh-task**: bez portowania rozwiązania referencyjnego;
+  przegląd odporności ukrytych testów przy każdym odświeżeniu.
+- **bench-explain-results**: diagnoza asercji 0 przez sprawdzenie
+  krzyżowe diffów prób zamiast odtwarzania reference.diff.
+- **bench-new-task / BACKLOG_TEMPLATE**: oś oceny awansuje na
+  **główne źródło gradingu** (dla dużych zadań z mapą faz dla
+  partial credit).
+
+Neutralny dla porównywalności: schematy i istniejące wyniki bez zmian;
+zmienia się procedura budowy i kalibracji, nie definicje pomiaru.
+
 ## 0.18.0 — 2026-08-26 (neutralny)
 
 **Archiwum workspace'u próby — `artifacts.workspace` w

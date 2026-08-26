@@ -4,7 +4,7 @@ description: >-
   Builds benchmark tasks from pending orders in the backlog
   (`tasks/backlog.md`): fans the orders out to subagents, and each
   subagent performs full task authoring (pin, overlay, prompt,
-  assertions, weights, self-check against the reference) and leaves
+  assertions, weights, self-check on the starting state) and leaves
   finished files in the working tree with an evidence report — no git.
   Use when the user wants to build tasks from the backlog or says
   "bench-build / build the tasks / process the backlog".
@@ -38,7 +38,7 @@ do not invent tasks yourself.
    `tasks/<name>/` directories (+ new assertions in the pool) in the
    working tree, plus a per-task report per
    [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) with evidence from the
-   reference — what happens next (commit, PR, review, rejection) is
+   starting state — what happens next (commit, PR, review, rejection) is
    solely the user's decision. Keep tasks from one batch separate:
    separate directories, separate reports, no merging.
 4. **Backlog statuses are the source of truth.** Before a subagent
@@ -179,7 +179,8 @@ launch a subagent via your tool's mechanism, and pass in its prompt:
   work in progress, so it must be written as it happens, not
   backfilled just before the report;
 - the final report format: REPORT_TEMPLATE.md (file list, evidence from
-  the reference, cost) + problems.
+  the starting state, hidden-test robustness checklist, criteria digest,
+  cost) + problems.
 
 **Match the subagent's power to the order's profile** (the Type field
 of the entry): launch documentation/conceptual tasks with reduced
@@ -245,5 +246,8 @@ it. Typical transitions:
   after the user accepts the files, one trial
   `bench run --smoke` on all of the batch's new tasks at once, in an
   environment with keys (the user's session or CI) — before the full
-  run, as the batch gate.
+  run, as the batch gate. The smoke run doubles as the **solvability
+  probe** (there is no reference implementation): an assertion that no
+  smoke attempt greens is suspect-harness — flag it for diagnosis
+  instead of letting it count against models.
 - **Tasks ready and accepted by the user** → full run.

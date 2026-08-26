@@ -5,10 +5,19 @@ from `tasks/backlog.md` with the design decisions already made (type,
 base repo, guidance level, difficulty/timeout, description, notes).
 From it you build the `tasks/<name>/` directory in the benchmark
 instance. The task must be measurable, not passable with an empty diff,
-and verified against the reference before handoff. The guiding
-principle: **you hand off nothing you have not run yourself on the
-reference version** — that is what `bench assert`, `bench judge`, and
-`bench validate --assert` are for (see "Runner tools" below).
+and proven on the starting state before handoff. The guiding
+principle: **you hand off nothing whose behaviour on the starting
+state you have not measured yourself** — that is what `bench assert`
+and `bench validate --assert` are for (see "Runner tools" below).
+
+**You never implement the task.** The benchmark is graded by
+LLM-as-judge plus assertions, not by distance to an author-made
+solution: the task's expectations for future attempts are expressed as
+**review criteria** (the order's Evaluation axis — do's, don'ts,
+milestones — which bench-rubric turns into a rubric) and as assertions
+proven on the starting state. Building a reference implementation, or
+"variant" diffs degraded from one, is explicitly out of scope — for a
+large order it is unmaintainable, and it is never needed for grading.
 
 **You do not conduct an interview and you do not change the order's
 decisions.** If the order has a gap that makes building impossible (a
@@ -33,10 +42,16 @@ task built on guesses.
    (the only exception: `evaluation: [...]` entries in task.yaml).
    `prompt.md` must not reveal how the task will be evaluated or quote
    hidden tests.
-3. **Test on the reference before you propose.** Every assertion must
-   be run through `bench assert` before handoff and behave as intended
-   — on the starting state AND on the reference solution. You declare
-   this in `reference` in task.yaml.
+3. **Prove on the starting state before you propose.** Every assertion
+   must be run through `bench assert` before handoff and behave as
+   declared on the starting state — work measures red, guards green.
+   You declare this in `reference` in task.yaml (the declarations
+   describe the starting state; the runner verifies them with
+   `bench validate --assert`). The green direction — "can this
+   assertion be satisfied at all?" — is guarded not by a reference
+   implementation but by the robustness rules for hidden tests
+   (step 4) and by the batch smoke run (step 6), which doubles as the
+   solvability probe.
 4. **The runner is your tool.** Do not reimplement its logic, do not
    evaluate "by eye" — call the `bench` commands and read their output.
    If the runner lacks something, report it (an issue), do not work
@@ -90,9 +105,11 @@ zone, and your fix would race with neighbors building in parallel.
 
 - `bench assert <ref...> --task <name> [--no-overlay] [--patch <file>]...`
   — non-LLM assertions on the task's starting state (repo@pin + overlay);
-  `--no-overlay` = clean reference, `--patch` = with the diff applied.
-  `--patch` can be given **multiple times** — a full set of diffs
-  (reference, variants, empty) is evaluated in a single container entry;
+  `--no-overlay` = clean repo@pin, `--patch` = with a diff applied
+  (used here only for small probe diffs, e.g. the bug-inverse probe of
+  step 2 — never for a task implementation). `--patch` can be given
+  **multiple times** — several diffs are evaluated in a single
+  container entry;
   `--json` prints a structured result to stdout instead of a table to
   parse.
   Exit 0 when all scores are 1, exit 1 otherwise — you check both
@@ -121,7 +138,7 @@ procedure's steps to tick off as you work:
 - [ ] 1. Pin
 - [ ] 2. Overlay (bugfix-type tasks)
 - [ ] 3. prompt.md
-- [ ] 4. Assertions (+ calibration diffs)
+- [ ] 4. Assertions (+ criteria digest)
 - [ ] 5. Weights
 - [ ] 6. Self-check
 - [ ] 7. Handoff
@@ -170,11 +187,15 @@ bug description from the order. Requirement: the bug must be
 - a counter-proof that the red comes from the bug, not a broken
   assertion:
   - the overlay **modifies** existing files → green on the clean
-    reference: `bench assert <ref> --task <name> --no-overlay` → exit 0,
-  - the overlay **adds** new files (on the clean reference the
-    assertion has nothing to test) → the counter-proof is the reference
-    solution:
-    `bench assert <ref> --task <name> --patch <reference.diff>` → exit 0.
+    repo@pin: `bench assert <ref> --task <name> --no-overlay` → exit 0,
+  - the overlay **adds** new files (on the clean repo@pin the
+    assertion has nothing to test) → the counter-proof is a
+    **bug-inverse probe**: a minimal disposable diff that un-does the
+    seeded bug and nothing else (its size is bounded by the overlay's
+    size — it is the seed's inverse, not a task implementation):
+    `bench assert <ref> --task <name> --patch <probe.diff>` → exit 0.
+    The probe is proof material only — it is not kept in the instance
+    and is never used for grading; paste it into the report.
 
 If you cannot show both results, the bug is unobservable or the
 assertion is wrong — go back to the design; if that does not help
@@ -219,104 +240,129 @@ never in the task directory. Keep hidden test files in the assertion's
 directory (inside the evaluation container they live under
 `$ASSERTION_DIR`).
 
+**Robustness rules for hidden tests.** There is no reference
+implementation to prove an assertion satisfiable, so satisfiability is
+designed in, not measured in. Every hidden test must obey:
+
+- **Test only through surfaces the agent is told about.** Paths,
+  symbols, commands, and contracts a hidden test depends on must be
+  fixed **verbatim** in material the agent receives (prompt.md, or a
+  plan file the prompt points at). Anything the agent legitimately
+  chooses itself — file names, module layout, internal helpers — must
+  be discovered dynamically (glob/grep over the workspace) or left to
+  the judge. A hidden test that imports
+  `src/lib/complexity/levelState.ts` when the plan only fixes the
+  directory measures guessing-the-author, not the work.
+- **Environment canary.** Each hidden test file starts with a
+  self-check that fails **loudly and distinguishably** when the
+  environment is broken (e.g. `document` missing where a DOM test
+  expects jsdom, a dependency absent) — an environment failure must
+  never be attributable to the agent. Check the repo's test routing
+  before writing DOM-flavoured tests (e.g. a vitest config that maps
+  only certain paths to jsdom).
+- An assertion must install its own dependencies (the evaluation stage
+  may use the network) and must not punish the agent for pre-existing
+  problems of the base repo (the founding lesson).
+
 Entering the evaluation container rebuilds the environment from scratch
 and costs minutes — so work up a ladder of gates, cheapest to most
 expensive:
 
 - **Prototype the assertion outside the container**, in the local
-  `.repos/<name>/` clone, until it works. The local loop is an order of
-  magnitude faster than the container loop; you enter the container
-  with a finished assertion, not a hypothesis.
-- **Produce the full set of diffs right away**: the reference solution
-  + the variants you anticipate for rubric calibration. If the order
-  entry has an **Evaluation axis** field, it is binding: the variants
-  must stretch the scale along that axis (e.g. axis "minimal diff" → a
-  correct but sprawling variant), and the declared do's and don'ts go
-  into the rubric material. Without an axis in the order, choose
-  variants yourself (typically: a partial / symptomatic fix, a correct
-  fix with excessive scope, a correct but unidiomatic fix). You have
-  the repo context open once — this is the moment when variants cost
-  minutes instead of a separate session. Save them right away in
-  `evaluation-pool/judge/<task>-calibration/`.
-- **Pass every diff through the cheap gates** before you measure
-  anything: it applies onto the starting state → it compiles → it
-  passes (or fails) the assertion as you intended. A diff that looks
-  good and does not work is worse than no diff at all.
+  `.repos/<name>/` clone (worktree at the pin, rule 8), until it works.
+  The local loop is an order of magnitude faster than the container
+  loop; you enter the container with a finished assertion, not a
+  hypothesis.
 - **One container entry per full set of material**, not a call per
-  artifact: `bench assert --task <name> --patch reference.diff --patch
-  variant-a.diff --patch empty.diff` evaluates the whole set in one
-  entry (an empty diff file = the starting state). If you must enter
-  several times anyway, run the calls in parallel in the background and
-  collect the results together (remembering: no output from a
-  background command means "still running" OR "died silently" — settle
-  which before you build a conclusion on it).
+  artifact: `bench assert --task <name>` proves the whole starting
+  state (all assertions) in one entry; add `--patch` entries only when
+  step 2 requires a bug-inverse probe. If you must enter several times
+  anyway, run the calls in parallel in the background and collect the
+  results together (remembering: no output from a background command
+  means "still running" OR "died silently" — settle which before you
+  build a conclusion on it).
 
-Every assertion passes the "test on the reference" rule (rule 3):
+Every assertion passes the "prove on the starting state" rule (rule 3):
 
 | State | Expectation | Command |
 |---|---|---|
-| starting (with overlay) | work measure red, guards green | `bench assert --task <name>` |
-| reference solution | everything green | `bench assert --task <name> --patch <reference.diff>` |
+| starting (with overlay) | work measures red, guards green | `bench assert --task <name>` |
+| clean repo@pin / bug-inverse probe (bugfix tasks) | counter-proof green | `bench assert --task <name> --no-overlay` or `--patch <probe.diff>` |
 
-Prepare the reference solution yourself (a diff against the starting
-state) and keep it together with the calibration variants (see the
-ladder of gates above) — bench-rubric starts from that set instead of
-re-entering the repo. Record the results in `reference` in task.yaml:
-guards (lint/build) → `pass`, work measures (hidden tests) → `fail`.
-Remember the founding lesson: an assertion must install its own
-dependencies (the evaluation stage may use the network) and must not
-punish the agent for pre-existing problems of the base repo.
+Record the results in `reference` in task.yaml: guards (lint/build) →
+`pass`, work measures (hidden tests) → `fail`.
 
 For a `judge/*` component: create/calibrate the rubric with the
-**bench-rubric** skill, not by hand within this procedure; pass the
-**Evaluation axis** field from the order there as the starting point
-for the criteria.
+**bench-rubric** skill, not by hand within this procedure. The rubric
+material is the order's **Evaluation axis** (do's, don'ts, milestones)
+— it is binding when present; pass it to bench-rubric verbatim as the
+starting point for the criteria. You fabricate no calibration diffs —
+bench-rubric builds a **synthetic** calibration set from the criteria
+(see its CALIBRATION_SET.md). What you *should* hand over, because you
+have the repo context open now, is a short **criteria digest** in your
+report: per axis, the concrete greppable signals in this repo (paths,
+symbols, patterns) that distinguish compliance from violation.
 
 ### 5. Weights
 
 Propose weights with justification: what each component **actually
-discriminates** in this task. A component that does not distinguish a
-good execution from a bad one (e.g. lint green regardless of solution
-quality) gets weight 0 or is dropped from `evaluation[]`. Weights sum
-to 1.
+discriminates** in this task. Without variant measurements the
+justification is reasoned, not measured — say per component which
+difference between two future attempts it would surface. A component
+that does not distinguish a good execution from a bad one (e.g. lint
+green regardless of solution quality) gets weight 0 or is dropped from
+`evaluation[]`. On large tasks where most attempts will land partial
+work, the judge component typically carries most of the weight — the
+assertions grade the automatable subset, the rubric grades how far the
+attempt got and how well what landed is built. Weights sum to 1.
 
 ### 6. Self-check
 
-The order is deliberately cheap→expensive: `validate` before assertions
-on the reference solution, assertions before the judge, the judge
-before the full run — the full run is last, because only it requires
-everything at once. In order, each must pass before you move on:
+The order is deliberately cheap→expensive: reading before `validate`,
+`validate` before the judge, the judge before the full run — the full
+run is last, because only it requires everything at once. In order,
+each must pass before you move on:
 
-1. `bench validate --assert` — green (`reference` declarations match).
-   The gate covers the whole instance — if the red comes from files
-   outside your scope (rule 5; with parallel builds it may be another
-   subagent's unfinished work), note it in the report in one sentence
-   and do not "fix" other people's files to get green.
-2. `bench assert --task <name> --patch <reference.diff>` — exit 0 (the
-   task is solvable).
+1. **Robustness review of the hidden tests** (a reading step, free):
+   re-check every hidden test against the robustness rules of step 4 —
+   no dependency on agent-chosen names/paths, environment canary
+   present, dependencies self-installed. Record the checklist result
+   in the report.
+2. `bench validate --assert` — green (`reference` declarations match
+   the starting state). The gate covers the whole instance — if the
+   red comes from files outside your scope (rule 5; with parallel
+   builds it may be another subagent's unfinished work), note it in
+   the report in one sentence and do not "fix" other people's files to
+   get green.
 3. An empty diff **must not** score at or above the passing threshold:
-   the starting state has a red work measure (point 1) and — if there
+   the starting state has a red work measure (point 2) and — if there
    is a judge component —
    `bench judge --task <name> --patch <empty.diff>` yields a low score.
 4. A trial `bench run --smoke --tasks <name> --models <cheap-model>` +
    `bench evaluate` (the instance budget guards costs — rule 6) —
-   **provided the session has provider API keys**. If there are no
-   keys, do not work around it and do not treat it as a failure: note
-   in the report "smoke deferred — no secrets in the session" and hand
-   off the work; the trial run of all the batch's new tasks will happen
-   where the secrets are, after the user accepts the files (the batch
-   gate at the orchestrator, not a per-task ritual). Points 1–3 remain
-   unconditional.
-   A task that cannot be passed, or that passes with an empty diff,
-   goes back to step 2/4.
+   **provided the session has provider API keys**. The smoke run is
+   also the **solvability probe**: with no reference implementation,
+   real attempts are the first green-direction evidence. An assertion
+   that **no attempt ever greens** — in smoke or in the first full
+   run — is suspect-harness, not proof of model failure: it goes back
+   to step 4 for diagnosis (wrong path? broken env?) and, if it cannot
+   be fixed, gets weight 0 with a note, rather than silently dragging
+   every model down. If there are no keys, do not work around it and
+   do not treat it as a failure: note in the report "smoke deferred —
+   no secrets in the session" and hand off the work; the trial run of
+   all the batch's new tasks will happen where the secrets are, after
+   the user accepts the files (the batch gate at the orchestrator, not
+   a per-task ritual). Points 1–3 remain unconditional.
+   A task that passes with an empty diff goes back to step 4.
 
 ### 7. Handoff
 
 Leave the complete set of files in the working tree: the task directory
-+ any new assertions in the pool + the calibration set. Nothing in git
-(rule 1) — the commit/PR is the user's decision. Do **not** leave the
-reference solution in `tasks/` (it would leak into the agent's
-workspace) — its place is `evaluation-pool/judge/<task>-calibration/`.
++ any new assertions in the pool. Nothing in git (rule 1) — the
+commit/PR is the user's decision. Working proof material (a bug-inverse
+probe diff, an empty diff) is not part of the task: paste what matters
+into the report and delete the files — nothing evaluation-flavoured may
+remain in `tasks/` (it would leak into the agent's workspace).
 Finally, delete `tasks/<name>/todo.md` (rule 9) — the progress file is
 a viewing channel for the build, not part of the task; left behind, it
 would enter `task_hash`.
@@ -326,9 +372,10 @@ would enter `task_hash`.
 Your output is read by the bench-build orchestrator. Return a report
 per [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) — task name, full list of
 created/changed files, what the task measures, evidence from the
-reference (command results from steps 2/4/6 — per point: command →
-result), assertions and weights, comparability impact (rule 7), actual
-cost (trial run, judge calls). In addition:
+starting state (command results from steps 2/4/6 — per point: command →
+result), the robustness checklist for hidden tests, the criteria digest
+for bench-rubric (step 4), assertions and weights, comparability impact
+(rule 7), actual cost (trial run, judge calls). In addition:
 
 - a **refusal** + reason instead of a report, when the order turned out
   to be infeasible (see the header);
