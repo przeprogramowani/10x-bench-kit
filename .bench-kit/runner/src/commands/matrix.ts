@@ -9,6 +9,13 @@
  * zamiast trials × próba. Obrazy zadań idą przez rejestr (GHCR), więc
  * rozmnożenie jobów nie mnoży budowań.
  *
+ * --batch: jeden job = jedno ZADANIE (wszystkie jego modele × próby):
+ *   { "include": [{ "task", "models" (CSV), "trials", "slug" }, …] }
+ * Minuty GH Actions są billowane per job-minuta, a próba spędza większość
+ * czasu na czekaniu na API modelu — job zbiorczy z `bench run --parallel`
+ * płaci ~max(próba) zamiast sumy prób. Skip-logic działa dalej per
+ * komórka: models zawiera tylko modele z brakami w bieżącej erze.
+ *
  * Skip-logic (--history): benchmark jest stateless w obrębie ery —
  * komórka (model × zadanie), która w BIEŻĄCEJ (prospektywnej) erze ma już
  * w historii raportów >= żądanej liczby prób, wypada z macierzy. Historia
@@ -19,7 +26,7 @@
  * pomija joby prób), pusta PRZED to błąd konfiguracji.
  *
  * Użycie: bench matrix [--models a,b] [--tasks x,y] [--trials n]
- *                      [--history <dir>] [--force] [--root <dir>]
+ *                      [--history <dir>] [--force] [--batch] [--root <dir>]
  * (defaults jak w `bench run`: config.defaults.models / wszystkie zadania /
  * config.defaults.trials)
  */
@@ -29,7 +36,7 @@ import { findInstanceRoot, listTaskNames, loadConfig } from "../lib/instance.ts"
 import { eraKey, prospectiveEraKey } from "../lib/era.ts";
 import { ReportSchema } from "../schemas/report.ts";
 
-const USAGE = "usage: bench matrix [--models a,b] [--tasks x,y] [--trials n] [--history <dir>] [--force] [--root <dir>]";
+const USAGE = "usage: bench matrix [--models a,b] [--tasks x,y] [--trials n] [--history <dir>] [--force] [--batch] [--root <dir>]";
 
 /**
  * Historia z raportów: klucz ery → (model × zadanie) → max prób w jakimkolwiek
@@ -80,6 +87,7 @@ export async function matrixCommand(args: string[]): Promise<number> {
   let trials: number | null = null;
   let history: string | null = null;
   let force = false;
+  let batch = false;
   let rootArg = process.cwd();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -89,6 +97,7 @@ export async function matrixCommand(args: string[]): Promise<number> {
     else if (arg === "--trials") trials = Number(value());
     else if (arg === "--history") history = resolve(value() ?? "");
     else if (arg === "--force") force = true;
+    else if (arg === "--batch") batch = true;
     else if (arg === "--root") rootArg = resolve(value() ?? "");
     else {
       console.error(USAGE);
@@ -135,14 +144,25 @@ export async function matrixCommand(args: string[]): Promise<number> {
     }
 
     const sanitize = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-");
-    const include = cells.flatMap(({ model, task }) =>
-      Array.from({ length: chosenTrials }, (_, i) => ({
-        model,
-        task,
-        trial: i + 1,
-        slug: `${sanitize(model)}--${sanitize(task)}--t${i + 1}`,
-      })),
-    );
+    // --batch: grupowanie komórek per zadanie — job zbiorczy dostaje CSV
+    // modeli (tylko tych z brakami po skip-logic) i pełną liczbę prób.
+    const include = batch
+      ? [...cells.reduce((byTask, { model, task }) => byTask.set(task, [...(byTask.get(task) ?? []), model]), new Map<string, string[]>())].map(
+          ([task, taskModels]) => ({
+            task,
+            models: taskModels.join(","),
+            trials: chosenTrials,
+            slug: sanitize(task),
+          }),
+        )
+      : cells.flatMap(({ model, task }) =>
+          Array.from({ length: chosenTrials }, (_, i) => ({
+            model,
+            task,
+            trial: i + 1,
+            slug: `${sanitize(model)}--${sanitize(task)}--t${i + 1}`,
+          })),
+        );
     if (include.length === 0) console.error("bench matrix: wszystkie komórki zmierzone w bieżącej erze — nic do zrobienia");
     console.log(JSON.stringify({ include }));
     return 0;

@@ -6,6 +6,42 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.22.0 — 2026-08-26 (neutralny)
+
+**Wnioski z runu bench-platforma-edu utrąconego limitem billingowym GH
+Actions: joby zbiorcze tną minuty ~liczba-prób-razy, a wyniki prób są
+utrwalane od razu po ocenie — awaria agregacji nie przepala kosztu LLM.**
+Run 6 prób zapłacił ~305 job-minut za ~78 minut wall-clocku (job per
+próba = runner bezczynnie czekający na API modelu), po czym blokada
+billingowa ubiła aggregate i artefakty — opłacone wyniki przepadły.
+Zmiany wykonawcze, bez wpływu na scoring:
+
+- **`bench run --parallel` + `defaults.parallel`** (run.ts,
+  containers.ts, schemas/config.ts, bench.config.yaml). Próby biegną
+  w poolu równoczesnych kontenerów (`shAsync`; 1 = sekwencyjnie,
+  default schematu). Próba spędza większość czasu na czekaniu na API
+  modelu, więc równoległość tnie wall-clock niemal liniowo. Budżet
+  `max_cost_usd` zatrzymuje zlecanie nowych prób, nie ubija biegnących.
+  Sufit pamięci per kontener to nie rezerwacja — runner ostrzega, gdy
+  `parallel × memory_mb` przekracza pamięć maszyny silnika.
+- **`bench matrix --batch`** (matrix.ts). Jeden job = jedno zadanie
+  (`{task, models CSV, trials, slug}`) zamiast jobu per próba; billing
+  GH Actions liczy job-minuty, więc job zbiorczy z `--parallel` płaci
+  ~max(próba) zamiast sumy prób. Skip-logic bez zmian — per komórka;
+  `models` zawiera tylko modele z brakami w bieżącej erze.
+- **Utrwalanie wyników na bench-data od razu po ocenie**
+  (workflows/bench-run.yaml, permissions `contents: write`). Job próby
+  pcha result.json (jedyne wejście `bench report`, kilka KB/próba) na
+  gałąź bench-data pod `partials/<run_id>/<slug>/` (retry na wyścig
+  równoległych jobów). Aggregate scala artefakty CI z partials (te same
+  ścieżki względne) — utrata artefaktów (retencja, blokada billingowa
+  w połowie runu) nie przepala opłaconych prób: „re-run failed jobs"
+  odtwarza raport bez powtarzania prób.
+- **Sprzątanie partials w leaderboard** (workflows/leaderboard.yaml).
+  Run z raportem w `runs/<id>.json` ma trwały zapis — jego partials
+  schodzą z gałęzi; partials runów bez raportu zostają jako materiał
+  do odzyskania agregacji.
+
 ## 0.21.1 — 2026-08-26 (neutralny)
 
 - **bench-rubric bez rytuału PR** (bench-rubric/SKILL.md). Usunięta

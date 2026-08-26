@@ -53,6 +53,16 @@ export const BenchConfigSchema = z.object({
      * Brak pola = bez limitu (zachowanie legacy).
      */
     max_cost_usd: z.number().positive().optional(),
+    /**
+     * Równoczesne próby w obrębie jednego `bench run` (pool kontenerów).
+     * Próba spędza większość czasu na czekaniu na API modelu, więc
+     * równoległość tnie czas (i minuty CI przy jobach zbiorczych) niemal
+     * liniowo. UWAGA: resources.memory_mb to sufit per kontener, nie
+     * rezerwacja — parallel × memory_mb może przekraczać pamięć maszyny
+     * (runner GH ma ~7 GB); równoczesne piki grożą OOM killerem, dobierz
+     * do najcięższego zadania. 1 = zachowanie sekwencyjne (default).
+     */
+    parallel: z.number().int().positive().default(1),
   }),
   /**
    * Polityka środowiska oceny (decyzja wiringu instancji).

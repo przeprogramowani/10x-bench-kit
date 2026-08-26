@@ -41,6 +41,14 @@ defaults:
   # przekroczeniu. Zgoda człowieka jest potrzebna przy podnoszeniu budżetu,
   # nie przy każdym uruchomieniu; koszt faktyczny jest w report.json.
   max_cost_usd: 10
+  # Równoczesne próby w jednym `bench run` (pool kontenerów). Próba
+  # spędza większość czasu na czekaniu na API modelu, więc równoległość
+  # tnie wall-clock — a w CI job-minuty (billing per job-minuta; job
+  # zadania płaci ~max(próba) zamiast sumy prób). UWAGA: memory_mb to
+  # sufit per kontener, nie rezerwacja — parallel × memory_mb może
+  # przekraczać pamięć maszyny (runner GH: ~7 GB) i przy pamięciożernych
+  # zadaniach grozić OOM; runner ostrzega przy starcie. 1 = sekwencyjnie.
+  parallel: 2
 
 # Jawne limity zasobów kontenerów — prób agenta ORAZ oceny. Limit jest
 # stemplem ery (memory_limit_mb w result.json): jego zmiana zamyka erę

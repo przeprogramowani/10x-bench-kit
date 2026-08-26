@@ -97,6 +97,19 @@ jobs:
       - name: Wypchnij historię
         run: |
           cd data
+          # Sprzątanie partials (kopii roboczych prób pchanych przez joby
+          # bench-run): run z raportem w runs/<id>.json ma już trwały
+          # zapis — jego partials schodzą z gałęzi. Partials runów bez
+          # raportu zostają (materiał do odzyskania agregacji).
+          if [ -d partials ]; then
+            for dir in partials/*/; do
+              id="$(basename "$dir")"
+              if [ -f "runs/${id}.json" ]; then
+                git rm -r -q "$dir"
+                echo "usunięto partials/${id} (raport w runs/)"
+              fi
+            done
+          fi
           git add runs
           if git diff --cached --quiet; then
             echo "historia bez zmian"

@@ -2,12 +2,41 @@
  * Wspólna obsługa kontenerów — silnik (docker/podman) i obraz bazowy.
  * Używane przez run / evaluate / assert / validate --assert.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export function sh(cmd: string, args: string[], opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {}) {
   return spawnSync(cmd, args, { encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, ...opts });
+}
+
+/**
+ * Asynchroniczny odpowiednik sh() — dla równoległych prób (`bench run
+ * --parallel`): spawnSync blokuje pętlę zdarzeń, więc pool kontenerów
+ * potrzebuje wariantu na spawn. Ten sam kształt wyniku co sh()
+ * (status/stdout/stderr); timeout kończy proces SIGKILL-em.
+ */
+export function shAsync(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((done) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
+    let stdout = "";
+    let stderr = "";
+    const timer = opts.timeout ? setTimeout(() => child.kill("SIGKILL"), opts.timeout) : null;
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", (err) => {
+      if (timer) clearTimeout(timer);
+      done({ status: null, stdout, stderr: stderr + String(err) });
+    });
+    child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      done({ status: code, stdout, stderr });
+    });
+  });
 }
 
 export function must(cmd: string, args: string[], what: string, opts: Parameters<typeof sh>[2] = {}): string {

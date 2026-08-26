@@ -19,7 +19,12 @@
  *
  * Sekrety modeli przechodzą do kontenera wyłącznie przez env
  * (*_API_KEY oraz OPENCODE_*), nigdy nie są zapiekane w obraz.
- * Próby biegną sekwencyjnie — równoległość daje macierz w GH Actions.
+ * Próby biegną w poolu o rozmiarze --parallel (default:
+ * defaults.parallel z bench.config.yaml, 1 = sekwencyjnie). Próba
+ * spędza większość czasu na czekaniu na API modelu, więc równoległość
+ * na jednej maszynie tnie wall-clock (i minuty CI w jobie zbiorczym)
+ * niemal liniowo; sufit pamięci per kontener (resources.memory_mb) nie
+ * jest rezerwacją — patrz ostrzeżenie o przekroczeniu pamięci maszyny.
  *
  * `--smoke` = sprawdzenie rur po wiringu: 1 próba, tylko pierwszy model
  * z listy (jawnie wskaż tani przez --models), zadania jak podano.
@@ -37,13 +42,14 @@
  * Wyklucza się z --trials i --smoke.
  *
  * Użycie: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n]
- *                   [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]
+ *                   [--parallel n] [--smoke] [--out <dir>]
+ *                   [--engine docker|podman] [--root <dir>]
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
-import { detectEngine, ensureBaseImage, must, resourceLimitArgs, sh, signalFromExit } from "../lib/containers.ts";
+import { detectEngine, engineMemoryBytes, ensureBaseImage, must, resourceLimitArgs, sh, shAsync, signalFromExit } from "../lib/containers.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 import type { Task } from "../schemas/task.ts";
 
@@ -53,13 +59,14 @@ interface Options {
   tasks: string[] | null;
   trials: number | null;
   trialIndex: number | null;
+  parallel: number | null;
   smoke: boolean;
   out: string | null;
   engine: string | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), models: null, tasks: null, trials: null, trialIndex: null, smoke: false, out: null, engine: null };
+  const opts: Options = { root: process.cwd(), models: null, tasks: null, trials: null, trialIndex: null, parallel: null, smoke: false, out: null, engine: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
@@ -67,6 +74,7 @@ function parseArgs(args: string[]): Options | null {
     else if (arg === "--tasks") opts.tasks = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--trials") opts.trials = Number(value());
     else if (arg === "--trial-index") opts.trialIndex = Number(value());
+    else if (arg === "--parallel") opts.parallel = Number(value());
     else if (arg === "--smoke") opts.smoke = true;
     else if (arg === "--out") opts.out = resolve(value() ?? "");
     else if (arg === "--engine") opts.engine = value() ?? null;
@@ -75,6 +83,7 @@ function parseArgs(args: string[]): Options | null {
   }
   if (opts.trials !== null && (!Number.isInteger(opts.trials) || opts.trials < 1)) return null;
   if (opts.trialIndex !== null && (!Number.isInteger(opts.trialIndex) || opts.trialIndex < 1)) return null;
+  if (opts.parallel !== null && (!Number.isInteger(opts.parallel) || opts.parallel < 1)) return null;
   if (opts.trialIndex !== null && (opts.trials !== null || opts.smoke)) return null;
   if (opts.smoke && opts.trials !== null && opts.trials !== 1) return null;
   return opts;
@@ -187,7 +196,7 @@ export async function runCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
     console.error(
-      "usage: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n] [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]",
+      "usage: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n] [--parallel n] [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]",
     );
     return 2;
   }
@@ -243,14 +252,27 @@ export async function runCommand(args: string[]): Promise<number> {
       prepared.push(prepareTaskImage(engine, root, baseImage, name, task, url));
     }
 
-    // --- próby: model × zadanie × próba, sekwencyjnie, bez sieci do repo ---
+    // --- próby: model × zadanie × próba, pool --parallel, bez sieci do repo ---
     const envArgs = trialEnvNames().flatMap((name) => ["-e", name]);
     const budget = config.defaults.max_cost_usd ?? null;
     let spentUsd = 0;
     let overBudget = false;
     let failures = 0;
     let resourceKills = 0;
-    matrix: for (const { name, task, image, startSha } of prepared) {
+
+    interface TrialSpec {
+      name: string;
+      task: Task;
+      image: string;
+      startSha: string;
+      model: string;
+      trial: number;
+      memoryMb: number | null;
+      limitArgs: string[];
+      archiveArgs: string[];
+    }
+    const specs: TrialSpec[] = [];
+    for (const { name, task, image, startSha } of prepared) {
       // Jawny limit zasobów próby (OOM.md, warstwa 2): default instancji,
       // nadpisanie per zadanie; wartość idzie do trial.json i stempli ery.
       const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
@@ -263,135 +285,169 @@ export async function runCommand(args: string[]): Promise<number> {
       if (archive) console.log(`archive: ${name} → workspace.tar.gz per próba (pomijane: ${archive.exclude.join(", ") || "nic"})`);
       for (const model of models) {
         for (const trial of trialNumbers) {
-          const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
-          mkdirSync(trialDir, { recursive: true });
-          const label = `${name} × ${model} × próba ${trial}/${trialTotal}`;
-          const startedAt = new Date().toISOString();
+          specs.push({ name, task, image, startSha, model, trial, memoryMb, limitArgs, archiveArgs });
+        }
+      }
+    }
 
-          // Retry 1× przy przejściowej awarii providera — pusta próba
-          // z HTTP 500 wliczona do median to pomiar pogody, nie modelu.
-          // Ta sama mechanika dla kodów sygnałowych 128+N (OOM.md, warstwa 3):
-          // SIGKILL bez timeoutu to prawie zawsze wyczerpanie zasobów, nie
-          // praca modelu — retry raz, a powtórka = próba nieinterpretowalna.
-          let execution: { agent_exit: number; timed_out: boolean; wall_duration_s: number } | null = null;
-          let infraFailure = false;
-          let providerError = false;
-          let resourceKill = false;
-          let attempts = 0;
-          for (;;) {
-            attempts++;
-            console.log(`trial:  ${label} …`);
-            const result = sh(
-              engine,
-              ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, ...archiveArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
-              { timeout: (task.timeout_s + 300) * 1000 },
-            );
+    const parallel = Math.min(opts.parallel ?? config.defaults.parallel, specs.length);
+    if (parallel > 1) {
+      console.log(`parallel: pool ${parallel} równoczesnych prób`);
+      // Sufit per kontener to nie rezerwacja, ale równoczesne piki pamięci
+      // sumują się — przekroczenie pamięci maszyny grozi OOM killerem
+      // jądra (nieatrybuowalne SIGKILL-e prób). Ostrzegamy, nie blokujemy:
+      // realne zużycie zależy od zadania.
+      const maxMemoryMb = Math.max(...specs.map((s) => s.memoryMb ?? 0));
+      const machineBytes = engineMemoryBytes(engine);
+      if (maxMemoryMb > 0 && machineBytes !== null && parallel * maxMemoryMb * 1024 * 1024 > machineBytes) {
+        console.error(
+          `warn:  ${parallel} × limit ${maxMemoryMb} MiB > pamięć maszyny silnika (${Math.round(machineBytes / 1024 / 1024)} MiB) — ` +
+            "równoczesne piki grożą OOM; zmniejsz --parallel / defaults.parallel albo limity pamięci",
+        );
+      }
+    }
 
-            const executionPath = join(trialDir, "execution.json");
-            execution = existsSync(executionPath) ? JSON.parse(readFileSync(executionPath, "utf8")) : null;
-            infraFailure = result.status !== 0 || !execution;
-            providerError = !infraFailure && detectProviderError(trialDir, execution);
-            const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
-            if ((providerError || signal) && attempts === 1) {
-              const kind = providerError ? "provider-error" : "signal-kill";
-              const archive = join(trialDir, `${kind}-attempt-${attempts}`);
-              mkdirSync(archive);
-              for (const entry of readdirSync(trialDir)) {
-                if (!/^(provider-error|signal-kill)-attempt-/.test(entry)) renameSync(join(trialDir, entry), join(archive, entry));
-              }
-              const why = providerError
-                ? "awaria providera (5xx/429 w agent.log)"
-                : `agent zabity sygnałem (exit ${execution?.agent_exit} = ${signal?.name}${signal?.likely_oom ? ", prawdopodobnie OOM" : ""})`;
-              console.error(`trial:  ${label} — ${why}, retry próby; pierwsze podejście: ${archive}`);
-              continue;
-            }
-            if (signal) {
-              // Zabita także po retry: nieinterpretowalna — infra_failure
-              // wyłącza ją z oceny (bench evaluate pomija), zamiast wliczać
-              // zero albo przypadkowy wynik do median.
-              resourceKill = true;
-              resourceKills++;
-              const logPath = join(trialDir, "agent.log");
-              const logTail = existsSync(logPath) ? readFileSync(logPath, "utf8").slice(-4000) : null;
-              writeFileSync(
-                join(trialDir, "signal.json"),
-                JSON.stringify(
-                  {
-                    agent_exit: execution?.agent_exit,
-                    signal: signal.signal,
-                    signal_name: signal.name,
-                    likely_oom: signal.likely_oom,
-                    memory_limit_mb: memoryMb,
-                    hint: signal.likely_oom
-                      ? memoryMb !== null
-                        ? `SIGKILL przy limicie ${memoryMb} MiB — podnieś resources.memory_mb / task.memory_mb albo zapiecz środowisko polem prepare w task.yaml`
-                        : "SIGKILL bez jawnego limitu — najpewniej OOM killer maszyny silnika; ustaw resources.memory_mb (atrybucja) i sprawdź pamięć maszyny (bench doctor)"
-                      : "kod sygnałowy bez timeoutu — sprawdź agent.log i stabilność środowiska",
-                    agent_log_tail: logTail,
-                  },
-                  null,
-                  2,
-                ) + "\n",
-              );
-              console.error(
-                `trial:  ${label} — ZABITA sygnałem ${signal.name} także po retry (${signal.likely_oom ? "prawdopodobnie OOM" : "przyczyna nieznana"}); ` +
-                  `próba nieinterpretowalna, wyłączona z oceny; diagnostyka: ${trialDir}/signal.json`,
-              );
-            } else if (infraFailure) {
-              failures++;
-              writeFileSync(join(trialDir, "container.log"), (result.stdout ?? "") + (result.stderr ?? ""));
-              console.error(`trial:  ${label} — AWARIA infrastruktury (kod ${result.status}); szczegóły: ${trialDir}/container.log`);
-            } else if (execution && execution.timed_out) {
-              console.log(`trial:  ${label} — TIMEOUT po ${task.timeout_s}s (artefakty częściowe zapisane)`);
-            } else if (execution) {
-              const note = providerError ? ", provider_error także po retry" : "";
-              console.log(`trial:  ${label} — zakończona (agent exit ${execution.agent_exit}, ${execution.wall_duration_s}s${note})`);
-            }
-            break;
+    const runTrial = async ({ name, task, image, startSha, model, trial, memoryMb, limitArgs, archiveArgs }: TrialSpec) => {
+      const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
+      mkdirSync(trialDir, { recursive: true });
+      const label = `${name} × ${model} × próba ${trial}/${trialTotal}`;
+      const startedAt = new Date().toISOString();
+
+      // Retry 1× przy przejściowej awarii providera — pusta próba
+      // z HTTP 500 wliczona do median to pomiar pogody, nie modelu.
+      // Ta sama mechanika dla kodów sygnałowych 128+N (OOM.md, warstwa 3):
+      // SIGKILL bez timeoutu to prawie zawsze wyczerpanie zasobów, nie
+      // praca modelu — retry raz, a powtórka = próba nieinterpretowalna.
+      let execution: { agent_exit: number; timed_out: boolean; wall_duration_s: number } | null = null;
+      let infraFailure = false;
+      let providerError = false;
+      let resourceKill = false;
+      let attempts = 0;
+      for (;;) {
+        attempts++;
+        console.log(`trial:  ${label} …`);
+        const result = await shAsync(
+          engine,
+          ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, ...archiveArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
+          { timeout: (task.timeout_s + 300) * 1000 },
+        );
+
+        const executionPath = join(trialDir, "execution.json");
+        execution = existsSync(executionPath) ? JSON.parse(readFileSync(executionPath, "utf8")) : null;
+        infraFailure = result.status !== 0 || !execution;
+        providerError = !infraFailure && detectProviderError(trialDir, execution);
+        const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
+        if ((providerError || signal) && attempts === 1) {
+          const kind = providerError ? "provider-error" : "signal-kill";
+          const archive = join(trialDir, `${kind}-attempt-${attempts}`);
+          mkdirSync(archive);
+          for (const entry of readdirSync(trialDir)) {
+            if (!/^(provider-error|signal-kill)-attempt-/.test(entry)) renameSync(join(trialDir, entry), join(archive, entry));
           }
-
+          const why = providerError
+            ? "awaria providera (5xx/429 w agent.log)"
+            : `agent zabity sygnałem (exit ${execution?.agent_exit} = ${signal?.name}${signal?.likely_oom ? ", prawdopodobnie OOM" : ""})`;
+          console.error(`trial:  ${label} — ${why}, retry próby; pierwsze podejście: ${archive}`);
+          continue;
+        }
+        if (signal) {
+          // Zabita także po retry: nieinterpretowalna — infra_failure
+          // wyłącza ją z oceny (bench evaluate pomija), zamiast wliczać
+          // zero albo przypadkowy wynik do median.
+          resourceKill = true;
+          resourceKills++;
+          const logPath = join(trialDir, "agent.log");
+          const logTail = existsSync(logPath) ? readFileSync(logPath, "utf8").slice(-4000) : null;
           writeFileSync(
-            join(trialDir, "trial.json"),
+            join(trialDir, "signal.json"),
             JSON.stringify(
               {
-                run_id: runId,
-                task: name,
-                model,
-                trial,
-                image,
-                start_sha: startSha,
-                pinned_commit: task.commit,
-                started_at: startedAt,
-                finished_at: new Date().toISOString(),
-                infra_failure: infraFailure || resourceKill,
-                provider_error: providerError,
-                resource_kill: resourceKill,
+                agent_exit: execution?.agent_exit,
+                signal: signal.signal,
+                signal_name: signal.name,
+                likely_oom: signal.likely_oom,
                 memory_limit_mb: memoryMb,
-                attempts,
-                execution,
+                hint: signal.likely_oom
+                  ? memoryMb !== null
+                    ? `SIGKILL przy limicie ${memoryMb} MiB — podnieś resources.memory_mb / task.memory_mb albo zapiecz środowisko polem prepare w task.yaml`
+                    : "SIGKILL bez jawnego limitu — najpewniej OOM killer maszyny silnika; ustaw resources.memory_mb (atrybucja) i sprawdź pamięć maszyny (bench doctor)"
+                  : "kod sygnałowy bez timeoutu — sprawdź agent.log i stabilność środowiska",
+                agent_log_tail: logTail,
               },
               null,
               2,
             ) + "\n",
           );
+          console.error(
+            `trial:  ${label} — ZABITA sygnałem ${signal.name} także po retry (${signal.likely_oom ? "prawdopodobnie OOM" : "przyczyna nieznana"}); ` +
+              `próba nieinterpretowalna, wyłączona z oceny; diagnostyka: ${trialDir}/signal.json`,
+          );
+        } else if (infraFailure) {
+          failures++;
+          writeFileSync(join(trialDir, "container.log"), (result.stdout ?? "") + (result.stderr ?? ""));
+          console.error(`trial:  ${label} — AWARIA infrastruktury (kod ${result.status}); szczegóły: ${trialDir}/container.log`);
+        } else if (execution && execution.timed_out) {
+          console.log(`trial:  ${label} — TIMEOUT po ${task.timeout_s}s (artefakty częściowe zapisane)`);
+        } else if (execution) {
+          const note = providerError ? ", provider_error także po retry" : "";
+          console.log(`trial:  ${label} — zakończona (agent exit ${execution.agent_exit}, ${execution.wall_duration_s}s${note})`);
+        }
+        break;
+      }
 
-          // Budżet runu: przerwij, zanim kolejna próba wyda kolejne dolary.
-          if (budget !== null) {
-            const metricsPath = join(trialDir, "metrics.json");
-            const metrics = existsSync(metricsPath) ? JSON.parse(readFileSync(metricsPath, "utf8")) : {};
-            spentUsd += typeof metrics.cost_usd === "number" ? metrics.cost_usd : 0;
-            if (spentUsd > budget) {
-              overBudget = true;
-              console.error(
-                `budget: przekroczony defaults.max_cost_usd ($${spentUsd.toFixed(4)} > $${budget}) — przerywam run; ` +
-                  "podnieś budżet w bench.config.yaml, jeśli to świadoma decyzja",
-              );
-              break matrix;
-            }
-          }
+      writeFileSync(
+        join(trialDir, "trial.json"),
+        JSON.stringify(
+          {
+            run_id: runId,
+            task: name,
+            model,
+            trial,
+            image,
+            start_sha: startSha,
+            pinned_commit: task.commit,
+            started_at: startedAt,
+            finished_at: new Date().toISOString(),
+            infra_failure: infraFailure || resourceKill,
+            provider_error: providerError,
+            resource_kill: resourceKill,
+            memory_limit_mb: memoryMb,
+            attempts,
+            execution,
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+
+      // Budżet runu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
+      // (pool sprawdza flagę przed startem każdej próby; próby już
+      // biegnące kończą się normalnie).
+      if (budget !== null) {
+        const metricsPath = join(trialDir, "metrics.json");
+        const metrics = existsSync(metricsPath) ? JSON.parse(readFileSync(metricsPath, "utf8")) : {};
+        spentUsd += typeof metrics.cost_usd === "number" ? metrics.cost_usd : 0;
+        if (spentUsd > budget && !overBudget) {
+          overBudget = true;
+          console.error(
+            `budget: przekroczony defaults.max_cost_usd ($${spentUsd.toFixed(4)} > $${budget}) — przerywam run; ` +
+              "podnieś budżet w bench.config.yaml, jeśli to świadoma decyzja",
+          );
         }
       }
-    }
+    };
+
+    // Pool: `parallel` torów zdejmuje próby z listy w kolejności macierzy;
+    // przekroczony budżet zatrzymuje zlecanie nowych, nie ubija biegnących.
+    let nextSpec = 0;
+    await Promise.all(
+      Array.from({ length: parallel }, async () => {
+        while (nextSpec < specs.length && !overBudget) {
+          const spec = specs[nextSpec++] as TrialSpec;
+          await runTrial(spec);
+        }
+      }),
+    );
 
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
     const killNote = resourceKills

@@ -24,8 +24,11 @@ name: bench-run
 # packages: write — obrazy (bazowy + zadań) idą przez GHCR pakietów repo:
 # zbudowane raz, reużywane przez wszystkie joby i kolejne runy (pull warstw
 # zamiast docker save/load tar przez actions/cache).
+# contents: write — joby prób utrwalają result.json na gałęzi bench-data
+# (partials/<run_id>/) od razu po ocenie; artefakty CI potrafią zniknąć
+# (retencja, blokada billingowa w połowie runu), gałąź nie.
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 on:
@@ -43,6 +46,10 @@ on:
         description: "Prób na (model × zadanie). Puste = defaults.trials"
         required: false
         type: string
+      parallel:
+        description: "Równoczesne próby w jobie zadania. Puste = defaults.parallel z bench.config.yaml"
+        required: false
+        type: string
       force:
         description: "Wymuś re-run: ignoruj wyniki z bench-data (skip-logic)"
         required: false
@@ -54,6 +61,7 @@ env:
   MODELS_ARG: ${{ inputs.models != '' && format('--models {0}', inputs.models) || '' }}
   TASKS_ARG: ${{ inputs.tasks != '' && format('--tasks {0}', inputs.tasks) || '' }}
   TRIALS_ARG: ${{ inputs.trials != '' && format('--trials {0}', inputs.trials) || '' }}
+  PARALLEL_ARG: ${{ inputs.parallel != '' && format('--parallel {0}', inputs.parallel) || '' }}
   FORCE_ARG: ${{ inputs.force == true && '--force' || '' }}
 
 jobs:
@@ -111,15 +119,17 @@ jobs:
           if [ "${{ steps.history.outputs.exists }}" = "true" ]; then
             HISTORY_ARG="--history $GITHUB_WORKSPACE/bench-data/runs"
           fi
-          MATRIX="$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG $HISTORY_ARG $FORCE_ARG)"
+          MATRIX="$(npm run bench --prefix .bench-kit/runner --silent -- matrix --batch --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG $HISTORY_ARG $FORCE_ARG)"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "count=$(echo "$MATRIX" | jq '.include | length')" >> "$GITHUB_OUTPUT"
 
-  # Jeden job = model × zadanie × próba — próby biegną RÓWNOLEGLE, więc
-  # wall-clock runu ≈ najdłuższa pojedyncza próba, nie trials × próba
-  # (koszt minut GH jest ten sam: billing per job-minuta). Obrazy (bazowy +
-  # zadań) idą przez GHCR: joby po chybieniu budują i wypychają, kolejne
-  # ściągają — rozmnożenie jobów nie mnoży budowań w ciepłym runie.
+  # Jeden job = jedno ZADANIE (macierz --batch): wszystkie jego modele ×
+  # próby biegną w jednym jobie przez `bench run --parallel` — próba
+  # spędza większość czasu na czekaniu na API modelu, więc job zbiorczy
+  # płaci ~max(próba) job-minut zamiast sumy prób (kilkukrotnie mniej niż
+  # job per próba przy tym samym wall-clocku). Obrazy (bazowy + zadań)
+  # idą przez GHCR: joby po chybieniu budują i wypychają, kolejne
+  # ściągają. Uwaga: awaria joba = re-run całej paczki zadania.
   trial:
     needs: plan
     # count 0 = wszystko już zmierzone w bieżącej erze (skip-logic) — job
@@ -199,8 +209,8 @@ jobs:
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- run \
             --root "$GITHUB_WORKSPACE" \
-            --models "${{ matrix.model }}" --tasks "${{ matrix.task }}" \
-            --trial-index "${{ matrix.trial }}" \
+            --models "${{ matrix.models }}" --tasks "${{ matrix.task }}" \
+            --trials "${{ matrix.trials }}" $PARALLEL_ARG \
             --out "$GITHUB_WORKSPACE/out/run"
       - name: bench evaluate
         run: |
@@ -229,6 +239,53 @@ jobs:
           path: out/run
           if-no-files-found: warn
 
+      # Utrwalenie wyników od razu po ocenie: result.json (jedyne, czego
+      # potrzebuje `bench report`, kilka KB per próba) idzie na gałąź
+      # bench-data pod partials/<run_id>/<slug>/ z zachowaniem układu
+      # katalogów runu. Artefakty CI potrafią zniknąć (retencja, blokada
+      # billingowa w połowie runu) — gałąź nie; aggregate scala artefakty
+      # z partials, więc opłacone próby przeżywają awarię agregacji,
+      # a "re-run failed jobs" odtwarza raport bez powtarzania prób.
+      # Token tylko w konfiguracji klonu /tmp — kontenery prób dostają
+      # wyłącznie *_API_KEY/OPENCODE_* i dawno nie żyją.
+      - name: Utrwal wyniki (bench-data/partials)
+        if: always()
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ ! -d out/run ] || ! find out/run -name result.json | grep -q .; then
+            echo "brak result.json — nic do utrwalenia"
+            exit 0
+          fi
+          REMOTE="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          DEST="partials/${{ github.run_id }}/${{ matrix.slug }}"
+          # Równoległe joby pchają na tę samą gałąź — przegrany wyścigu
+          # klonuje od nowa i ponawia (rozłączne ścieżki, konflikt niemożliwy).
+          for attempt in 1 2 3 4 5; do
+            rm -rf /tmp/bench-data
+            if ! git clone -q --depth 1 --branch bench-data "$REMOTE" /tmp/bench-data 2>/dev/null; then
+              git init -q -b bench-data /tmp/bench-data
+              git -C /tmp/bench-data remote add origin "$REMOTE"
+            fi
+            rm -rf "/tmp/bench-data/$DEST"
+            mkdir -p "/tmp/bench-data/$DEST"
+            (cd out/run && find . -name result.json -exec cp --parents {} "/tmp/bench-data/$DEST/" \;)
+            git -C /tmp/bench-data add -A
+            if git -C /tmp/bench-data diff --cached --quiet; then
+              echo "partials bez zmian"
+              exit 0
+            fi
+            git -C /tmp/bench-data -c user.name=bench-kit -c user.email=bench-kit@users.noreply.github.com \
+              commit -q -m "bench-data: partials ${{ github.run_id }}/${{ matrix.slug }}"
+            if git -C /tmp/bench-data push -q origin bench-data; then
+              echo "utrwalono $DEST"
+              exit 0
+            fi
+            echo "push odrzucony (wyścig jobów) — ponawiam ($attempt/5)"
+            sleep $((RANDOM % 5 + 1))
+          done
+          echo "::error::nie udało się utrwalić wyników na bench-data po 5 podejściach"
+          exit 1
+
   # Agregacja: mediana, pass@k, koszt runu → report.json jako artefakt.
   # (Leaderboard/dashboard celowo później — surowe JSON-y wystarczą.)
   aggregate:
@@ -250,6 +307,29 @@ jobs:
           pattern: results-*
           path: out/run
           merge-multiple: true
+
+      # Drugie źródło wyników: partials tego runu z bench-data — te same
+      # ścieżki względne co artefakty (nadpisanie idempotentne), więc
+      # raport powstaje także wtedy, gdy artefakty przepadły (np. blokada
+      # billingowa w połowie runu) — wystarczy "re-run failed jobs".
+      - name: Uzupełnij wyniki z bench-data (partials)
+        run: |
+          REMOTE="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+          if ! git clone -q --depth 1 --branch bench-data "$REMOTE" /tmp/bench-data 2>/dev/null; then
+            echo "gałąź bench-data nie istnieje — tylko artefakty"
+            exit 0
+          fi
+          SRC="/tmp/bench-data/partials/${{ github.run_id }}"
+          if [ ! -d "$SRC" ]; then
+            echo "brak partials dla runu ${{ github.run_id }} — tylko artefakty"
+            exit 0
+          fi
+          mkdir -p out/run
+          for slug_dir in "$SRC"/*/; do
+            cp -R "${slug_dir}." out/run/
+          done
+          echo "scalono partials: $(find "$SRC" -name result.json | wc -l) result.json"
+
       - name: bench report
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- report \
