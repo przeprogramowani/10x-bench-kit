@@ -2,8 +2,9 @@
 # Cykl pojedynczej próby — uruchamiany PID 1 w jednorazowym kontenerze.
 #
 # Zapieczone w obrazie: /workspace (repo@pin + overlay, commit startowy),
-# /bench/prompt.md, /bench/start-sha. Zamontowane: /bench/out (artefakty).
-# Sekrety modeli przychodzą przez env (-e), nigdy nie są w obrazie.
+# /bench/prompt.md, /bench/start-sha. Zamontowane: /bench/out (katalog
+# zachowanej próby — ATTEMPT_FORMAT.md). Sekrety modeli przychodzą przez
+# env (-e), nigdy nie są w obrazie.
 #
 # Użycie: trial.sh <model> <timeout_s>
 set -u
@@ -29,19 +30,14 @@ wall_s=$((end_epoch - start_epoch))
 git add -A
 git diff --cached --binary "$(cat /bench/start-sha)" >"$out/patch.diff"
 
-# Archiwum workspace'u (obserwowalność, nie scoring): włączane per zadanie
-# przez artifacts.workspace w bench.config.yaml (runner podaje env).
-# Stan /workspace po pracy agenta — także po timeoucie — do pobrania,
-# rozpakowania i ręcznego uruchomienia poza benchmarkiem.
-if [ "${BENCH_ARCHIVE_WORKSPACE:-0}" = "1" ]; then
-  tar_args=()
-  IFS=',' read -r -a excludes <<<"${BENCH_ARCHIVE_EXCLUDE:-}"
-  for pattern in ${excludes[@]:+"${excludes[@]}"}; do
-    [ -n "$pattern" ] && tar_args+=("--exclude=./$pattern")
-  done
-  tar -czf "$out/workspace.tar.gz" -C /workspace ${tar_args[@]:+"${tar_args[@]}"} . ||
-    echo "bench: archiwizacja workspace nie powiodła się (exit $?)" >>"$out/agent.log"
-fi
+# Workspace po pracy agenta — ZAWSZE zachowywany (kontrakt zachowanej
+# próby, ATTEMPT_FORMAT.md): stan /workspace — także po timeoucie —
+# trafia do katalogu próby jako workspace/ (poza gitem, .gitignore).
+# To surowiec dla sędziego-z-narzędziami (rate-attempt): build, testy,
+# uruchomienie aplikacji na kopii tego katalogu.
+rm -rf "$out/workspace"
+cp -a /workspace "$out/workspace" ||
+  echo "bench: zachowanie workspace nie powiodło się (exit $?)" >>"$out/agent.log"
 
 # Metryki ze storage OpenCode (świeży XDG_DATA_HOME tej próby).
 node --experimental-sqlite /bench/metrics-adapter.mjs \

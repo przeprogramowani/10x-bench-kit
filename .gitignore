@@ -1,7 +1,10 @@
 node_modules/
 dist/
-*.log
 .DS_Store
 out/
+# Zachowane próby (ATTEMPT_FORMAT.md): metadane i patch.diff są commitowalne,
+# workspace'y (GB) żyją wyłącznie na dysku — poza gitem; logi łapie *.log.
+attempts/**/workspace/
+*.log
 # Lokalne klony rep bazowych (konwencja .repos/<nazwa> — patrz AGENTS.md).
 .repos/

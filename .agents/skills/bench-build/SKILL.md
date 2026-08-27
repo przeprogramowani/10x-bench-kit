@@ -120,8 +120,8 @@ no `bench` executable in PATH — the shorthand names the runner
 entrypoint, which is benchmark internals. **You run it; never hand the
 user a `bench …` command to execute.** When execution needs an
 environment you lack (API keys, containers), the user-facing options
-are: providing keys to this session, or dispatching the `bench-run`
-workflow in GitHub Actions — phrased that way, not as runner commands.
+are: providing keys to this session (the benchmark runs locally on
+the operator machine) — phrased that way, not as runner commands.
 
 ## Procedure
 
@@ -239,23 +239,18 @@ states, not declarations" applies to the build itself, not just to
 runs. Do not fix a subagent's work yourself — a failed order
 goes back into the queue with a diagnosis, not with your patch.
 
-**Workspace archive is applied by you, not the subagent.** When an
-order with `Workspace archive: yes` reaches `done`, add its entry to
-`artifacts.workspace` in `bench.config.yaml` (with the `exclude` from
-the order, if any) — a single writer, because the config is shared and
-parallel subagents must not edit it (rule 5); subagents do not need to
-know about archiving at all. Only for `done` orders — an entry for a
-refused task would trip the `bench validate` warning about a
-nonexistent task. Observability, not scoring: the section lives
-outside `task_hash`, so this edit does not close any era. A
-working-tree edit like every other (rule 3).
+**Workspace preservation needs no configuration.** Every trial keeps
+its full post-agent workspace on disk as part of the preserved-attempt
+contract (`attempts/<task>/<model>/trial-N/workspace/`,
+`.bench-kit/ATTEMPT_FORMAT.md`) — there is nothing to switch on per
+task. Legacy orders carrying a `Workspace archive` decision are simply
+satisfied by that default; do not edit the config for them.
 
 ### 5. Next step
 
 End your summary response with a **Next step** section: batch status
 (how many tasks are ready in the working tree — with file lists and
-per-task reports, which tasks got an `artifacts.workspace` entry in
-`bench.config.yaml`, how many orders went back to `pending`, total
+per-task reports, how many orders went back to `pending`, total
 costs),
 **one** recommendation with a one-sentence justification, at most two
 alternatives with a price, and — separately — what awaits a human
@@ -270,18 +265,17 @@ it. Typical transitions:
   (bench-new-task) or re-run bench-build on the subset.
 - **Reports note a deferred smoke test (no secrets in the session)** →
   after the user accepts the files, one trial
-  `bench run --smoke` on all of the batch's new tasks at once, in an
-  environment with keys — you run it once the user provides keys to the
-  session, or it runs as a `bench-run` workflow dispatch in CI (never
-  ask the user to run `bench` themselves) — before the full
-  run, as the batch gate. The smoke run doubles as the **solvability
+  `bench attempt --smoke` on all of the batch's new tasks at once, in
+  an environment with keys — you run it once the user provides keys to
+  the session (never ask the user to run `bench` themselves) — before
+  the full run, as the batch gate. The smoke run doubles as the **solvability
   probe** (there is no reference implementation): an assertion that no
   smoke attempt greens is suspect-harness — flag it for diagnosis
   instead of letting it count against models.
 - **A report's full-run cost projection exceeds `max_cost_usd`** →
-  surface it here, before anything is dispatched: the recommendation is
-  a single-model dispatch (or the smoke gate alone) first, with the
+  surface it here, before anything runs: the recommendation is
+  a single-model run (or the smoke gate alone) first, with the
   budget raise listed under "awaits a human decision" — a full matrix
   that truncates mid-run wastes the spend and yields a partial,
   misleading leaderboard.
-- **Tasks ready and accepted by the user** → full run.
+- **Tasks ready and accepted by the user** → full run via **bench-measure**.

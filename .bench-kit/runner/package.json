@@ -2,7 +2,7 @@
   "name": "@przeprogramowani/bench-runner",
   "version": "0.1.0",
   "private": true,
-  "description": "Runner benchmarku agentów AI — run / evaluate / validate / report",
+  "description": "Runner benchmarku agentów AI — attempt / evaluate / validate / report (local-first)",
   "type": "module",
   "bin": {
     "bench": "./dist/index.js"

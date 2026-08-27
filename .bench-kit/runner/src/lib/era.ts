@@ -1,19 +1,16 @@
 /**
  * Tożsamość ery porównywalności — jedno źródło prawdy dla evaluate
- * (stemplowanie wyników), report/leaderboard (grupowanie) i matrix
- * (skip-logic: pomiń komórki już zmierzone w bieżącej erze).
+ * (stemplowanie wyników) i report/leaderboard (grupowanie).
  *
  * Klucz ery to krotka (scoring_version, task_hash, judge_model,
- * rubric_version) — wszystkie składniki są deterministyczne i policzalne
- * PRZED uruchomieniem prób, więc `bench matrix` może wyznaczyć erę
- * prospektywnie i porównać ją z historią raportów z gałęzi bench-data.
+ * rubric_version). Era OCENY jest odklejona od ery wykonania —
+ * zmiana rubryki wersjonuje wyniki (re-ocena zachowanych prób),
+ * nie unieważnia samych prób.
  */
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parseRubric } from "./judge.ts";
-import { loadTask } from "./instance.ts";
-import type { BenchConfig } from "../schemas/config.ts";
 import type { Result } from "../schemas/result.ts";
 
 /** SHA-256 katalogu zadania: posortowane ścieżki względne + treści plików. */
@@ -77,21 +74,3 @@ export function eraKey(
   ]);
 }
 
-/**
- * Prospektywny klucz ery zadania — era, w której wylądowałby wynik, gdyby
- * próba pobiegła TERAZ. Liczony z tych samych źródeł co stemple w
- * `bench evaluate`; rozjazd między nimi psuje skip-logic, więc oba
- * korzystają z funkcji tego modułu.
- */
-export function prospectiveEraKey(root: string, config: BenchConfig, taskName: string): string {
-  const scoringVersion = readFileSync(join(root, ".bench-kit", "SCORING_VERSION"), "utf8").trim();
-  const task = loadTask(root, taskName);
-  const judgeRefs = task.evaluation.filter((ref) => ref.startsWith("judge/"));
-  return eraKey({
-    template_version: scoringVersion,
-    scoring_version: scoringVersion,
-    task_hash: hashTaskDir(join(root, "tasks", taskName)),
-    judge_model: config.judge.model,
-    rubric_version: rubricVersionStamp(root, judgeRefs, config.judge.rubric_version),
-  });
-}

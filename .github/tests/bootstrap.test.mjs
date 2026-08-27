@@ -509,3 +509,30 @@ test("kontrakt: niekompletny template (brak VERSION) → template_incomplete", (
     "template_incomplete",
   );
 });
+
+test("update: wycofane workflowy (bench-run/bench-cell) znikają, gdy nowy template ich nie wysyła", () => {
+  const { target } = initInstance("0.1.0");
+  // Instancja z czasów wykonania w CI: oba wycofane workflowy na miejscu.
+  writeFileSync(join(target, ".github", "workflows", "bench-cell.yaml"), "name: bench-cell (0.1.0)\n");
+  spawnSync("git", ["add", "-A"], { cwd: target });
+  spawnSync("git", ["commit", "-m", "pre-pivot workflows"], { cwd: target });
+
+  // Nowy template po pivocie local-first: leaderboard zamiast bench-run.
+  const newTemplate = buildTemplateFixture("0.2.0");
+  rmSync(join(newTemplate, ".bench-kit", "workflows", "bench-run.yaml"));
+  writeFileSync(
+    join(newTemplate, ".bench-kit", "workflows", "leaderboard.yaml"),
+    "name: leaderboard (0.2.0)\n",
+  );
+
+  const response = runBootstrap(baseRequest(newTemplate, target, { mode: "update" }));
+  assert.equal(response.ok, true);
+  // Wycofane usunięte, nowy zainstalowany, usunięcia zliczone.
+  assert.equal(existsSync(join(target, ".github", "workflows", "bench-run.yaml")), false);
+  assert.equal(existsSync(join(target, ".github", "workflows", "bench-cell.yaml")), false);
+  assert.equal(
+    readFileSync(join(target, ".github", "workflows", "leaderboard.yaml"), "utf8"),
+    "name: leaderboard (0.2.0)\n",
+  );
+  assert.equal(response.zones.workflows.removed, 2);
+});

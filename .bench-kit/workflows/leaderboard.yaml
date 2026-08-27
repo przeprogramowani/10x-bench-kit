@@ -1,16 +1,17 @@
 # Workflow publikacji leaderboardu. `bench-kit init`/`update` kopiuje go do
 # .github/workflows/ instancji.
 #
-# Źródło prawdy: gałąź `bench-data`.
-# - `results/` — kanoniczne drzewo wyników (result.json kluczowane treścią:
-#   zadanie / era / model / próba), zasilane PR-ami z workflow bench-cell,
-#   które merguje owner benchmarku. Agregacja (mediany, pass@k) liczy się
-#   tutaj, przy publikacji — `bench report` na całym drzewie.
-# - `runs/<run_id>.json` — raporty LEGACY sprzed modelu per komórka;
-#   zostają na gałęzi i dalej zasilają historię er dashboardu.
+# Źródło prawdy: katalog `results/` w repo instancji (gałąź domyślna) —
+# kanoniczne drzewo wyników (results/<zadanie>/<model>/trial-<n>/
+# result.json + judge.json), zasilane lokalnie przez `bench evaluate`
+# i commitowane przez operatora. Agregacja (mediany, pass@k, grupowanie
+# w ery po stemplach) liczy się przy publikacji — `bench report` na całym
+# drzewie. To już tylko statyczny build — GHA jako publikacja, nie jako
+# substrat wykonania.
 #
 # Triggery:
-# - push na bench-data (= merge PR-a z wynikami): przebudowa i publikacja,
+# - push na gałąź domyślną dotykający results/ (= operator scommitował
+#   wyniki): przebudowa i publikacja,
 # - workflow_dispatch: ręczna przebudowa.
 #
 # Cele publikacji (wszystkie warunkowe, dashboard zawsze zostaje
@@ -27,7 +28,10 @@ name: leaderboard
 
 on:
   push:
-    branches: [bench-data]
+    branches: [master, main]
+    paths:
+      - "results/**"
+      - ".bench-kit/**"
   workflow_dispatch: {}
 
 permissions:
@@ -47,11 +51,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      # Instancja (runner + config) z gałęzi domyślnej — push-event
-      # wskazuje bench-data, więc ref jawnie.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -59,34 +59,24 @@ jobs:
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - run: npm ci --prefix .bench-kit/runner
 
-      - uses: actions/checkout@v4
-        with:
-          ref: bench-data
-          path: data
-
-      # Historia dla dashboardu: raporty legacy (runs/) + jeden raport
-      # zsyntetyzowany z całego drzewa results/ — `bench report` grupuje
-      # po erach, więc stare i nowe ery nigdy się nie mieszają.
-      - name: Zbuduj historię raportów
+      # Historia dla dashboardu: jeden raport zsyntetyzowany z całego
+      # drzewa results/ — `bench report` grupuje po erach (stemple
+      # w result.json), więc stare i nowe ery nigdy się nie mieszają.
+      - name: Zbuduj raport z results/
         run: |
           mkdir -p /tmp/history
-          if compgen -G "data/runs/*.json" >/dev/null; then
-            cp data/runs/*.json /tmp/history/
-            echo "legacy: $(ls data/runs/*.json | wc -l) raport(ów) z runs/"
-          fi
-          if [ -d data/results ] && find data/results -name result.json | grep -q .; then
+          if [ -d results ] && find results -name result.json | grep -q .; then
             npm run bench --prefix .bench-kit/runner --silent -- report \
-              --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/data/results" \
+              --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/results" \
               --out /tmp/history/results.json
-          fi
-          if ! compgen -G "/tmp/history/*.json" >/dev/null; then
-            echo "::error::bench-data bez wyników (ani results/, ani runs/) — nie ma z czego zbudować dashboardu"
+          else
+            echo "::error::brak wyników w results/ — nie ma z czego zbudować dashboardu"
             exit 1
           fi
 
       # --root: dashboard pokazuje wyłącznie zadania istniejące w tasks/
-      # instancji — historia zadań usuniętych zostaje na bench-data, ale
-      # nie zaśmieca UI.
+      # instancji — historia zadań usuniętych zostaje w gicie, ale nie
+      # zaśmieca UI.
       - name: bench leaderboard
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- leaderboard \

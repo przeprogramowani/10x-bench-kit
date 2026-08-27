@@ -43,7 +43,7 @@ export const TaskSchema = z.object({
   expires: z.iso.date().optional(),
   /**
    * Opcjonalna komenda przygotowania środowiska (bash), zapiekana w obraz
-   * zadania na etapie `prepare` w `bench run` — biegnie RAZ na zadanie,
+   * zadania na etapie `prepare` w `bench attempt` — biegnie RAZ na zadanie,
    * w /workspace, z siecią (etap przygotowania). Płacisz instalację
    * zależności raz na obraz zamiast raz na wywołanie oceny; kontener
    * próby agenta i kontener oceny startują z gotowym środowiskiem.

@@ -27,4 +27,5 @@ Zasady:
 - format jest wejściem dla `result.json` (patrz
   `runner/src/schemas/result.ts`).
 
-Implementacja adaptera dojdzie wraz z `bench run`.
+Adapter uruchamia trial.sh na końcu każdej próby (`bench attempt`) —
+metrics.json jest częścią kontraktu zachowanej próby (ATTEMPT_FORMAT.md).

@@ -130,8 +130,9 @@ zone, and your fix would race with neighbors building in parallel.
   skill).
 - `bench validate --assert` — the full gate + verification of the
   `reference` declarations on the starting state.
-- `bench run --tasks <name> --models <cheap-model> --trials 1` +
-  `bench evaluate --run <dir>` — a trial full cycle (step 6).
+- `bench attempt <name> <cheap-model> --trials 1` +
+  `bench evaluate --attempt <dir> --no-write-results` — a trial full
+  cycle producing a preserved attempt (step 6).
 
 ## Procedure
 
@@ -383,8 +384,9 @@ each must pass before you move on:
    score (the calibrated floor is re-proven later by bench-rubric's
    empty-diff probe). For a bugfix task on the guard-observed route,
    the red guard from step 2 is additional evidence.
-4. A trial `bench run --smoke --tasks <name> --models <cheap-model>` +
-   `bench evaluate` (the instance budget guards costs — rule 6) —
+4. A trial `bench attempt --smoke --tasks <name> --models
+   <cheap-model>` + `bench evaluate` (the instance budget guards
+   costs — rule 6) —
    **provided the session has provider API keys**. The smoke run is
    also the **solvability probe**: with no reference implementation,
    real attempts are the first green-direction evidence. An assertion

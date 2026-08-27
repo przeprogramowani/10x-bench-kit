@@ -22,9 +22,9 @@ criteria come from the task's review criteria (the order's Evaluation
 axis — do's, don'ts, milestones — and bench-build's criteria digest in
 its report), and the calibration set is **synthetic**, fabricated from
 those criteria per [CALIBRATION_SET.md](CALIBRATION_SET.md). Real
-attempt diffs (`patch.diff` from run artifacts) join the set as runs
-accrue — they are the best material, they just cannot exist before the
-first run. The tool is `bench calibrate --task <name> --set
+attempt diffs (`patch.diff` from preserved attempts in
+`attempts/<task>/<model>/trial-N/`) join the set as runs accrue — they
+are the best material, they just cannot exist before the first run. The tool is `bench calibrate --task <name> --set
 <set-directory>` (from the instance root: `node --experimental-strip-types
 .bench-kit/runner/src/index.ts calibrate …`) — the same evaluation path
 as `bench evaluate`, so calibration results transfer 1:1 to real runs.
@@ -43,7 +43,11 @@ For a single ad-hoc verdict (e.g. comparing judges) there is
    explicitly in your summary. Calibrating a freshly created rubric before its first
    use does not close an era — which is why you calibrate right after
    building the task with bench-build, before its first run, not after
-   results have been computed.
+   results have been computed. A bump after results exist is no longer
+   a $1000 event: attempts are preserved, so the new era's results come
+   from RE-EVALUATING them (`bench evaluate` / rate-attempt over
+   `attempts/`, ~judge-cost per attempt) — name that follow-up in your
+   summary.
    (The global `judge.rubric_version` in the config is a legacy
    contract for rubrics without frontmatter — migrate them at their
    first calibration.)
@@ -261,5 +265,5 @@ End your summary response with a **Next step** section: the instance
 state in one sentence, **one** recommendation with a one-sentence
 justification, at most two alternatives with their cost, and —
 separately — whatever awaits a human decision. Typical transition:
-rubric calibrated → **a full run on 2+ models** —
+rubric calibrated → **a full run on 2+ models via bench-measure** —
 calibration predicts the results, the run verifies them.

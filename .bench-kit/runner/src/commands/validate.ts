@@ -228,19 +228,6 @@ export async function validateCommand(args: string[]): Promise<number> {
     }
   }
 
-  // --- artifacts.workspace: wpisy muszą wskazywać istniejące zadania ---
-  if (config) {
-    for (const name of Object.keys(config.artifacts.workspace)) {
-      if (!taskNames.includes(name)) {
-        report({
-          level: "warn",
-          where: "bench.config.yaml",
-          message: `artifacts.workspace wskazuje nieistniejące zadanie "${name}" — wpis bez efektu`,
-        });
-      }
-    }
-  }
-
   // --- spójność zadań: repo, asercje, wagi, starzenie ---
   const checkedRubricVersions = new Set<string>();
   const today = new Date().toISOString().slice(0, 10);

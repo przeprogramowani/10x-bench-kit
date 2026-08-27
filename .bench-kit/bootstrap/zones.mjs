@@ -18,6 +18,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   rmdirSync,
 } from "node:fs";
 import { join, sep } from "node:path";
@@ -134,16 +135,38 @@ export function addSync(into, counts) {
 }
 
 /**
+ * Workflowy wycofane przez pivot local-first (0.24.0): GH Actions
+ * przestało być substratem wykonania prób — update usuwa je z instancji
+ * (bez kompatybilności wstecznej; stara ścieżka CI idzie do kosza).
+ */
+export const RETIRED_WORKFLOWS = ["bench-run.yaml", "bench-cell.yaml"];
+
+/**
  * Instaluje workflowy instancji z `.bench-kit/workflows/` do
  * `.github/workflows/`. W trybie repair istniejące pliki zostają —
- * firma mogła dostosować triggery albo sekrety.
+ * firma mogła dostosować triggery albo sekrety. Poza repair usuwa też
+ * workflowy wycofane (RETIRED_WORKFLOWS) — liczone w `removed`.
  */
 export function installWorkflows(targetDir, opts) {
-  return syncDir(
+  const counts = syncDir(
     join(targetDir, ".bench-kit", "workflows"),
     join(targetDir, ".github", "workflows"),
     { overwrite: !opts.skipExisting },
   );
+  counts.removed = 0;
+  if (!opts.skipExisting) {
+    for (const name of RETIRED_WORKFLOWS) {
+      // Usuwamy tylko workflowy, których BIEŻĄCY template już nie wysyła —
+      // gdyby wrócił do zestawu, przestaje być wycofany.
+      if (existsSync(join(targetDir, ".bench-kit", "workflows", name))) continue;
+      const path = join(targetDir, ".github", "workflows", name);
+      if (existsSync(path)) {
+        rmSync(path);
+        counts.removed++;
+      }
+    }
+  }
+  return counts;
 }
 
 export const relPosix = (rel) => rel.split(sep).join("/");

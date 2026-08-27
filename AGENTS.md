@@ -16,12 +16,14 @@ Kolejność odpowiada cyklowi życia instancji:
 
 | Kolejność | Skill | Przeznaczenie | Kiedy |
 |---|---|---|---|
-| 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszego runu w CI: braki po init, sekrety, dispatch `bench-run` | raz, przy powstaniu instancji (i przy zmianach wiringu) |
+| 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszej zmierzonej próby LOKALNIE: braki po init, silnik kontenerów, klucze API w env, smoke `bench attempt` + `bench evaluate`, commit wyników; opcjonalnie ścieżka publikacji (readiness + leaderboard w GHA) | raz, przy powstaniu instancji (i przy zmianach wiringu) |
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
 | 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na stanie startowym (bez implementacji referencyjnej — oczekiwania wobec przyszłych prób wyraża rubryka i asercje); gotowe pliki + raport-plik `reports/<zadanie>-build.md` w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Rubryka LLM-as-judge z kryteriów oceny zadania (osie ze zlecenia) + kalibracja na syntetycznym zbiorze o zaprojektowanej jakości i diffach z realnych runów | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
-| 5 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
-| 6 | **bench-explain-results** | Diagnoza wyników runu: wina modelu / zadania / infrastruktury, z dowodami | po runie, gdy wynik zaskakuje |
+| 5 | **bench-measure** | Bieg macierzy na tej maszynie: zakres modele × zadania × próby, projekcja kosztu vs budżet, `bench attempt` (top-up zachowanych prób), ocena (rate-attempt / sędzia API), tabela wyników + ścieżki `results/` do commita | „zmierz model X / uruchom benchmark" — każdy pomiar po wiringu |
+| 6 | **rate-attempt** | Sędzia jako agent Z NARZĘDZIAMI: ocena zachowanej próby (`attempts/<zadanie>/<model>/trial-N/`) — guardy jako fakty, praca na jednorazowej kopii workspace'u (build/testy/uruchomienie), werdykt składany przez `bench evaluate --verdict` do `results/` | wołany z bench-measure per próba; przy re-ocenie zachowanych prób nową rubryką |
+| 7 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
+| 8 | **bench-explain-results** | Diagnoza wyników: wina modelu / zadania / infrastruktury, z dowodami z zachowanych prób | po biegu, gdy wynik zaskakuje |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
@@ -44,11 +46,17 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje
-  `defaults.max_cost_usd` (runner przerywa run po przekroczeniu);
-  koszt faktyczny raportuje się po fakcie, a zgody człowieka wymaga
-  tylko podnoszenie budżetu.
+  `defaults.max_cost_usd`: sufit na CAŁY bieg macierzy (`bench attempt`
+  robi projekcję z historii results/ przed startem i przerywa zlecanie
+  po przekroczeniu); koszt faktyczny raportuje się po fakcie, a zgody
+  człowieka wymaga tylko podnoszenie budżetu.
+- **Próba opłacona jest święta** — zachowane próby (`attempts/`,
+  kontrakt .bench-kit/ATTEMPT_FORMAT.md) są nienaruszalne i nigdy nie
+  są wyrzucane; zmiana rubryki/sędziego to RE-OCENA zachowanych prób
+  (`bench evaluate` / rate-attempt), nie nowy bieg. Wyniki żyją w
+  `results/` w repo — commituje je użytkownik, historię wersjonuje git.
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
-  `bench` (`validate` / `assert` / `judge` / `run` / `evaluate`),
+  `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
   nie deklaracja.
 - **Zmiana w skillach = release** — każda pushowana zmiana w skillach
   (lub innej strefie współdzielonej template'u) dostaje bump wersji

@@ -11,7 +11,7 @@ export function sh(cmd: string, args: string[], opts: { cwd?: string; timeout?: 
 }
 
 /**
- * Asynchroniczny odpowiednik sh() — dla równoległych prób (`bench run
+ * Asynchroniczny odpowiednik sh() — dla równoległych prób (`bench attempt
  * --parallel`): spawnSync blokuje pętlę zdarzeń, więc pool kontenerów
  * potrzebuje wariantu na spawn. Ten sam kształt wyniku co sh()
  * (status/stdout/stderr); timeout kończy proces SIGKILL-em.
@@ -146,12 +146,6 @@ export function engineMemoryBytes(engine: string): number | null {
 export function ensureBaseImage(engine: string, root: string): string {
   const opencodeVersion = readFileSync(join(root, ".bench-kit", "docker", "opencode.version"), "utf8").trim();
   const image = `bench-base:${opencodeVersion}`;
-  // CI: obraz przywrócony z cache (docker load) — pomiń rebuild. Świeżość
-  // gwarantuje klucz cache'u (hash .bench-kit/docker/**), nie ten kod;
-  // lokalnie flagi nie ustawiaj, bo edycja Dockerfile'a nie miałaby efektu.
-  if (process.env.BENCH_REUSE_BASE_IMAGE === "1" && sh(engine, ["image", "inspect", image], { timeout: 30_000 }).status === 0) {
-    return image;
-  }
   must(
     engine,
     ["build", "-q", "--build-arg", `OPENCODE_VERSION=${opencodeVersion}`, "-t", image, join(root, ".bench-kit", "docker")],

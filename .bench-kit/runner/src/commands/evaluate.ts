@@ -1,83 +1,140 @@
 /**
- * bench evaluate — ocenia artefakty prób i produkuje result.json.
+ * bench evaluate — ocenia ZACHOWANE PRÓBY (kontrakt ATTEMPT_FORMAT.md)
+ * i produkuje result.json w kanonicznym drzewie wyników `results/`
+ * w repo instancji. Ocena jest procesem niezależnym od wykonania:
+ * uruchamialna wielokrotnie, na dowolnej wersji rubryki/sędziego,
+ * bez ponownego płacenia za wykonanie — nowa rubryka = re-ocena
+ * zachowanych prób, nie nowy bieg macierzy.
  *
- * Przebieg per próba (katalog trial-* z artefaktami `bench run`):
- * 1. Asercje nie-LLM-owe (static → tests → e2e): świeży kontener z obrazu
- *    zadania (agent dawno nie żyje), patch.diff nakładany na /workspace,
- *    asercje montowane :ro pod /bench/assertions/<ref> — dopiero teraz,
- *    izolacja z konstrukcji. Runner parsuje check.yaml na hoście
- *    (eval-plan.json), w kontenerze biegnie /bench/evaluate.mjs →
- *    checks.json. Składowa = średnia score'ów jej asercji.
- * 2. LLM-as-judge (host-side): sędzia z bench.config.yaml dostaje
- *    prompt.md + patch.diff + rubrykę, zwraca JSON; brak poprawnego
- *    JSON-a = 0. Surowa odpowiedź → judge.json (audyt).
- * 3. result.json: scores (null przy wadze 0), total = ważona suma,
- *    koszt/czas/tokeny z metrics.json, stemple er (template_version,
- *    task_hash = SHA-256 katalogu zadania, judge_model, rubric_version).
+ * Przebieg per próba:
+ * 1. Asercje nie-LLM-owe (static → tests → e2e): świeży kontener
+ *    z obrazu zadania (odtwarzany z task.yaml, gdy nie ma go lokalnie),
+ *    patch.diff nakładany na /workspace, asercje montowane :ro —
+ *    izolacja z konstrukcji. Wynik → checks.json (guardy = FAKTY dla
+ *    sędziego-z-narzędziami).
+ * 2. Składowa judge:
+ *    - `--verdict <plik>` (pojedyncza próba): werdykt przygotowany przez
+ *      sędziego-agenta z narzędziami (skill rate-attempt) — JSON w
+ *      formacie rubryki; runner parsuje i liczy total z wag frontmattera,
+ *    - bez --verdict: wywołanie API modelu sędziego (prompt.md +
+ *      patch.diff + rubryka) — ścieżka automatyczna (CI/smoke),
+ *    - `--skip-judge`: tylko guardy (krok 1 procedury rate-attempt);
+ *      result.json nie powstaje, composant judge czeka na werdykt.
+ * 3. result.json: scores, total = ważona suma, koszt/czas/tokeny
+ *    z metrics.json, stemple er (scoring_version, task_hash BIEŻĄCY,
+ *    judge_model, rubric_version, memory_limit_mb z próby). Era oceny
+ *    jest ODKLEJONA od ery wykonania — rozjazd task_hash próby
+ *    i bieżącego to głośny warning.
+ * 4. Zapis: result.json + judge.json w katalogu próby ORAZ w
+ *    results/<zadanie>/<model>/trial-<n>/ (commituje operator; git
+ *    wersjonuje historię ocen). `--no-write-results` zostawia wynik
+ *    tylko przy próbie.
  *
  * Próby z awarią infrastruktury (infra_failure) są pomijane z warningiem.
  *
- * Użycie: bench evaluate --run <dir> [--engine docker|podman] [--root <dir>]
+ * Użycie:
+ *   bench evaluate [--attempt <dir>]... [--attempts <dir>]
+ *                  [--results <dir> | --no-write-results]
+ *                  [--skip-judge | --verdict <plik>]
+ *                  [--no-deps-cache] [--engine docker|podman] [--root <dir>]
+ * (bez argumentów: wszystkie zachowane próby z attempts/ w korzeniu)
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { hashTaskDir, rubricVersionStamp } from "../lib/era.ts";
-import { judgeTrial } from "../lib/judge.ts";
+import { judgeTrial, parseRubric, parseVerdict, type JudgeVerdict } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
-import { depsCacheArgs, detectEngine, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
+import { depsCacheArgs, detectEngine, ensureBaseImage, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
+import { imageExists, prepareTaskImage, sanitize } from "../lib/prepare.ts";
+import { ATTEMPT_FORMAT_VERSION, AttemptSchema, type Attempt } from "../schemas/attempt.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
 import type { Task } from "../schemas/task.ts";
 
 interface Options {
   root: string;
-  run: string | null;
+  attempts: string[];
+  attemptsDir: string | null;
+  results: string | null;
+  noWriteResults: boolean;
+  skipJudge: boolean;
+  verdict: string | null;
   engine: string | null;
   noDepsCache: boolean;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), run: null, engine: null, noDepsCache: false };
+  const opts: Options = {
+    root: process.cwd(),
+    attempts: [],
+    attemptsDir: null,
+    results: null,
+    noWriteResults: false,
+    skipJudge: false,
+    verdict: null,
+    engine: null,
+    noDepsCache: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
-    if (arg === "--run") opts.run = resolve(value() ?? "");
+    if (arg === "--attempt") opts.attempts.push(resolve(value() ?? ""));
+    else if (arg === "--attempts") opts.attemptsDir = resolve(value() ?? "");
+    else if (arg === "--results") opts.results = resolve(value() ?? "");
+    else if (arg === "--no-write-results") opts.noWriteResults = true;
+    else if (arg === "--skip-judge") opts.skipJudge = true;
+    else if (arg === "--verdict") opts.verdict = resolve(value() ?? "");
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--no-deps-cache") opts.noDepsCache = true;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
-  if (!opts.run) return null;
+  if (opts.attempts.length > 0 && opts.attemptsDir) return null;
+  if (opts.verdict && opts.attempts.length !== 1) return null; // werdykt jest per próba
+  if (opts.verdict && opts.skipJudge) return null;
   return opts;
 }
 
-interface TrialRef {
+interface AttemptRef {
   dir: string;
-  meta: {
-    task: string;
-    model: string;
-    trial: number;
-    image: string;
-    infra_failure: boolean;
-    resource_kill?: boolean;
-    memory_limit_mb?: number | null;
-  };
+  meta: Attempt;
 }
 
-function findTrials(runDir: string): TrialRef[] {
-  const trials: TrialRef[] = [];
-  const walk = (dir: string) => {
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name);
-      if (!statSync(full).isDirectory()) continue;
-      const trialJson = join(full, "trial.json");
-      if (existsSync(trialJson)) trials.push({ dir: full, meta: JSON.parse(readFileSync(trialJson, "utf8")) });
-      else walk(full);
+/** Zachowane próby: katalogi z attempt.json parsującym się schematem. */
+function findAttempts(dir: string): AttemptRef[] {
+  const found: AttemptRef[] = [];
+  const walk = (current: string) => {
+    const attemptJson = join(current, "attempt.json");
+    if (existsSync(attemptJson)) {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(attemptJson, "utf8"));
+      } catch {
+        console.error(`warn:  pomijam nieparsowalny ${attemptJson}`);
+        return;
+      }
+      const parsed = AttemptSchema.safeParse(raw);
+      if (!parsed.success) {
+        console.error(`warn:  pomijam ${attemptJson} — nie spełnia schematu zachowanej próby (ATTEMPT_FORMAT.md)`);
+        return;
+      }
+      if (parsed.data.format > ATTEMPT_FORMAT_VERSION) {
+        console.error(
+          `warn:  pomijam ${attemptJson} — format ${parsed.data.format} nowszy niż obsługiwany (${ATTEMPT_FORMAT_VERSION}); zaktualizuj kit`,
+        );
+        return;
+      }
+      found.push({ dir: current, meta: parsed.data });
+      return;
+    }
+    for (const name of readdirSync(current)) {
+      const full = join(current, name);
+      if (statSync(full).isDirectory() && !/\.superseded-/.test(name)) walk(full);
     }
   };
-  walk(runDir);
-  return trials.sort((a, b) => a.dir.localeCompare(b.dir));
+  walk(dir);
+  return found.sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
 const NON_JUDGE = ["static", "tests", "e2e"] as const;
@@ -114,8 +171,8 @@ function runChecksContainer(
     { encoding: "utf8", timeout: 3_600_000, maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.status !== 0 || !existsSync(join(trialDir, "checks.json"))) {
-    // OOM w ocenie wyzerowałby miarę pracy i wyglądał jak porażka modelu
-    // (OOM.md, rozdz. 6) — kod sygnałowy nazywamy zamiast zgadywać.
+    // OOM w ocenie wyzerowałby miarę pracy i wyglądał jak porażka modelu —
+    // kod sygnałowy nazywamy zamiast zgadywać.
     const signal = result.status !== null ? signalFromExit(result.status) : null;
     const signalNote = signal
       ? ` (${signal.name}${signal.likely_oom ? ` — prawdopodobnie OOM; limit: ${memoryMb !== null ? `${memoryMb} MiB` : "brak, sufit = pamięć maszyny silnika"}` : ""})`
@@ -126,10 +183,37 @@ function runChecksContainer(
   return new Map(refs.map((ref) => [ref, checks[ref]?.score ?? 0]));
 }
 
+/**
+ * Werdykt z pliku (skill rate-attempt): JSON w formacie rubryki —
+ * pojedynczy obiekt (jedna rubryka zadania) albo mapa
+ * { "<nazwa-rubryki>": <werdykt> } przy wielu rubrykach.
+ */
+function verdictFromFile(raw: string, ref: string, judgeRefs: string[], weights: Record<string, number> | null): JudgeVerdict {
+  let source = raw;
+  if (judgeRefs.length > 1) {
+    const name = ref.split("/")[1] as string;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const entry = parsed[name] ?? parsed[ref];
+    if (entry === undefined) {
+      throw new Error(`plik werdyktu nie ma wpisu dla rubryki "${name}" (zadanie używa ${judgeRefs.length} rubryk — oczekiwano mapy nazwa → werdykt)`);
+    }
+    source = JSON.stringify(entry);
+  }
+  const verdict = parseVerdict(source, weights);
+  return { ...verdict, finish_reason: null, usage: null };
+}
+
 export async function evaluateCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
-    console.error("usage: bench evaluate --run <dir> [--no-deps-cache] [--engine docker|podman] [--root <dir>]");
+    console.error(
+      [
+        "usage: bench evaluate [--attempt <dir>]... [--attempts <dir>]",
+        "                      [--results <dir> | --no-write-results]",
+        "                      [--skip-judge | --verdict <plik> (z jednym --attempt)]",
+        "                      [--no-deps-cache] [--engine docker|podman] [--root <dir>]",
+      ].join("\n"),
+    );
     return 2;
   }
   const root = findInstanceRoot(opts.root);
@@ -138,27 +222,47 @@ export async function evaluateCommand(args: string[]): Promise<number> {
     return 1;
   }
 
-  const runDir = opts.run;
-  if (!runDir) return 2;
-
   try {
     const config = loadConfig(root);
     const templateVersion = readFileSync(join(root, ".bench-kit", "VERSION"), "utf8").trim();
     const scoringVersion = readFileSync(join(root, ".bench-kit", "SCORING_VERSION"), "utf8").trim();
-    const trials = findTrials(runDir);
-    if (trials.length === 0) throw new Error(`brak prób (trial.json) w ${runDir}`);
-    console.log(`bench evaluate: ${trials.length} prób(y) w ${runDir}`);
+    const resultsDir = opts.results ?? join(root, "results");
+
+    let attempts: AttemptRef[];
+    if (opts.attempts.length > 0) {
+      attempts = opts.attempts.flatMap((dir) => {
+        if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+          console.error(`warn:  katalog próby nie istnieje: ${dir}`);
+          return [];
+        }
+        const found = findAttempts(dir);
+        if (found.length === 0) console.error(`warn:  brak zachowanej próby (attempt.json) w ${dir}`);
+        return found;
+      });
+    } else {
+      const dir = opts.attemptsDir ?? join(root, "attempts");
+      if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new Error(`katalog prób nie istnieje: ${dir} — najpierw \`bench attempt\``);
+      }
+      attempts = findAttempts(dir);
+    }
+    if (attempts.length === 0) throw new Error("brak zachowanych prób do oceny");
+    console.log(`bench evaluate: ${attempts.length} zachowanych prób(y)`);
+
+    const verdictRaw = opts.verdict ? readFileSync(opts.verdict, "utf8") : null;
 
     const taskCache = new Map<string, { task: Task; hash: string }>();
+    const preparedImages = new Set<string>();
     let engine: string | null = null;
     let failures = 0;
+    let written = 0;
 
-    for (const { dir, meta } of trials) {
+    for (const { dir, meta } of attempts) {
       const label = `${meta.task} × ${meta.model} × próba ${meta.trial}`;
       if (meta.infra_failure) {
         const why = meta.resource_kill
           ? "próba zabita sygnałem (nieinterpretowalna — patrz signal.json)"
-          : "awaria infrastruktury w bench run, nie ma czego oceniać";
+          : "awaria infrastruktury w bench attempt, nie ma czego oceniać";
         console.error(`skip:  ${label} — ${why}`);
         continue;
       }
@@ -169,6 +273,15 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           taskCache.set(meta.task, cached);
         }
         const { task, hash } = cached;
+
+        // Era oceny odklejona od ery wykonania — ale rozjazd definicji
+        // zadania między próbą a oceną musi być głośny, nie cichy.
+        if (hash !== meta.task_hash) {
+          console.error(
+            `warn:  ${label} — zadanie zmieniło się po wykonaniu próby (task_hash próby ${meta.task_hash.slice(0, 12)}… ≠ bieżący ${hash.slice(0, 12)}…); ` +
+              "wynik dostanie stempel BIEŻĄCEJ definicji zadania",
+          );
+        }
 
         // składowe → listy refów z task.yaml
         const refsByComponent = new Map<Component, string[]>();
@@ -182,6 +295,15 @@ export async function evaluateCommand(args: string[]): Promise<number> {
         let refScores = new Map<string, number>();
         if (nonJudgeRefs.length > 0) {
           engine ??= detectEngine(opts.engine);
+          // Ocena jest niezależna od wykonania: obraz zadania odtwarzamy
+          // z task.yaml, gdy nie ma go lokalnie (inna maszyna, prune).
+          if (!preparedImages.has(meta.image) && !imageExists(engine, meta.image)) {
+            const url = new Map(config.base_repos.map((r) => [r.name, r.url])).get(task.repo);
+            if (!url) throw new Error(`repo "${task.repo}" nie istnieje w base_repos — uruchom \`bench validate\``);
+            const baseImage = ensureBaseImage(engine, root);
+            prepareTaskImage(engine, root, baseImage, meta.task, task, url);
+          }
+          preparedImages.add(meta.image);
           refScores = runChecksContainer(
             engine,
             root,
@@ -200,26 +322,43 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           return mean(refs.map((ref) => refScores.get(ref) ?? 0));
         };
 
-        // 2. LLM-as-judge
+        // --skip-judge: guardy policzone (checks.json = fakty dla
+        // sędziego-z-narzędziami), result.json jeszcze nie powstaje.
+        if (opts.skipJudge && task.weights.judge > 0) {
+          const summary = nonJudgeRefs.map((ref) => `${ref} ${(refScores.get(ref) ?? 0).toFixed(2)}`).join(", ") || "brak guardów";
+          console.log(`eval:  ${label} → guardy policzone (${summary}); składowa judge czeka na werdykt (rate-attempt / --verdict)`);
+          continue;
+        }
+
+        // 2. składowa judge: werdykt agenta (--verdict) albo API sędziego
         let judgeScore: number | null = null;
         let judgeCostUsd: number | null = null;
         const judgeRefs = refsByComponent.get("judge") ?? [];
         if (task.weights.judge > 0 && judgeRefs.length > 0) {
-          const taskPrompt = readFileSync(join(root, "tasks", meta.task, "prompt.md"), "utf8");
-          const patchDiff = readFileSync(join(dir, "patch.diff"), "utf8");
           const verdicts = [];
           for (const ref of judgeRefs) {
-            const rubric = readFileSync(join(root, "evaluation-pool", "judge", `${ref.split("/")[1]}.md`), "utf8");
-            const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubric, {
-              maxTokens: config.judge.max_tokens,
-            });
-            verdicts.push({ ref, ...verdict });
+            const rubricText = readFileSync(join(root, "evaluation-pool", "judge", `${ref.split("/")[1]}.md`), "utf8");
+            if (verdictRaw !== null) {
+              const { weights, problem } = parseRubric(rubricText);
+              if (problem) throw new Error(`rubryka ${ref}: ${problem}`);
+              const verdict = verdictFromFile(verdictRaw, ref, judgeRefs, weights);
+              if (verdict.invalid_reason) {
+                throw new Error(`werdykt z pliku dla ${ref} niepoprawny: ${verdict.invalid_reason} — popraw plik werdyktu (kontrakt formatu w rubryce)`);
+              }
+              verdicts.push({ ref, source: "verdict-file", ...verdict });
+            } else {
+              const taskPrompt = readFileSync(join(root, "tasks", meta.task, "prompt.md"), "utf8");
+              const patchDiff = readFileSync(join(dir, "patch.diff"), "utf8");
+              const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubricText, {
+                maxTokens: config.judge.max_tokens,
+              });
+              verdicts.push({ ref, source: "api-judge", ...verdict });
+            }
           }
           writeFileSync(join(dir, "judge.json"), JSON.stringify(verdicts, null, 2) + "\n");
           judgeScore = mean(verdicts.map((v) => v.score));
-          // Koszt sędziego osobno od kosztu próby — nie dokleja się do kosztu
-          // modelu, ale bez niego "koszt na leaderboardzie" myli przy tanich
-          // modelach. null = provider nie raportuje kosztu.
+          // Koszt sędziego osobno od kosztu próby; null = nieznany
+          // (provider nie raportuje / werdykt agenta z pliku).
           const knownCosts = verdicts.flatMap((v) =>
             [v.usage?.cost_usd, v.first_attempt?.usage?.cost_usd].filter((c): c is number => typeof c === "number"),
           );
@@ -255,13 +394,27 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             task_hash: hash,
             judge_model: config.judge.model,
             rubric_version: rubricVersionStamp(root, judgeRefs, config.judge.rubric_version),
-            // Sufit zasobów obowiązujący W TRAKCIE próby (z trial.json) —
+            // Sufit zasobów obowiązujący W TRAKCIE próby (z attempt.json) —
             // "model się poprawił" i "daliśmy więcej RAM-u" nie mogą
-            // wyglądać w wynikach identycznie (OOM.md, warstwa 2).
+            // wyglądać w wynikach identycznie.
             memory_limit_mb: meta.memory_limit_mb ?? null,
           },
         });
-        writeFileSync(join(dir, "result.json"), JSON.stringify(result, null, 2) + "\n");
+        const resultText = JSON.stringify(result, null, 2) + "\n";
+        writeFileSync(join(dir, "result.json"), resultText);
+
+        // 4. kanoniczne drzewo wyników w repo — result.json + werdykt
+        // sędziego z uzasadnieniem; nadpisanie w miejscu = re-ocena
+        // (historię wersji wyników trzyma git).
+        if (!opts.noWriteResults) {
+          const dest = join(resultsDir, meta.task, sanitize(meta.model), `trial-${meta.trial}`);
+          mkdirSync(dest, { recursive: true });
+          writeFileSync(join(dest, "result.json"), resultText);
+          const judgePath = join(dir, "judge.json");
+          if (existsSync(judgePath)) writeFileSync(join(dest, "judge.json"), readFileSync(judgePath));
+          written++;
+        }
+
         const summary = (Object.entries(scores) as [string, number | null][])
           .filter(([, v]) => v !== null)
           .map(([k, v]) => `${k} ${(v as number).toFixed(2)}`)
@@ -273,7 +426,8 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       }
     }
 
-    console.log(`\nbench evaluate: gotowe${failures ? ` (${failures} prób z błędem oceny)` : ""}`);
+    const resultsNote = written > 0 ? ` — ${written} wynik(ów) w ${resultsDir} (commituje operator; leaderboard czyta results/)` : "";
+    console.log(`\nbench evaluate: gotowe${failures ? ` (${failures} prób z błędem oceny)` : ""}${resultsNote}`);
     return failures > 0 ? 1 : 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);

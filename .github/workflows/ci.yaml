@@ -1,7 +1,10 @@
-# CI template'u — testuje go end-to-end: materializacja instancji (jak
-# `bench-kit init`, bez historii gita) → wiring demo na publiczne repo
-# bazowe → pełne `bench validate` → run zadania-demo na tanim modelu →
-# `bench evaluate` z bramką na wynik.
+# CI template'u — readiness kitu on change mastera: testuje go
+# end-to-end: materializacja instancji (jak `bench-kit init`, bez
+# historii gita) → wiring demo na publiczne repo bazowe → pełne
+# `bench validate` → smoke `bench attempt` zadania-demo na tanim
+# modelu → `bench evaluate` (zachowana próba → results/) z bramką
+# na wynik. To jedyne miejsce, gdzie GHA wykonuje płatną próbę —
+# benchmark instancji pracuje lokalnie.
 #
 # Init z prawdziwego 10x-cli testują testy 10x-cli; tu testujemy kontrakt
 # template'u na BIEŻĄCYM commicie (przed tagiem), więc materializacja to
@@ -92,25 +95,38 @@ jobs:
       - run: npm ci --prefix "$INSTANCE/.bench-kit/runner"
       - name: bench validate (pełne, z siecią)
         run: npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- validate --root "$INSTANCE"
-      - name: bench run (demo × 1 próba)
+      - name: bench attempt (demo × 1 próba → zachowana próba)
         run: |
-          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- run \
+          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- attempt \
             --root "$INSTANCE" --tasks demo-hello-bench --models "$TRIAL_MODEL" \
-            --trials 1 --out "$INSTANCE/out/run"
-      - name: bench evaluate + bramka
+            --trials 1
+          ATTEMPT=$(find "$INSTANCE/attempts" -name attempt.json | head -1)
+          [ -n "$ATTEMPT" ] || { echo "brak attempt.json — kontrakt zachowanej próby zerwany"; exit 1; }
+          [ -d "$(dirname "$ATTEMPT")/workspace" ] || { echo "brak workspace/ w zachowanej próbie"; exit 1; }
+      - name: bench evaluate + bramka (wynik w results/)
         run: |
           npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- evaluate \
-            --root "$INSTANCE" --run "$INSTANCE/out/run"
-          RESULT=$(find "$INSTANCE/out/run" -name result.json | head -1)
-          [ -n "$RESULT" ] || { echo "brak result.json"; exit 1; }
+            --root "$INSTANCE"
+          RESULT=$(find "$INSTANCE/results" -name result.json | head -1)
+          [ -n "$RESULT" ] || { echo "brak result.json w results/ — ocena nie zapisała drzewa wyników"; exit 1; }
           node -e '
             const r = require(process.argv[1]);
             console.log(`total ${r.total} | cost $${r.cost_usd} | ${r.duration_s}s | stamps ${JSON.stringify(r.stamps)}`);
             if (r.total < 0.7) { console.error("total ponizej progu 0.7 — demo nie przechodzi"); process.exit(1); }
           ' "$RESULT"
+      - name: Artefakt e2e (bez workspace'ów — te żyją tylko na dysku)
+        if: always()
+        run: |
+          mkdir -p /tmp/e2e-artifact
+          if [ -d "$INSTANCE/attempts" ]; then
+            rsync -a --exclude 'workspace/' "$INSTANCE/attempts/" /tmp/e2e-artifact/attempts/
+          fi
+          if [ -d "$INSTANCE/results" ]; then
+            rsync -a "$INSTANCE/results/" /tmp/e2e-artifact/results/
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-run
-          path: ${{ env.INSTANCE }}/out/run
+          path: /tmp/e2e-artifact
           if-no-files-found: warn

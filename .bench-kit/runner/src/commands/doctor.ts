@@ -166,7 +166,7 @@ export async function doctorCommand(args: string[]): Promise<number> {
               name: `klucz ${key}`,
               status: "BRAK",
               detail: "brak w env",
-              fix: `wyeksportuj ${key} lokalnie i ustaw jako sekret repo instancji (dla CI)`,
+              fix: `wyeksportuj ${key} w env maszyny operatora (benchmark pracuje lokalnie — sekrety repo są potrzebne tylko workflowom publikacji)`,
             },
       );
     }
@@ -179,7 +179,9 @@ export async function doctorCommand(args: string[]): Promise<number> {
     });
   }
 
-  // --- remote repo instancji (potrzebny dla workflows i sekretów CI) ---
+  // --- remote repo instancji (publikacja: readiness CI + leaderboard) ---
+  // Benchmark pracuje LOKALNIE — remote nie blokuje prób ani oceny;
+  // potrzebny do współdzielenia wyników (results/ w repo) i publikacji.
   const remote = spawnSync("git", ["-C", root, "remote", "get-url", "origin"], { encoding: "utf8", timeout: 10_000 });
   checks.push(
     remote.status === 0
@@ -188,21 +190,21 @@ export async function doctorCommand(args: string[]): Promise<number> {
           name: "remote instancji",
           status: "WARN",
           detail: "brak origin",
-          fix: "utwórz repo instancji i `git remote add origin …` (bez tego nie ma runów w CI ani sekretów)",
+          fix: "utwórz repo instancji i `git remote add origin …` (lokalne próby działają bez tego; remote = współdzielenie results/ i publikacja leaderboardu)",
         },
   );
 
-  // --- workflows ---
-  for (const workflow of ["bench-run.yaml", "leaderboard.yaml"]) {
+  // --- workflows (GHA = readiness + publikacja, NIE wykonanie prób) ---
+  for (const workflow of ["readiness.yaml", "leaderboard.yaml"]) {
     const path = join(root, ".github", "workflows", workflow);
     checks.push(
       existsSync(path)
         ? { name: `workflow ${workflow}`, status: "OK", detail: `.github/workflows/${workflow}` }
         : {
             name: `workflow ${workflow}`,
-            status: "BRAK",
+            status: "WARN",
             detail: "nie istnieje",
-            fix: "skopiuj z .bench-kit/workflows/ (init/update robi to automatycznie w nowszych wersjach CLI)",
+            fix: "skopiuj z .bench-kit/workflows/ (init/update robi to automatycznie)",
           },
     );
   }

@@ -28,28 +28,28 @@ judge:
   # jest w formacie, nie w budżecie.
   max_tokens: 8192
 
-# Defaults runu — nadpisywalne parametrami workflow_dispatch.
+# Defaults biegu macierzy — nadpisywalne flagami `bench attempt`.
 defaults:
   # Liczba prób na (model × zadanie); agregacja liczy medianę i pass@k.
+  # `bench attempt` DOGANIA braki: istniejące zachowane próby się liczą.
   trials: 3
-  # Modele oceniane, gdy dispatch nie poda własnej listy.
+  # Modele oceniane, gdy wywołanie nie poda własnej listy.
   models:
     - openrouter/anthropic/claude-sonnet-5
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
-  # Budżet kosztu prób (USD) per WYWOŁANIE `bench run` — w CI to job
-  # jednego zadania (wszystkie jego modele × próby), nie cały dispatch.
-  # Po przekroczeniu run nie zleca kolejnych prób (biegnące kończą się,
-  # wykonane idą do oceny); dobierz do sumy prób najdroższego zadania.
-  # Zgoda człowieka jest potrzebna przy podnoszeniu budżetu, nie przy
-  # każdym uruchomieniu; koszt faktyczny jest w report.json.
+  # Sufit kosztu prób CAŁEGO biegu macierzy (USD). `bench attempt` robi
+  # projekcję kosztu z historii results/ PRZED startem i przerywa
+  # zlecanie prób po przekroczeniu sumy kosztów (biegnące kończą się,
+  # wykonane są zachowane do oceny). Zgoda człowieka jest potrzebna przy
+  # podnoszeniu budżetu, nie przy każdym uruchomieniu; koszt faktyczny
+  # jest w metrics.json prób i w raporcie.
   max_cost_usd: 10
-  # Równoczesne próby w jednym `bench run` (pool kontenerów). Próba
+  # Równoczesne próby w jednym `bench attempt` (pool kontenerów). Próba
   # spędza większość czasu na czekaniu na API modelu, więc równoległość
-  # tnie wall-clock — a w CI job-minuty (billing per job-minuta; job
-  # zadania płaci ~max(próba) zamiast sumy prób). UWAGA: memory_mb to
-  # sufit per kontener, nie rezerwacja — parallel × memory_mb może
-  # przekraczać pamięć maszyny (runner GH: ~7 GB) i przy pamięciożernych
+  # tnie wall-clock niemal liniowo — bez sufitu runnera CI. UWAGA:
+  # memory_mb to sufit per kontener, nie rezerwacja — parallel ×
+  # memory_mb może przekraczać pamięć maszyny i przy pamięciożernych
   # zadaniach grozić OOM; runner ostrzega przy starcie. 1 = sekwencyjnie.
   parallel: 2
 
@@ -58,25 +58,12 @@ defaults:
 # porównywalności, więc ustaw raz, przed wynikami, których nie chcesz
 # unieważnić. Nadpisanie per zadanie: pole `memory_mb` w task.yaml.
 resources:
-  # 6144 = mieści instalację + build dużego monorepo JS/TS i wchodzi pod
-  # 7 GB runnera GH Actions (repo prywatne) z zapasem na procesy hosta.
-  # Lokalnie maszyna silnika potrzebuje >= limitu + zapas (podman machine
-  # set -m 8192); `bench doctor` porównuje jedno z drugim.
+  # 6144 = mieści instalację + build dużego monorepo JS/TS. Maszyna
+  # silnika potrzebuje >= limitu + zapas (podman machine set -m 8192);
+  # `bench doctor` porównuje jedno z drugim.
   memory_mb: 6144
 
-# Artefakty dodatkowe prób (obserwowalność, nie scoring).
-# artifacts.workspace: dla wskazanych zadań każda próba zostawia
-# workspace.tar.gz — stan workspace'u po pracy agenta (także po
-# timeoucie) — obok patch.diff w <out>/<zadanie>/<model>/trial-<n>/.
-# W CI archiwum ląduje w artefakcie `results-<slug>` joba próby;
-# pobierz, rozpakuj, doinstaluj zależności (`npm install` itp.),
-# skonfiguruj (.env) i uruchom ręcznie.
-# Klucz mapy to nazwa zadania z tasks/; wpis bez wartości = defaults
-# (pomijane: node_modules). Ustawienie ŚWIADOMIE żyje tu, nie
-# w task.yaml — nie jest częścią definicji pomiaru, więc
-# włączanie/wyłączanie nie zmienia task_hash i nie zamyka ery.
-# artifacts:
-#   workspace:
-#     demo-hello-bench:
-#     ciezkie-zadanie:
-#       exclude: [node_modules, dist, .next]
+# Workspace każdej próby jest ZAWSZE zachowywany na dysku
+# (attempts/<zadanie>/<model>/trial-<n>/workspace/, poza gitem) —
+# to część kontraktu zachowanej próby (.bench-kit/ATTEMPT_FORMAT.md),
+# surowiec dla sędziego-z-narzędziami (skill rate-attempt).

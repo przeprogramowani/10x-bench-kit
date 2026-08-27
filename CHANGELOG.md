@@ -6,6 +6,64 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.24.0 — 2026-08-27 (neutralny)
+
+**Pivot: benchmark local-first, wykonanie oddzielone od oceny
+(BENCHMARK_PLAN.md — odpowiedź na BENCHMARK_ISSUES.md).** GitHub
+Actions przestaje być substratem wykonania; benchmark pracuje na
+maszynie operatora (lub VPS). Stemple er i schemat result.json bez
+zmian — wyniki sprzed pivotu porównują się w swoich erach jak dotąd.
+
+- **Kontrakt zachowanej próby** (`.bench-kit/ATTEMPT_FORMAT.md`,
+  format 1): próba jest trwała i samowystarczalna —
+  `attempts/<zadanie>/<model>/trial-N/` z `attempt.json` (schemat
+  `runner/src/schemas/attempt.ts`), `patch.diff`, `metrics.json`
+  (koszt/tokeny z lokalnego opencode.db), `execution.json` oraz
+  ZAWSZE zachowanym `workspace/` (poza gitem). Próba raz opłacona
+  nigdy nie jest wyrzucana — re-run odkłada starą do
+  `trial-N.superseded-<stempel>/`. Jedyny punkt styku wykonanie ↔
+  ocena; wykonanie nie wie nic o rubrykach.
+- **`bench attempt` zastępuje `bench run`**: lokalne wykonanie macierzy
+  z semantyką top-up (istniejące zachowane próby się liczą, doganiane
+  są braki), projekcją kosztu z historii `results/` PRZED startem
+  i sufitem budżetu na CAŁY bieg (`defaults.max_cost_usd` /
+  `--max-cost`). Cukier `bench attempt <zadanie> <model>`.
+- **`bench evaluate` pracuje na zachowanych próbach** — uruchamialne
+  wielokrotnie, na dowolnej wersji rubryki, bez ponownego płacenia za
+  wykonanie (nowa rubryka = re-ocena ~$/próba, nie nowa era za $1000+).
+  Obraz zadania odtwarza z task.yaml, gdy nie ma go lokalnie; rozjazd
+  task_hash próby i bieżącego zgłasza głośno. Wyniki lądują w
+  **`results/<zadanie>/<model>/trial-N/`** (result.json + judge.json)
+  w repo instancji — commituje operator, historię ocen wersjonuje git.
+  Nowe flagi: `--skip-judge` (guardy jako fakty dla sędziego),
+  `--verdict <plik>` (werdykt sędziego-agenta), `--no-write-results`.
+- **Skille `bench-measure` i `rate-attempt` (nowe)** — pomiar zawsze
+  przez skill, nigdy „npm ręcznie": bench-measure prowadzi cały bieg
+  (zakres macierzy, projekcja vs budżet, `bench attempt`, ocena,
+  tabela wyników + ścieżki `results/` do commita użytkownika);
+  rate-attempt to sędzia jako agent Z NARZĘDZIAMI:
+  rubryka jako kontrakt, guardy jako fakty, praca na jednorazowej
+  kopii zachowanego workspace'u (build/testy/uruchomienie aplikacji
+  „produktowo"), werdykt składany deterministycznie przez
+  `bench evaluate --verdict`. Wprost adresuje case „0.92 za diff,
+  który wygląda kompletnie, przy czerwonych testach".
+- **Demontaż CI wykonania**: workflowy `bench-run`/`bench-cell`,
+  komendy `bench matrix`/`bench snapshot`, gałąź bench-data, PR-owa
+  ścieżka danych i warstwy odporności z 0.21–0.23 usunięte. Bootstrap
+  `update` sam usuwa wycofane workflowy z instancji. GHA instancji =
+  `readiness` (walidacja on push, bez sekretów) + `leaderboard`
+  (statyczny build z `results/` po commicie wyników; Cloudflare/GH
+  Pages jak dotąd). Migracja wyników z bench-data: skopiuj drzewo
+  `results/` z gałęzi do `results/` na masterze — stary układ
+  z katalogiem ery agreguje się poprawnie (grupowanie po stemplach,
+  nie po ścieżce).
+- `artifacts.workspace` znika z bench.config.yaml (workspace zachowany
+  zawsze — nieznane klucze w starych configach są ignorowane);
+  `bench doctor` sprawdza nowe workflowy i lokalny model pracy; skille
+  (bench-wiring przepisany na local-first, bench-build,
+  bench-refresh-task, bench-rubric, bench-explain-results), AGENTS.md
+  i README-i zaktualizowane do nowego modelu.
+
 ## 0.23.1 — 2026-08-27 (neutralny)
 
 **Lekcja z pierwszego runu per komórka (bench-platforma-edu): wyłączone

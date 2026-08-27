@@ -1,15 +1,15 @@
 ---
 name: bench-explain-results
 description: >-
-  Diagnoses benchmark run results: descends from report.json through
-  result.json to trial artifacts (agent.log, patch.diff, checks.json,
-  judge.json) and classifies the cause — model fault, task fault, or
-  infrastructure fault. Works on both local and CI runs — starts by
-  asking about the source of the results and fetches artifacts itself
-  via gh. The output is a comment or issue with evidence, never a
-  scoring change. Use after a run when a result is surprising, a model
-  dropped between runs, a trial failed, or the user asks "why did this
-  model score that / analyze the run".
+  Diagnoses benchmark results: descends from the aggregate (report over
+  results/) through result.json to the preserved attempt's artifacts
+  (agent.log, patch.diff, workspace/, checks.json, judge.json) and
+  classifies the cause — model fault, task fault, or infrastructure
+  fault. Everything lives on this machine: results/ in the repo,
+  attempts/ on disk. The output is a comment or issue with evidence,
+  never a scoring change. Use after a run when a result is surprising,
+  a model dropped between runs, a trial failed, or the user asks "why
+  did this model score that / analyze the run".
 ---
 
 # bench-explain-results — reading the results
@@ -24,9 +24,10 @@ fix — never with changing the results.
 
 ## Hard rules
 
-1. **You never change the scoring.** No edits to `result.json`,
-   `report.json`, the `bench-data` branch, tasks, assertions, rubrics,
-   or `bench.config.yaml`. Even when an assertion bug is obvious:
+1. **You never change the scoring.** No edits to `result.json`, the
+   `results/` tree, preserved attempts (`attempts/`), tasks,
+   assertions, rubrics, or `bench.config.yaml`. Even when an assertion
+   bug is obvious:
    diagnosis → issue → fix via the appropriate skill (bench-build /
    bench-refresh-task / bench-rubric), never an edit as part of triage.
    Trial artifacts are read-only.
@@ -40,7 +41,8 @@ fix — never with changing the results.
    speculation — label it as such.
 3. **Classification is mandatory.** Every diagnosis ends with one of
    the three classes + evidence. When evidence is missing, say plainly
-   what was missing (e.g. artifacts expired) — do not guess the class.
+   what was missing (e.g. the attempt directory no longer exists on
+   this machine) — do not guess the class.
 4. **Eras before comparisons.** Before concluding "the model dropped
    between runs", check the stamps tuple (`template_version`,
    `task_hash`, `judge_model`, `rubric_version`) — different eras are
@@ -57,76 +59,54 @@ fix — never with changing the results.
 
 ## Where the artifacts are
 
-- **Local run**: `out/<run-id>/<task>/<model>/trial-N/`.
-- **CI run**: each cell (model × task) is its own `bench-cell` run
-  with a `results-<slug>-<run_id>` artifact (same layout as local) —
-  you download it via `gh` (step 1). CI artifacts expire; the
-  `result.json` files themselves are permanent on the `bench-data`
-  branch in the canonical results tree
-  (`results/<task>/<era>/<model>/trial-N/`), delivered there as PRs
-  merged by the benchmark owner (an unmerged results PR = the result
-  exists on a `results/*` branch, not yet on `bench-data`). Legacy
-  history from before the per-cell model lives in `runs/<run_id>.json`
-  (report level only).
-- **Trial files**: `trial.json` (metadata), `execution.json` (agent
-  exit code; 124 = timeout), `agent.log` (full OpenCode output),
-  `patch.diff` (the agent's work vs the starting commit),
-  `metrics.json` (cost/tokens/time; `"incomplete": true` = the adapter
-  found no data), `container.log` (exists only on infrastructure
-  failure), `signal.json` (exists only when the agent was killed by a
-  signal even after retry — signal name, hint, memory limit, log tail;
-  such a trial has `resource_kill: true` in trial.json and is excluded
-  from evaluation), `eval-plan.json`, `checks.json` (score per non-LLM
-  assertion), `judge.json` (verdicts + the judge's raw response),
-  `result.json` (scores, total, era stamps).
+Everything is local — no artifact downloads, no retention windows:
+
+- **Results (committed)**: `results/<task>/<model>/trial-N/`
+  (`result.json` + `judge.json`) in the instance repo — the canonical
+  tree the leaderboard reads; git history holds prior evaluations
+  (re-runs after rubric calibration).
+- **Preserved attempts (disk)**: `attempts/<task>/<model>/trial-N/` —
+  the full evidence chain (contract: `.bench-kit/ATTEMPT_FORMAT.md`).
+  Superseded re-runs live next door as
+  `trial-N.superseded-<stamp>/`.
+- **Attempt files**: `attempt.json` (metadata, format version),
+  `execution.json` (agent exit code; 124 = timeout), `agent.log`
+  (full OpenCode output; on disk, gitignored), `patch.diff` (the
+  agent's work vs the starting commit), `workspace/` (the agent's
+  final workspace state — on disk, gitignored), `metrics.json`
+  (cost/tokens/time from the trial's local opencode.db;
+  `"incomplete": true` = the adapter found no data), `container.log`
+  (exists only on infrastructure failure), `signal.json` (exists only
+  when the agent was killed by a signal even after retry — signal
+  name, hint, memory limit, log tail; such an attempt has
+  `resource_kill: true` in attempt.json and is excluded from
+  evaluation), `eval-plan.json`, `checks.json` (score per non-LLM
+  assertion), `judge.json` (verdicts + justifications), `result.json`
+  (scores, total, era stamps).
 
 ## Procedure
 
-### 1. Source of the results (always first)
+### 1. Scope the evidence (always first)
 
-Before reading anything, establish **where the artifacts come from** —
-without that you have no `report.json` on disk. Ask via your tool's
-question mechanism (AskUserQuestion / request_user_input; if
-unavailable — a plain question in the conversation), in a single block,
-with the options:
+Locate what you are diagnosing on disk. The default is unambiguous:
+`results/` in the repo for scores, `attempts/` for the evidence chain
+— confirm in one sentence what you are taking (a path given by the
+user wins as-is). Aggregate context (medians, pass@k) does not exist
+as a stored file: compute it with `bench report --run results/` (or
+over a narrower directory) when you need it, or read the leaderboard's
+`data.json` if one was built.
 
-- **local run** — an `out/<run-id>/` directory; if there are several,
-  propose the newest and confirm. Take a path given by the user as-is,
-  without asking.
-- **CI run** — you fetch via `gh`. Without a given id = the **latest**
-  run of the `bench-cell` workflow in the instance repo (`bench-run` is
-  only the orchestrator — it has no artifacts; the run-name of each
-  `bench-cell` run carries the model × task).
-
-Exception: when the user already indicated the source in their request
-(gave a path, a run id, a link to a run/PR, or wrote "the latest CI
-run") — do not ask, just confirm in one sentence what you are taking.
-
-Fetching from CI (the instance repo, not the template):
-
-```bash
-# id of the latest cell run, when the user did not provide one
-RUN_ID=$(gh run list --workflow bench-cell --limit 1 --json databaseId \
-  --jq '.[0].databaseId')
-gh run download "$RUN_ID" --dir out/ci-$RUN_ID     # results-<slug>-<run_id>
-```
-
-The artifact has the same layout as a local run, so from this point on
-the procedure is identical. There is no per-run `report.json` anymore —
-medians/pass@k for context come from the leaderboard's `data.json`, or
-you compute them yourself with `bench report --run <dir>` over the
-downloaded artifacts or a checkout of `bench-data`'s `results/` tree.
 Settle two edge cases immediately, before going further:
 
-- **artifacts expired** (repo retention) — the trial's `result.json`
-  survives in the `results/` tree on `bench-data` (or on the unmerged
-  results PR branch), but the raw artifacts (agent.log, patch.diff)
-  are gone. Say so plainly: the diagnosis then stops at the
+- **attempt missing for a result** — `result.json` exists in
+  `results/` but the attempt directory is gone (another machine,
+  disk cleanup). Say so plainly: the diagnosis then stops at the
   result.json level, and the cause class cannot be determined (rule 3).
-- **run failed mid-way** — the `results-*` artifact may still hold the
-  paid trials, and a results PR may exist for them; a trial that died
-  produced no `result.json`. Descend straight to the trials and note
-  that you have no comparison against medians.
+- **run failed mid-way** — a preserved attempt with
+  `infra_failure`/`resource_kill` produced no `result.json` and never
+  will. Descend straight to the attempt's diagnostics
+  (`container.log` / `signal.json`) and note that you have no
+  comparison against medians.
 
 ### 2. Question and scope
 
@@ -136,8 +116,7 @@ first (identical stamps or not).
 
 ### 3. Top-down: the report level
 
-(For CI results synthesize it first: `bench report --run <dir>` over
-the downloaded artifacts / `results/` tree — see step 1.)
+(Synthesize it first: `bench report --run results/` — see step 1.)
 
 - medians of total/cost/time per model×task — what stands out,
 - **pass@1 vs pass@k**: a gap (e.g. 0.33 vs 1.0) = instability, not
@@ -145,7 +124,7 @@ the downloaded artifacts / `results/` tree — see step 1.)
   and one that did not,
 - total ≈ 0 has no single cause — an empty diff (the agent did
   nothing), a destructive file overwrite, and work scored 0 look
-  identical in report.json. Do not conclude from the median; the
+  identical at the aggregate level. Do not conclude from the median; the
   artifacts decide (step 5).
 
 ### 4. Down: the trial's result.json
@@ -162,7 +141,7 @@ difference usually points to one component, not all of them.
 | `execution.json` exit 124 | `agent.log` (was there progress) | going in circles → model fault; making progress but ran out of time → timeout too short, task fault |
 | `execution.json` exit 137 (or another 128+N) without a timeout | `signal.json`, tail of `agent.log` | agent killed by a signal — SIGKILL during install/build = resource exhaustion → infrastructure fault (since 0.11.0 the runner classifies this itself: retry, `resource_kill`, exclusion from evaluation; no `signal.json` = run predates that version, classify manually) |
 | `container.log` exists | `container.log`, `execution.json` | container died before the agent → infrastructure fault |
-| `trial.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
+| `attempt.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
 | `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
 | assertion 0 in `checks.json` | assertion log + read the assertion + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (broken env, repo command drift — and a shape-neutrality violation: the script assuming an implementation shape, the retired convention), task fault; green for some attempts → model fault |
 | judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |

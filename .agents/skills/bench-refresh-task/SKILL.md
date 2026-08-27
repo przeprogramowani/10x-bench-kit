@@ -65,7 +65,7 @@ From the instance root: `node --experimental-strip-types
 one-time prerequisite: `npm ci --prefix .bench-kit/runner`). There is no
 `bench` executable in PATH — the shorthand is benchmark internals. You
 run these commands yourself; never hand the user a `bench …` command to
-execute. The user's surface is the `bench-run` workflow, secrets, and
+execute. The user's surface is the config, environment variables, and
 git.
 
 - `bench validate` — the warning `task expired (expires: …)` is the
@@ -76,7 +76,7 @@ git.
   `--patch` = the full set of diffs in a single container entry.
 - `bench judge --task <name> --patch <file>` — judge verdict on a
   calibration diff / empty diff.
-- `bench run` + `bench evaluate` — optional smoke run (step 7).
+- `bench attempt` + `bench evaluate` — optional smoke run (step 7).
 
 ## Procedure
 
@@ -91,7 +91,7 @@ Read before changing anything:
 - related materials: the calibration set in
   `evaluation-pool/judge/<task>-calibration/` (you will need it on
   the new pin),
-- the task's most recent results (report/bench-data) — after the
+- the task's most recent results (results/<task>/ in the repo) — after the
   refresh they stop being comparable; it is worth knowing what you are
   closing out.
 
@@ -204,7 +204,7 @@ collect the results together. In order, each must pass:
 2. An empty diff does not pass: `bench judge --patch <empty.diff>`
    scores low; for a guard-observed bug seed, the red guard at the
    start is additional evidence.
-3. Trial `bench run --smoke` + `evaluate` on one cheap model (the
+3. Trial `bench attempt --smoke` + `evaluate` on one cheap model (the
    instance budget guards costs — rule 8). As in bench-build, the
    smoke run doubles as the solvability probe on the new pin: an
    assertion no attempt greens is suspect-harness — diagnose it before

@@ -1,60 +1,51 @@
 /**
- * bench run — wykonuje próby macierzy model × zadanie × próba.
+ * bench attempt — LOKALNE wykonanie prób macierzy model × zadanie × próba,
+ * produkujące ZACHOWANE PRÓBY (kontrakt: .bench-kit/ATTEMPT_FORMAT.md).
+ * Wykonanie nie wie nic o rubrykach — ocena to osobny proces
+ * (`bench evaluate` / skill rate-attempt), uruchamialny wielokrotnie.
  *
  * Przebieg:
- * 1. Przygotowanie (jedyny etap zależny od sieci): budowa obrazu bazowego
- *    (.bench-kit/docker, pinowany OpenCode), a per zadanie — płytki fetch
- *    pinowanego commita repo bazowego + overlay + commit startowy,
- *    zapieczone w obraz `bench-task-<nazwa>`.
- * 2. Próby: każda w jednorazowym kontenerze (docker/podman) ze świeżym,
- *    pustym XDG_DATA_HOME. W kontenerze /bench/trial.sh: `opencode run`
- *    z prompt.md pod twardym timeoutem z task.yaml → agent.log,
- *    patch.diff (workspace vs commit startowy), metrics.json (adapter),
- *    execution.json (status/timeout).
- * 3. Artefakty per próba w <out>/<zadanie>/<model>/trial-<n>/; runner
- *    dokłada trial.json (metadane próby). Ocena to `bench evaluate`.
- *    Zadania wskazane w artifacts.workspace (bench.config.yaml) dostają
- *    dodatkowo workspace.tar.gz — stan workspace'u po pracy agenta,
- *    do ręcznego odtworzenia i uruchomienia poza benchmarkiem.
+ * 1. Plan: docelowa liczba prób per komórka (model × zadanie); istniejące
+ *    zachowane próby (attempt.json) się liczą — domyślnie DOGANIAMY braki
+ *    (top-up), niczego nie nadpisując. Projekcja kosztu z historii
+ *    results/ + sufit budżetu na CAŁY bieg macierzy (defaults.max_cost_usd
+ *    albo --max-cost).
+ * 2. Przygotowanie (jedyny etap z siecią): obraz bazowy + obraz zadania
+ *    (repo@pin + overlay + commit startowy, lib/prepare.ts).
+ * 3. Próby: każda w jednorazowym kontenerze ze świeżym XDG_DATA_HOME;
+ *    /bench/trial.sh → agent.log, patch.diff, metrics.json (koszt/tokeny
+ *    z lokalnego opencode.db — jedyne wiarygodne źródło), execution.json,
+ *    workspace/ (stan po pracy agenta — ZAWSZE zachowywany, poza gitem).
+ * 4. Runner dokłada attempt.json (format 1) — metadane próby.
+ *
+ * Próba raz opłacona nigdy nie jest wyrzucana: `--force` (re-run mimo
+ * istniejących prób) przenosi stary katalog do
+ * trial-<n>.superseded-<stempel>/ zamiast go kasować.
+ *
+ * Retry 1× przy przejściowej awarii providera (5xx/429) i killu
+ * sygnałowym (OOM) — artefakty pierwszego podejścia zostają obok.
  *
  * Sekrety modeli przechodzą do kontenera wyłącznie przez env
  * (*_API_KEY oraz OPENCODE_*), nigdy nie są zapiekane w obraz.
- * Próby biegną w poolu o rozmiarze --parallel (default:
- * defaults.parallel z bench.config.yaml, 1 = sekwencyjnie). Próba
- * spędza większość czasu na czekaniu na API modelu, więc równoległość
- * na jednej maszynie tnie wall-clock (i minuty CI w jobie zbiorczym)
- * niemal liniowo; sufit pamięci per kontener (resources.memory_mb) nie
- * jest rezerwacją — patrz ostrzeżenie o przekroczeniu pamięci maszyny.
  *
- * `--smoke` = sprawdzenie rur po wiringu: 1 próba, tylko pierwszy model
- * z listy (jawnie wskaż tani przez --models), zadania jak podano.
+ * Użycie:
+ *   bench attempt [<zadanie> <model>]
+ *                 [--tasks x,y] [--models a,b] [--trials n]
+ *                 [--trial-index n] [--force] [--parallel n] [--smoke]
+ *                 [--max-cost <usd>] [--out <dir>]
+ *                 [--engine docker|podman] [--root <dir>]
  *
- * Budżet: defaults.max_cost_usd w bench.config.yaml — po przekroczeniu
- * sumy kosztów prób (z metrics.json) run nie zleca kolejnych prób.
- * Budżet obowiązuje per WYWOŁANIE `bench run` (w CI: per job zadania).
- * Przekroczenie po ostatniej próbie to warning, nie błąd — kod 1 dopiero,
- * gdy budżet realnie pominął zaplanowane próby; wykonane próby zawsze
- * zostają na dysku do oceny (bench evaluate).
- *
- * Przejściowe awarie providera (5xx/429 w agent.log przy agent exit != 0)
- * dostają provider_error w trial.json i jeden retry — artefakty pierwszego
- * podejścia zostają w provider-error-attempt-1/.
- *
- * CI dzieli macierz na job per próba: `--trial-index n` wykonuje dokładnie
- * jedną próbę o numerze n (katalog trial-<n>), żeby równoległe joby tej samej
- * pary model × zadanie składały się w komplet prób po stronie agregacji.
- * Wyklucza się z --trials i --smoke.
- *
- * Użycie: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n]
- *                   [--parallel n] [--smoke] [--out <dir>]
- *                   [--engine docker|podman] [--root <dir>]
+ * `--smoke` = sprawdzenie rur: 1 próba, tylko pierwszy model z listy.
+ * `--trial-index n` = dokładnie próba nr n (chirurgiczny re-run z --force).
+ * Domyślny cel: attempts/ w korzeniu instancji (kanoniczne drzewo prób).
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
-import { detectEngine, engineMemoryBytes, ensureBaseImage, must, resourceLimitArgs, sh, shAsync, signalFromExit } from "../lib/containers.ts";
-import { gitAuthArgs } from "../lib/git-auth.ts";
+import { detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, shAsync, signalFromExit } from "../lib/containers.ts";
+import { hashTaskDir } from "../lib/era.ts";
+import { prepareTaskImage, sanitize, type PreparedTask } from "../lib/prepare.ts";
+import { ATTEMPT_FORMAT_VERSION } from "../schemas/attempt.ts";
 import type { Task } from "../schemas/task.ts";
 
 interface Options {
@@ -63,31 +54,57 @@ interface Options {
   tasks: string[] | null;
   trials: number | null;
   trialIndex: number | null;
+  force: boolean;
   parallel: number | null;
   smoke: boolean;
+  maxCost: number | null;
   out: string | null;
   engine: string | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), models: null, tasks: null, trials: null, trialIndex: null, parallel: null, smoke: false, out: null, engine: null };
+  const opts: Options = {
+    root: process.cwd(),
+    models: null,
+    tasks: null,
+    trials: null,
+    trialIndex: null,
+    force: false,
+    parallel: null,
+    smoke: false,
+    maxCost: null,
+    out: null,
+    engine: null,
+  };
+  const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === undefined) return null;
     const value = () => args[++i];
     if (arg === "--models") opts.models = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--tasks") opts.tasks = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--trials") opts.trials = Number(value());
     else if (arg === "--trial-index") opts.trialIndex = Number(value());
+    else if (arg === "--force") opts.force = true;
     else if (arg === "--parallel") opts.parallel = Number(value());
     else if (arg === "--smoke") opts.smoke = true;
+    else if (arg === "--max-cost") opts.maxCost = Number(value());
     else if (arg === "--out") opts.out = resolve(value() ?? "");
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
-    else return null;
+    else if (arg.startsWith("--")) return null;
+    else positional.push(arg);
   }
+  // Cukier "jedna komenda od zera do próby": bench attempt <zadanie> <model>.
+  if (positional.length === 2) {
+    if (opts.tasks || opts.models) return null;
+    opts.tasks = [positional[0] as string];
+    opts.models = [positional[1] as string];
+  } else if (positional.length !== 0) return null;
   if (opts.trials !== null && (!Number.isInteger(opts.trials) || opts.trials < 1)) return null;
   if (opts.trialIndex !== null && (!Number.isInteger(opts.trialIndex) || opts.trialIndex < 1)) return null;
   if (opts.parallel !== null && (!Number.isInteger(opts.parallel) || opts.parallel < 1)) return null;
+  if (opts.maxCost !== null && (!Number.isFinite(opts.maxCost) || opts.maxCost <= 0)) return null;
   if (opts.trialIndex !== null && (opts.trials !== null || opts.smoke)) return null;
   if (opts.smoke && opts.trials !== null && opts.trials !== 1) return null;
   return opts;
@@ -95,8 +112,8 @@ function parseArgs(args: string[]): Options | null {
 
 /**
  * Przejściowa awaria providera (HTTP 5xx / rate limit) daje `agent exit 1`
- * po ~sekundzie i pustą próbę wliczaną do median — sygnał jest w agent.log,
- * więc podnosimy go do trial.json zamiast kazać triage'owi czytać logi.
+ * po ~sekundzie i pustą próbę — sygnał jest w agent.log, więc podnosimy go
+ * do attempt.json zamiast kazać triage'owi czytać logi.
  */
 const PROVIDER_ERROR_PATTERN =
   /rate.?limit|overloaded|internal server error|bad gateway|service unavailable|(?:status(?: code)?|HTTP)[ :]*(?:429|5\d\d)\b/i;
@@ -114,93 +131,62 @@ function trialEnvNames(): string[] {
   return Object.keys(process.env).filter((name) => /_API_KEY$/.test(name) || /^OPENCODE_/.test(name));
 }
 
-const sanitize = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-");
-
-interface PreparedTask {
-  name: string;
-  task: Task;
-  image: string;
-  startSha: string;
+/** Numery zachowanych prób komórki (katalogi trial-<n> z attempt.json). */
+function existingTrials(cellDir: string): Set<number> {
+  const found = new Set<number>();
+  if (!statSync(cellDir, { throwIfNoEntry: false })?.isDirectory()) return found;
+  for (const name of readdirSync(cellDir)) {
+    const match = name.match(/^trial-(\d+)$/);
+    if (match && existsSync(join(cellDir, name, "attempt.json"))) found.add(Number(match[1]));
+  }
+  return found;
 }
 
-/** Zapieka repo@pin + overlay + commit startowy w obraz `bench-task-<nazwa>`. */
-function prepareTaskImage(engine: string, root: string, baseImage: string, name: string, task: Task, repoUrl: string): PreparedTask {
-  const reusableImage = `bench-task-${sanitize(name)}:latest`;
-  // CI: obraz zadania ściągnięty z rejestru (GHCR) — pomiń fetch + build.
-  // Świeżość gwarantuje tag rejestru (hash tasks/<nazwa>/** + .bench-kit/docker/**),
-  // nie ten kod; lokalnie flagi nie ustawiaj, bo edycja zadania nie miałaby efektu.
-  // start-sha jest zapieczony w obraz (COPY, a przy `prepare` nadpisany w RUN),
-  // więc punkt odniesienia patch.diff czytamy z obrazu, nie z lokalnego workspace.
-  if (process.env.BENCH_REUSE_TASK_IMAGE === "1" && sh(engine, ["image", "inspect", reusableImage], { timeout: 30_000 }).status === 0) {
-    console.log(`prepare: ${name} → ${reusableImage} (reuse z rejestru, bez rebuildu)`);
-    const startSha = must(engine, ["run", "--rm", reusableImage, "cat", "/bench/start-sha"], `odczyt start-sha obrazu ${name}`, {
-      timeout: 120_000,
-    }).trim();
-    return { name, task, image: reusableImage, startSha };
-  }
-  const context = mkdtempSync(join(tmpdir(), `bench-prepare-${sanitize(name)}-`));
-  try {
-    const workspace = join(context, "workspace");
-    mkdirSync(workspace);
-    must("git", ["init", "-q", workspace], "git init workspace");
-    must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, task.commit], `fetch pinowanego commita ${name}`, {
-      timeout: 300_000,
-    });
-    must("git", ["-C", workspace, "checkout", "-q", task.commit], "checkout pinowanego commita");
-
-    const overlay = join(root, "tasks", name, "overlay");
-    if (existsSync(overlay)) {
-      cpSync(overlay, workspace, {
-        recursive: true,
-        filter: (src) => !src.endsWith(".gitkeep"),
-      });
+/**
+ * Projekcja kosztu próby komórki z historii results/ w repo: mediana
+ * cost_usd wyników tej pary (zadanie × model), fallback: mediana po
+ * wszystkich modelach zadania. null = brak historii (pierwszy pomiar).
+ */
+function projectedTrialCost(resultsDir: string, task: string, model: string): number | null {
+  const costs: { model: string; cost: number }[] = [];
+  const taskDir = join(resultsDir, task);
+  if (!statSync(taskDir, { throwIfNoEntry: false })?.isDirectory()) return null;
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (name === "result.json") {
+        try {
+          const parsed = JSON.parse(readFileSync(full, "utf8")) as { model?: string; cost_usd?: number };
+          if (typeof parsed.cost_usd === "number" && typeof parsed.model === "string") {
+            costs.push({ model: parsed.model, cost: parsed.cost_usd });
+          }
+        } catch {
+          // nieparsowalny wynik nie psuje projekcji
+        }
+      }
     }
-
-    // Commit startowy = punkt odniesienia dla patch.diff (repo@pin + overlay).
-    must("git", ["-C", workspace, "add", "-A"], "git add punktu startowego");
-    must(
-      "git",
-      ["-C", workspace, "-c", "user.name=bench", "-c", "user.email=bench@local", "commit", "-q", "--allow-empty", "-m", "bench: punkt startowy próby"],
-      "commit punktu startowego",
-    );
-    const startSha = must("git", ["-C", workspace, "rev-parse", "HEAD"], "rev-parse punktu startowego").trim();
-
-    cpSync(join(root, "tasks", name, "prompt.md"), join(context, "prompt.md"));
-    writeFileSync(join(context, "start-sha"), startSha + "\n");
-    // task.prepare: środowisko zapiekane raz na obraz zadania (etap z siecią)
-    // zamiast płacone przy każdym wejściu do kontenera oceny/próby.
-    // Artefakty prepare są commitowane, a start-sha w obrazie aktualizowany —
-    // inaczej `git add -A` w trial.sh wciągnąłby np. node_modules do patch.diff.
-    const prepareLines = task.prepare
-      ? [
-          `RUN cd /workspace && ( ${task.prepare} ) \\`,
-          ` && git add -A \\`,
-          ` && git -c user.name=bench -c user.email=bench@local commit -q --allow-empty -m "bench: prepare środowiska zadania" \\`,
-          ` && git rev-parse HEAD > /bench/start-sha`,
-        ]
-      : [];
-    writeFileSync(
-      join(context, "Dockerfile"),
-      [`FROM ${baseImage}`, "COPY workspace/ /workspace/", "COPY prompt.md start-sha /bench/", ...prepareLines, ""].join("\n"),
-    );
-
-    const image = `bench-task-${sanitize(name)}:latest`;
-    console.log(`prepare: ${name} → ${image} (pin ${task.commit.slice(0, 12)}…)${task.prepare ? " + prepare środowiska" : ""}`);
-    must(engine, ["build", "-q", "-t", image, context], `budowa obrazu zadania ${name}`, { timeout: 1_800_000 });
-    const effectiveStartSha = task.prepare
-      ? must(engine, ["run", "--rm", image, "cat", "/bench/start-sha"], `odczyt start-sha obrazu ${name}`, { timeout: 120_000 }).trim()
-      : startSha;
-    return { name, task, image, startSha: effectiveStartSha };
-  } finally {
-    rmSync(context, { recursive: true, force: true });
-  }
+  };
+  walk(taskDir);
+  const median = (values: number[]): number | null => {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+  };
+  return median(costs.filter((c) => c.model === model).map((c) => c.cost)) ?? median(costs.map((c) => c.cost));
 }
 
-export async function runCommand(args: string[]): Promise<number> {
+export async function attemptCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
     console.error(
-      "usage: bench run [--models a,b] [--tasks x,y] [--trials n | --trial-index n] [--parallel n] [--smoke] [--out <dir>] [--engine docker|podman] [--root <dir>]",
+      [
+        "usage: bench attempt [<zadanie> <model>] [--tasks x,y] [--models a,b]",
+        "                     [--trials n | --trial-index n] [--force] [--parallel n]",
+        "                     [--smoke] [--max-cost <usd>] [--out <dir>]",
+        "                     [--engine docker|podman] [--root <dir>]",
+      ].join("\n"),
     );
     return 2;
   }
@@ -213,6 +199,7 @@ export async function runCommand(args: string[]): Promise<number> {
 
   try {
     const config = loadConfig(root);
+    const kitVersion = readFileSync(join(root, ".bench-kit", "VERSION"), "utf8").trim();
     let models = opts.models ?? config.defaults.models;
     let trials = opts.trials ?? config.defaults.trials;
     if (opts.smoke) {
@@ -221,10 +208,6 @@ export async function runCommand(args: string[]): Promise<number> {
       models = models.slice(0, 1);
       console.log(`smoke: 1 próba × ${models[0]} (tani model wskaż przez --models)`);
     }
-    // --trial-index: jedna próba o zadanym numerze (job macierzy CI);
-    // bez flagi — pełna sekwencja 1..trials jak dotąd.
-    const trialNumbers = opts.trialIndex !== null ? [opts.trialIndex] : Array.from({ length: trials }, (_, i) => i + 1);
-    const trialTotal = Math.max(trials, opts.trialIndex ?? 0);
     const allTasks = listTaskNames(root);
     const taskNames = opts.tasks ?? allTasks;
     for (const name of taskNames) {
@@ -232,33 +215,94 @@ export async function runCommand(args: string[]): Promise<number> {
     }
     if (taskNames.length === 0) throw new Error("brak zadań do uruchomienia");
 
-    const engine = detectEngine(opts.engine);
-    const runId = `run-${new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-")}`;
-    const outDir = opts.out ?? join(root, "out", runId);
+    const outDir = opts.out ?? join(root, "attempts");
+    const resultsDir = join(root, "results");
     mkdirSync(outDir, { recursive: true });
-    console.log(`bench run: ${runId} (engine: ${engine})`);
+
+    // --- plan macierzy: top-up braków, nie re-run opłaconych prób ---
+    interface PlannedCell {
+      task: string;
+      model: string;
+      numbers: number[];
+      skipped: number;
+    }
+    const plan: PlannedCell[] = [];
+    for (const task of taskNames) {
+      for (const model of models) {
+        const cellDir = join(outDir, task, sanitize(model));
+        const existing = existingTrials(cellDir);
+        let numbers: number[];
+        if (opts.trialIndex !== null) {
+          if (existing.has(opts.trialIndex) && !opts.force) {
+            throw new Error(
+              `${task} × ${model}: próba trial-${opts.trialIndex} już istnieje — ` +
+                "zachowane próby nie są nadpisywane; --force odkłada starą do trial-N.superseded-* i wykonuje nową",
+            );
+          }
+          numbers = [opts.trialIndex];
+        } else if (opts.force) {
+          numbers = Array.from({ length: trials }, (_, i) => i + 1);
+        } else {
+          numbers = Array.from({ length: trials }, (_, i) => i + 1).filter((n) => !existing.has(n));
+        }
+        plan.push({ task, model, numbers, skipped: opts.force ? 0 : [...existing].filter((n) => n <= trials).length });
+      }
+    }
+    const totalPlanned = plan.reduce((acc, c) => acc + c.numbers.length, 0);
+    const totalSkipped = plan.reduce((acc, c) => acc + c.skipped, 0);
+    if (totalSkipped > 0) {
+      console.log(`plan:   ${totalSkipped} zachowanych prób już na dysku — doganiam tylko braki (--force wymusza re-run)`);
+    }
+    if (totalPlanned === 0) {
+      console.log("bench attempt: wszystkie zaplanowane próby już zachowane — nic do zrobienia");
+      return 0;
+    }
+
+    // --- projekcja kosztu + sufit budżetu na cały bieg macierzy ---
+    const budget = opts.maxCost ?? config.defaults.max_cost_usd ?? null;
+    let projectedTotal = 0;
+    let projectionUnknown = 0;
+    for (const cell of plan) {
+      if (cell.numbers.length === 0) continue;
+      const perTrial = projectedTrialCost(resultsDir, cell.task, cell.model);
+      if (perTrial === null) projectionUnknown += cell.numbers.length;
+      else projectedTotal += perTrial * cell.numbers.length;
+    }
+    const projectionNote =
+      projectionUnknown > 0
+        ? ` + ${projectionUnknown} prób bez historii kosztu (pierwszy pomiar — projekcja niepełna)`
+        : "";
     console.log(
-      `macierz: ${models.length} model(i) × ${taskNames.length} zadań × ${
-        opts.trialIndex !== null ? `próba nr ${opts.trialIndex}` : `${trials} prób`
-      } → ${outDir}`,
+      `plan:   ${totalPlanned} prób do wykonania; projekcja kosztu ~$${projectedTotal.toFixed(2)}${projectionNote}` +
+        (budget !== null ? `; budżet biegu: $${budget}` : "; budżet biegu: brak (ustaw defaults.max_cost_usd)"),
     );
+    if (budget !== null && projectedTotal > budget) {
+      console.error(
+        `warn:   projekcja ($${projectedTotal.toFixed(2)}) przekracza budżet biegu ($${budget}) — ` +
+          "runner przerwie zlecanie prób po przekroczeniu sumy kosztów; zawęź macierz albo podnieś budżet świadomie",
+      );
+    }
+
+    const engine = detectEngine(opts.engine);
+    console.log(`bench attempt: macierz ${models.length} model(i) × ${taskNames.length} zadań → ${outDir} (engine: ${engine})`);
 
     // --- przygotowanie: obraz bazowy + obrazy zadań (jedyny etap z siecią) ---
     const baseImage = ensureBaseImage(engine, root);
     console.log(`prepare: obraz bazowy ${baseImage}`);
 
     const repoUrls = new Map(config.base_repos.map((r) => [r.name, r.url]));
-    const prepared: PreparedTask[] = [];
-    for (const name of taskNames) {
+    const prepared = new Map<string, PreparedTask>();
+    const taskHashes = new Map<string, string>();
+    for (const name of new Set(plan.filter((c) => c.numbers.length > 0).map((c) => c.task))) {
       const task = loadTask(root, name);
       const url = repoUrls.get(task.repo);
       if (!url) throw new Error(`tasks/${name}: repo "${task.repo}" nie istnieje w base_repos — uruchom \`bench validate\``);
-      prepared.push(prepareTaskImage(engine, root, baseImage, name, task, url));
+      prepared.set(name, prepareTaskImage(engine, root, baseImage, name, task, url));
+      taskHashes.set(name, hashTaskDir(join(root, "tasks", name)));
     }
 
-    // --- próby: model × zadanie × próba, pool --parallel, bez sieci do repo ---
+    // --- próby: pool --parallel, bez sieci do repo ---
     const envArgs = trialEnvNames().flatMap((name) => ["-e", name]);
-    const budget = config.defaults.max_cost_usd ?? null;
     let spentUsd = 0;
     let overBudget = false;
     let failures = 0;
@@ -273,24 +317,17 @@ export async function runCommand(args: string[]): Promise<number> {
       trial: number;
       memoryMb: number | null;
       limitArgs: string[];
-      archiveArgs: string[];
     }
     const specs: TrialSpec[] = [];
-    for (const { name, task, image, startSha } of prepared) {
-      // Jawny limit zasobów próby (OOM.md, warstwa 2): default instancji,
-      // nadpisanie per zadanie; wartość idzie do trial.json i stempli ery.
+    for (const cell of plan) {
+      if (cell.numbers.length === 0) continue;
+      const { task, image, startSha } = prepared.get(cell.task) as PreparedTask;
+      // Jawny limit zasobów próby: default instancji, nadpisanie per zadanie;
+      // wartość idzie do attempt.json i stempli ery.
       const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
       const limitArgs = resourceLimitArgs(memoryMb, config.resources.pids_limit ?? null);
-      // Archiwum workspace'u per zadanie (artifacts.workspace w configu):
-      // trial.sh pakuje /workspace po pracy agenta do workspace.tar.gz
-      // w /bench/out — artefakt do ręcznego odtworzenia i uruchomienia.
-      const archive = config.artifacts.workspace[name] ?? null;
-      const archiveArgs = archive ? ["-e", "BENCH_ARCHIVE_WORKSPACE=1", "-e", `BENCH_ARCHIVE_EXCLUDE=${archive.exclude.join(",")}`] : [];
-      if (archive) console.log(`archive: ${name} → workspace.tar.gz per próba (pomijane: ${archive.exclude.join(", ") || "nic"})`);
-      for (const model of models) {
-        for (const trial of trialNumbers) {
-          specs.push({ name, task, image, startSha, model, trial, memoryMb, limitArgs, archiveArgs });
-        }
+      for (const trial of cell.numbers) {
+        specs.push({ name: cell.task, task, image, startSha, model: cell.model, trial, memoryMb, limitArgs });
       }
     }
 
@@ -299,8 +336,7 @@ export async function runCommand(args: string[]): Promise<number> {
       console.log(`parallel: pool ${parallel} równoczesnych prób`);
       // Sufit per kontener to nie rezerwacja, ale równoczesne piki pamięci
       // sumują się — przekroczenie pamięci maszyny grozi OOM killerem
-      // jądra (nieatrybuowalne SIGKILL-e prób). Ostrzegamy, nie blokujemy:
-      // realne zużycie zależy od zadania.
+      // jądra (nieatrybuowalne SIGKILL-e prób). Ostrzegamy, nie blokujemy.
       const maxMemoryMb = Math.max(...specs.map((s) => s.memoryMb ?? 0));
       const machineBytes = engineMemoryBytes(engine);
       if (maxMemoryMb > 0 && machineBytes !== null && parallel * maxMemoryMb * 1024 * 1024 > machineBytes) {
@@ -311,17 +347,23 @@ export async function runCommand(args: string[]): Promise<number> {
       }
     }
 
-    const runTrial = async ({ name, task, image, startSha, model, trial, memoryMb, limitArgs, archiveArgs }: TrialSpec) => {
+    const runTrial = async ({ name, task, image, startSha, model, trial, memoryMb, limitArgs }: TrialSpec) => {
       const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
+      // Zachowane próby są nienaruszalne: re-run (--force / --trial-index)
+      // odkłada starą próbę obok zamiast ją kasować.
+      if (existsSync(join(trialDir, "attempt.json"))) {
+        const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
+        renameSync(trialDir, `${trialDir}.superseded-${stamp}`);
+        console.log(`trial:  ${name} × ${model} × próba ${trial} — poprzednia próba odłożona do trial-${trial}.superseded-${stamp}/`);
+      }
       mkdirSync(trialDir, { recursive: true });
-      const label = `${name} × ${model} × próba ${trial}/${trialTotal}`;
+      const label = `${name} × ${model} × próba ${trial}`;
       const startedAt = new Date().toISOString();
 
       // Retry 1× przy przejściowej awarii providera — pusta próba
       // z HTTP 500 wliczona do median to pomiar pogody, nie modelu.
-      // Ta sama mechanika dla kodów sygnałowych 128+N (OOM.md, warstwa 3):
-      // SIGKILL bez timeoutu to prawie zawsze wyczerpanie zasobów, nie
-      // praca modelu — retry raz, a powtórka = próba nieinterpretowalna.
+      // Ta sama mechanika dla kodów sygnałowych 128+N: SIGKILL bez
+      // timeoutu to prawie zawsze wyczerpanie zasobów.
       let execution: { agent_exit: number; timed_out: boolean; wall_duration_s: number } | null = null;
       let infraFailure = false;
       let providerError = false;
@@ -332,7 +374,7 @@ export async function runCommand(args: string[]): Promise<number> {
         console.log(`trial:  ${label} …`);
         const result = await shAsync(
           engine,
-          ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, ...archiveArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
+          ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
           { timeout: (task.timeout_s + 300) * 1000 },
         );
 
@@ -400,22 +442,25 @@ export async function runCommand(args: string[]): Promise<number> {
       }
 
       writeFileSync(
-        join(trialDir, "trial.json"),
+        join(trialDir, "attempt.json"),
         JSON.stringify(
           {
-            run_id: runId,
+            format: ATTEMPT_FORMAT_VERSION,
             task: name,
             model,
             trial,
             image,
             start_sha: startSha,
             pinned_commit: task.commit,
+            task_hash: taskHashes.get(name),
+            kit_version: kitVersion,
             started_at: startedAt,
             finished_at: new Date().toISOString(),
+            timeout_s: task.timeout_s,
+            memory_limit_mb: memoryMb,
             infra_failure: infraFailure || resourceKill,
             provider_error: providerError,
             resource_kill: resourceKill,
-            memory_limit_mb: memoryMb,
             attempts,
             execution,
           },
@@ -424,7 +469,7 @@ export async function runCommand(args: string[]): Promise<number> {
         ) + "\n",
       );
 
-      // Budżet runu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
+      // Budżet biegu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
       // (pool sprawdza flagę przed startem każdej próby; próby już
       // biegnące kończą się normalnie).
       if (budget !== null) {
@@ -434,8 +479,8 @@ export async function runCommand(args: string[]): Promise<number> {
         if (spentUsd > budget && !overBudget) {
           overBudget = true;
           console.error(
-            `budget: przekroczony defaults.max_cost_usd ($${spentUsd.toFixed(4)} > $${budget}) — nie zlecam kolejnych prób; ` +
-              "wykonane próby zostają do oceny (bench evaluate); podnieś budżet w bench.config.yaml, jeśli to świadoma decyzja",
+            `budget: przekroczony sufit biegu ($${spentUsd.toFixed(4)} > $${budget}) — nie zlecam kolejnych prób; ` +
+              "wykonane próby są zachowane do oceny (bench evaluate); podnieś budżet, jeśli to świadoma decyzja",
           );
         }
       }
@@ -454,13 +499,12 @@ export async function runCommand(args: string[]): Promise<number> {
     );
 
     // Przekroczenie budżetu PO ostatniej próbie niczego nie ucina — pieniądze
-    // już wydane, wyniki kompletne; głośny warning zamiast wywrotki, żeby
-    // pipeline (evaluate → raport) nie wyrzucał opłaconych prób. Kod 1 dopiero,
-    // gdy budżet realnie pominął zaplanowane próby (macierz niedomierzona).
+    // już wydane, próby zachowane; głośny warning zamiast wywrotki. Kod 1
+    // dopiero, gdy budżet realnie pominął zaplanowane próby.
     const skippedByBudget = specs.length - nextSpec;
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
     const killNote = resourceKills
-      ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, run do powtórzenia po naprawie zasobów)`
+      ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, próby do powtórzenia po naprawie zasobów)`
       : "";
     const status = overBudget
       ? skippedByBudget > 0
@@ -468,7 +512,8 @@ export async function runCommand(args: string[]): Promise<number> {
         : "gotowe (budżet przekroczony po ostatniej próbie — nic nie pominięto)"
       : "gotowe";
     console.log(
-      `\nbench run: ${status} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}`,
+      `\nbench attempt: ${status} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}` +
+        `\nnastępny krok: bench evaluate (ocena zachowanych prób → results/)`,
     );
     return failures > 0 || resourceKills > 0 || skippedByBudget > 0 ? 1 : 0;
   } catch (err) {

@@ -36,31 +36,32 @@ export const BenchConfigSchema = z.object({
   base_repos: z.array(BaseRepo).min(1),
   /** Konfiguracja LLM-as-judge. */
   judge: JudgeConfig,
-  /** Defaults runu — nadpisywalne parametrami workflow_dispatch. */
+  /** Defaults biegu macierzy — nadpisywalne flagami `bench attempt`. */
   defaults: z.object({
     /** Liczba prób na (model × zadanie). */
     trials: z.number().int().positive().default(3),
-    /** Modele oceniane, gdy dispatch nie poda własnej listy. */
+    /** Modele oceniane, gdy wywołanie nie poda własnej listy. */
     models: z.array(z.string().min(1)).min(1),
     /** Timeout próby, gdy task.yaml nie nadpisze. */
     timeout_s: z.number().int().positive().default(1800),
     /** Próg "pass" dla pass@k: próba zalicza, gdy total >= threshold. */
     pass_threshold: z.number().min(0).max(1).default(0.7),
     /**
-     * Budżet kosztu prób jednego runu (USD): `bench run` przerywa po
-     * przekroczeniu sumy cost_usd z metrics.json. Zgoda człowieka jest
-     * potrzebna przy podnoszeniu budżetu, nie przy każdym uruchomieniu.
-     * Brak pola = bez limitu (zachowanie legacy).
+     * Sufit kosztu prób CAŁEGO biegu macierzy (USD): `bench attempt`
+     * robi projekcję kosztu z historii results/ przed startem i przerywa
+     * zlecanie prób po przekroczeniu sumy cost_usd z metrics.json.
+     * Zgoda człowieka jest potrzebna przy podnoszeniu budżetu, nie przy
+     * każdym uruchomieniu. Brak pola = bez limitu.
      */
     max_cost_usd: z.number().positive().optional(),
     /**
-     * Równoczesne próby w obrębie jednego `bench run` (pool kontenerów).
-     * Próba spędza większość czasu na czekaniu na API modelu, więc
-     * równoległość tnie czas (i minuty CI przy jobach zbiorczych) niemal
-     * liniowo. UWAGA: resources.memory_mb to sufit per kontener, nie
-     * rezerwacja — parallel × memory_mb może przekraczać pamięć maszyny
-     * (runner GH ma ~7 GB); równoczesne piki grożą OOM killerem, dobierz
-     * do najcięższego zadania. 1 = zachowanie sekwencyjne (default).
+     * Równoczesne próby w obrębie jednego `bench attempt` (pool
+     * kontenerów). Próba spędza większość czasu na czekaniu na API
+     * modelu, więc równoległość tnie wall-clock niemal liniowo.
+     * UWAGA: resources.memory_mb to sufit per kontener, nie rezerwacja —
+     * parallel × memory_mb może przekraczać pamięć maszyny; równoczesne
+     * piki grożą OOM killerem, dobierz do najcięższego zadania.
+     * 1 = zachowanie sekwencyjne (default).
      */
     parallel: z.number().int().positive().default(1),
   }),
@@ -92,37 +93,6 @@ export const BenchConfigSchema = z.object({
       pids_limit: z.number().int().positive().optional(),
     })
     .default({}),
-  /**
-   * Artefakty dodatkowe prób (obserwowalność, nie scoring).
-   * workspace: mapa zadanie → konfiguracja archiwum workspace'u — dla
-   * wskazanych zadań próba zostawia workspace.tar.gz (stan /workspace
-   * po pracy agenta) obok patch.diff, do ręcznego odtworzenia
-   * i uruchomienia poza benchmarkiem. Ustawienie ŚWIADOMIE żyje tu,
-   * nie w task.yaml: nie jest częścią definicji pomiaru, więc
-   * włączanie/wyłączanie nie zmienia task_hash i nie zamyka ery
-   * porównywalności.
-   */
-  artifacts: z
-    .object({
-      workspace: z
-        .record(
-          z.string(),
-          // Wpis `nazwa-zadania:` bez wartości (null w YAML) = defaults.
-          z.preprocess(
-            (v) => v ?? {},
-            z.object({
-              /**
-               * Katalogi/pliki pomijane w archiwum (względem /workspace).
-               * Default pomija node_modules — odtwarzalne z lockfile'a,
-               * a ich brak trzyma archiwum w limitach artefaktów CI.
-               */
-              exclude: z.array(z.string().min(1)).default(["node_modules"]),
-            }),
-          ),
-        )
-        .default({}),
-    })
-    .default({ workspace: {} }),
 });
 
 export type BenchConfig = z.infer<typeof BenchConfigSchema>;

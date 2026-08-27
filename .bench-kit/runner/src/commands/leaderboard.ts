@@ -14,7 +14,7 @@
  * - komenda nie wymaga instancji: pass_threshold i stemple są w raportach;
  *   opcjonalny --root <instancja> ogranicza dashboard do zadań, które
  *   nadal istnieją w tasks/ (historia zadań usuniętych z instancji
- *   zostaje na gałęzi bench-data, ale nie zaśmieca UI).
+ *   zostaje w historii results/ (git), ale nie zaśmieca UI).
  *
  * Użycie: bench leaderboard --history <dir> [--out <dir>] [--title <s>]
  *                           [--root <dir>]
@@ -115,7 +115,7 @@ function buildSiteData(
   for (const { stamps, runs } of eras.values()) {
     // task_hash jednoznacznie wskazuje zadanie, więc era ma dokładnie jedno
     const task = runs[0]?.rows[0]?.task ?? "(nieznane zadanie)";
-    // zadania usunięte z instancji zostają w historii (bench-data), ale
+    // zadania usunięte z instancji zostają w historii gita, ale
     // nie na dashboardzie — filtr tylko przy podanym --root
     if (existingTasks && !existingTasks.has(task)) {
       console.error(`info:  pomijam zadanie spoza instancji: ${task}`);

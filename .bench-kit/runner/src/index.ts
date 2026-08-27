@@ -1,42 +1,37 @@
 /**
- * bench — CLI runnera benchmarku.
+ * bench — CLI runnera benchmarku (model local-first: wykonanie i ocena
+ * to dwa niezależne procesy na maszynie operatora / VPS).
  *
  * Komendy:
- *   bench run       — wykonanie prób macierzy model × zadanie × próba
- *   bench evaluate  — ocena artefaktów próby (static / tests / e2e / judge)
- *   bench validate  — bramka spójności instancji przed runem
- *   bench report    — agregacja result.json → dane leaderboardu
- *   bench leaderboard — statyczny dashboard z historii report.json
- *   bench matrix    — lista komórek (model × zadanie) do dispatchu bench-cell
- *   bench snapshot  — result.json runu → kanoniczne drzewo wyników (bench-data)
+ *   bench attempt   — wykonanie prób macierzy → ZACHOWANE PRÓBY (attempts/)
+ *   bench evaluate  — ocena zachowanych prób → wyniki w results/ w repo
+ *   bench validate  — bramka spójności instancji przed biegiem
+ *   bench report    — agregacja result.json (np. całego results/) → raport
+ *   bench leaderboard — statyczny dashboard z historii raportów
  *   bench assert    — pojedyncze asercje z puli na referencji (enabler skilli)
  *   bench judge     — pojedyncze wywołanie sędziego na diffie (kalibracja rubryk)
  *   bench calibrate — pomiar rozdzielczości rubryki na zbiorze kalibracyjnym
  *   bench doctor    — deterministyczna checklista środowiska instancji
  *
- * Wszystkie komendy zaimplementowane; kontrakty w docstringach
- * poszczególnych komend, schematy danych w src/schemas/.
+ * Kontrakt zachowanej próby (jedyny punkt styku wykonanie ↔ ocena):
+ * .bench-kit/ATTEMPT_FORMAT.md; schematy danych w src/schemas/.
  */
-import { runCommand } from "./commands/run.ts";
+import { attemptCommand } from "./commands/attempt.ts";
 import { evaluateCommand } from "./commands/evaluate.ts";
 import { validateCommand } from "./commands/validate.ts";
 import { reportCommand } from "./commands/report.ts";
 import { leaderboardCommand } from "./commands/leaderboard.ts";
-import { matrixCommand } from "./commands/matrix.ts";
-import { snapshotCommand } from "./commands/snapshot.ts";
 import { assertCommand } from "./commands/assert.ts";
 import { judgeCommand } from "./commands/judge.ts";
 import { calibrateCommand } from "./commands/calibrate.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
-  run: runCommand,
+  attempt: attemptCommand,
   evaluate: evaluateCommand,
   validate: validateCommand,
   report: reportCommand,
   leaderboard: leaderboardCommand,
-  matrix: matrixCommand,
-  snapshot: snapshotCommand,
   assert: assertCommand,
   judge: judgeCommand,
   calibrate: calibrateCommand,
@@ -47,7 +42,7 @@ const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
 if (!handler) {
-  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|snapshot|assert|judge|calibrate|doctor> [options]");
+  console.error("usage: bench <attempt|evaluate|validate|report|leaderboard|assert|judge|calibrate|doctor> [options]");
   process.exit(2);
 }
 

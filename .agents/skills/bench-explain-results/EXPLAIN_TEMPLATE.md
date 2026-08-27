@@ -5,12 +5,12 @@ Title (issue/comment): `triage: <model> × <task> — <symptom in 3-5 words>`
 ```markdown
 ## Symptom
 
-<what was surprising: run, model, task, numbers from report.json
+<what was surprising: run, model, task, numbers from the aggregate (bench report over results/)
 (median, pass@1/pass@k) + the era stamps the diagnosis applies to.>
 
 ## Chain of evidence
 
-<from report.json downward — per trial: which component drags the score
+<from the aggregate downward — per attempt: which component drags the score
 down (result.json), what the artifact showed (quote from agent.log /
 checks.json / judge.json / execution.json), reproduction results from
 commands (bench assert / bench judge) with the exact invocation.>

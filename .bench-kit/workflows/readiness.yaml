@@ -1,0 +1,49 @@
+# Readiness instancji — ZWYKŁE CI/CD, nie substrat wykonania benchmarku.
+# `bench-kit init`/`update` kopiuje go do .github/workflows/ instancji.
+#
+# Benchmark pracuje LOKALNIE (maszyna operatora / VPS): próby wykonuje
+# `bench attempt`, ocenę `bench evaluate` / skill rate-attempt, wyniki
+# lądują commitami w results/. Ten workflow pilnuje jedynie, żeby zmiany
+# w instancji (zadania, pula ocen, config, wyniki) były spójne:
+#
+# - zależności runnera się instalują,
+# - `bench validate --offline` — schematy task.yaml/rubryk, spójność
+#   evaluation[] z pulą, wagi, sędzia ≠ oceniane (bez sieci: repo
+#   prywatne wymagałyby sekretu; pełny validate operator robi lokalnie),
+# - wyniki w results/ parsują się schematem (`bench report`), gdy są.
+#
+# Zero płatnych prób, zero sekretów wymaganych.
+
+name: readiness
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+      - name: bench validate --offline
+        run: npm run bench --prefix .bench-kit/runner --silent -- validate --offline --root "$GITHUB_WORKSPACE"
+      - name: spójność wyników (results/)
+        run: |
+          if [ -d results ] && find results -name result.json | grep -q .; then
+            npm run bench --prefix .bench-kit/runner --silent -- report \
+              --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/results" \
+              --out /tmp/report.json
+          else
+            echo "brak wyników w results/ — pomijam"
+          fi

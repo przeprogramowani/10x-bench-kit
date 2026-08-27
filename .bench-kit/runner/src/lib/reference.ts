@@ -3,7 +3,7 @@
  * `bench assert` oraz weryfikacji referencyjnej w `bench validate --assert`.
  *
  * Stan startowy = repo bazowe na pinowanym commicie + (opcjonalnie) overlay
- * zadania + commit startowy — dokładnie to, co `bench run` zapieka w obraz.
+ * zadania + commit startowy — dokładnie to, co `bench attempt` zapieka w obraz.
  * Tu workspace powstaje na hoście i jest montowany do kontenera oceny
  * (ten sam /bench/evaluate.mjs co w `bench evaluate`), więc wynik asercji
  * jest tożsamy z tym z pełnego cyklu próby.
