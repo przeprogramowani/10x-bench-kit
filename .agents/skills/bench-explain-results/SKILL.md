@@ -58,10 +58,16 @@ fix — never with changing the results.
 ## Where the artifacts are
 
 - **Local run**: `out/<run-id>/<task>/<model>/trial-N/`.
-- **CI run**: `results-<slug>` artifacts (per model×task, same layout
-  as local) + `report` — you download them to disk via `gh` (step 1).
-  CI artifacts expire; the history of the reports themselves is
-  permanent on the `bench-data` branch (`runs/<run_id>.json`).
+- **CI run**: each cell (model × task) is its own `bench-cell` run
+  with a `results-<slug>-<run_id>` artifact (same layout as local) —
+  you download it via `gh` (step 1). CI artifacts expire; the
+  `result.json` files themselves are permanent on the `bench-data`
+  branch in the canonical results tree
+  (`results/<task>/<era>/<model>/trial-N/`), delivered there as PRs
+  merged by the benchmark owner (an unmerged results PR = the result
+  exists on a `results/*` branch, not yet on `bench-data`). Legacy
+  history from before the per-cell model lives in `runs/<run_id>.json`
+  (report level only).
 - **Trial files**: `trial.json` (metadata), `execution.json` (agent
   exit code; 124 = timeout), `agent.log` (full OpenCode output),
   `patch.diff` (the agent's work vs the starting commit),
@@ -88,7 +94,9 @@ with the options:
   propose the newest and confirm. Take a path given by the user as-is,
   without asking.
 - **CI run** — you fetch via `gh`. Without a given id = the **latest**
-  run of the `bench-run` workflow in the instance repo.
+  run of the `bench-cell` workflow in the instance repo (`bench-run` is
+  only the orchestrator — it has no artifacts; the run-name of each
+  `bench-cell` run carries the model × task).
 
 Exception: when the user already indicated the source in their request
 (gave a path, a run id, a link to a run/PR, or wrote "the latest CI
@@ -97,24 +105,28 @@ run") — do not ask, just confirm in one sentence what you are taking.
 Fetching from CI (the instance repo, not the template):
 
 ```bash
-# id of the latest run, when the user did not provide one
-RUN_ID=$(gh run list --workflow bench-run --limit 1 --json databaseId \
+# id of the latest cell run, when the user did not provide one
+RUN_ID=$(gh run list --workflow bench-cell --limit 1 --json databaseId \
   --jq '.[0].databaseId')
-gh run download "$RUN_ID" --dir out/ci-$RUN_ID     # results-* + report
+gh run download "$RUN_ID" --dir out/ci-$RUN_ID     # results-<slug>-<run_id>
 ```
 
-The `results-<slug>` artifacts have the same layout as a local run, so
-from this point on the procedure is identical; `report.json` lives in
-the `report` artifact. Settle two edge cases immediately, before going
-further:
+The artifact has the same layout as a local run, so from this point on
+the procedure is identical. There is no per-run `report.json` anymore —
+medians/pass@k for context come from the leaderboard's `data.json`, or
+you compute them yourself with `bench report --run <dir>` over the
+downloaded artifacts or a checkout of `bench-data`'s `results/` tree.
+Settle two edge cases immediately, before going further:
 
-- **artifacts expired** (repo retention) — only
-  `runs/<run_id>.json` on the `bench-data` branch remains, i.e. the
-  report level alone. Say so plainly: the diagnosis then descends at
-  most to step 3, and the cause class cannot be determined (rule 3).
-- **run unfinished / the `aggregate` job failed** — no `report`
-  artifact; `results-*` may exist. Descend straight to the trials and
-  note that you have no comparison against medians.
+- **artifacts expired** (repo retention) — the trial's `result.json`
+  survives in the `results/` tree on `bench-data` (or on the unmerged
+  results PR branch), but the raw artifacts (agent.log, patch.diff)
+  are gone. Say so plainly: the diagnosis then stops at the
+  result.json level, and the cause class cannot be determined (rule 3).
+- **run failed mid-way** — the `results-*` artifact may still hold the
+  paid trials, and a results PR may exist for them; a trial that died
+  produced no `result.json`. Descend straight to the trials and note
+  that you have no comparison against medians.
 
 ### 2. Question and scope
 
@@ -122,7 +134,10 @@ Establish what you are diagnosing: a single trial / model×task / the
 whole run / a change between runs. For cross-run comparisons — rule 4
 first (identical stamps or not).
 
-### 3. Top-down: report.json
+### 3. Top-down: the report level
+
+(For CI results synthesize it first: `bench report --run <dir>` over
+the downloaded artifacts / `results/` tree — see step 1.)
 
 - medians of total/cost/time per model×task — what stands out,
 - **pass@1 vs pass@k**: a gap (e.g. 0.33 vs 1.0) = instability, not

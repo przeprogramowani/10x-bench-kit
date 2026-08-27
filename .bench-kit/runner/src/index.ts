@@ -7,7 +7,8 @@
  *   bench validate  — bramka spójności instancji przed runem
  *   bench report    — agregacja result.json → dane leaderboardu
  *   bench leaderboard — statyczny dashboard z historii report.json
- *   bench matrix    — macierz jobów dla GH Actions
+ *   bench matrix    — lista komórek (model × zadanie) do dispatchu bench-cell
+ *   bench snapshot  — result.json runu → kanoniczne drzewo wyników (bench-data)
  *   bench assert    — pojedyncze asercje z puli na referencji (enabler skilli)
  *   bench judge     — pojedyncze wywołanie sędziego na diffie (kalibracja rubryk)
  *   bench calibrate — pomiar rozdzielczości rubryki na zbiorze kalibracyjnym
@@ -22,6 +23,7 @@ import { validateCommand } from "./commands/validate.ts";
 import { reportCommand } from "./commands/report.ts";
 import { leaderboardCommand } from "./commands/leaderboard.ts";
 import { matrixCommand } from "./commands/matrix.ts";
+import { snapshotCommand } from "./commands/snapshot.ts";
 import { assertCommand } from "./commands/assert.ts";
 import { judgeCommand } from "./commands/judge.ts";
 import { calibrateCommand } from "./commands/calibrate.ts";
@@ -34,6 +36,7 @@ const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   report: reportCommand,
   leaderboard: leaderboardCommand,
   matrix: matrixCommand,
+  snapshot: snapshotCommand,
   assert: assertCommand,
   judge: judgeCommand,
   calibrate: calibrateCommand,
@@ -44,7 +47,7 @@ const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
 if (!handler) {
-  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|assert|judge|calibrate|doctor> [options]");
+  console.error("usage: bench <run|evaluate|validate|report|leaderboard|matrix|snapshot|assert|judge|calibrate|doctor> [options]");
   process.exit(2);
 }
 

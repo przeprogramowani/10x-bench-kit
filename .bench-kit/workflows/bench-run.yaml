@@ -1,35 +1,31 @@
-# Workflow runu benchmarku. `bench-kit init`/`update` kopiuje go do
+# Orkiestrator runu benchmarku. `bench-kit init`/`update` kopiuje go do
 # .github/workflows/ instancji.
 #
-# Rytuał: nowy model na rynku → dispatch z jego ID → nowy wiersz w tabeli.
+# Model operacyjny: bench-run NIE wykonuje prób. Wylicza brakujące
+# KOMÓRKI (model × zadanie) i dispatchuje per komórka niezależny run
+# workflow bench-cell — każda komórka ma własny status w Actions,
+# a jej wyniki wracają jako PR na gałąź bench-data (merguje owner
+# benchmarku; merge wyzwala przebudowę leaderboardu).
+#
+# Rytuał: nowy model na rynku → dispatch z jego ID → paczka komórek.
 # Wszystkie parametry mają defaults z bench.config.yaml.
 #
 # Skip-logic: run jest stateless w obrębie ery scoringu — komórki
-# (model × zadanie) z żądaną liczbą prób w historii (gałąź bench-data)
-# wypadają z macierzy, więc dispatch bez parametrów dogania tylko braki
-# (nowe modele, nowe zadania, nowe ery). Input `force` wymusza pełny
-# re-run; więcej prób niż w historii = re-run komórki od zera.
+# (model × zadanie) z żądaną liczbą prób w kanonicznym drzewie wyników
+# (bench-data, results/) wypadają z listy, więc dispatch bez parametrów
+# dogania tylko braki (nowe modele, nowe zadania, nowe ery). Drzewo
+# widzi tylko wyniki ZMERGOWANE — merguj PR-y z wynikami przed kolejnym
+# dispatchem, inaczej komórki z otwartymi PR-ami polecą drugi raz.
+# Input `force` wymusza pełny re-run.
 #
-# Wymagane sekrety instancji:
-# - klucze API providerów używanych przez oceniane modele i sędziego
-#   (np. OPENROUTER_API_KEY),
-# - BASE_REPO_TOKEN — gdy którekolwiek repo bazowe jest prywatne:
-#   fine-grained PAT (tylko contents:read) obejmujący wszystkie prywatne
-#   base_repos. Wystarczy env — runner sam wpina token w git fetch/ls-remote
-#   (url.insteadOf per wywołanie); do kontenerów prób nie trafia.
-#   Przy samych repo publicznych sekret jest zbędny.
+# Wymagane sekrety instancji: jak w bench-cell (tam wykonują się próby).
 
 name: bench-run
 
-# packages: write — obrazy (bazowy + zadań) idą przez GHCR pakietów repo:
-# zbudowane raz, reużywane przez wszystkie joby i kolejne runy (pull warstw
-# zamiast docker save/load tar przez actions/cache).
-# contents: write — joby prób utrwalają result.json na gałęzi bench-data
-# (partials/<run_id>/) od razu po ocenie; artefakty CI potrafią zniknąć
-# (retencja, blokada billingowa w połowie runu), gałąź nie.
+# actions: write — dispatch workflow bench-cell przez GITHUB_TOKEN.
 permissions:
-  contents: write
-  packages: write
+  contents: read
+  actions: write
 
 on:
   workflow_dispatch:
@@ -47,7 +43,7 @@ on:
         required: false
         type: string
       parallel:
-        description: "Równoczesne próby w jobie zadania. Puste = defaults.parallel z bench.config.yaml"
+        description: "Równoczesne próby w komórce. Puste = defaults.parallel z bench.config.yaml"
         required: false
         type: string
       force:
@@ -56,21 +52,25 @@ on:
         type: boolean
         default: false
 
+# Jeden orkiestrator naraz — drugi dispatch w trakcie planowania mógłby
+# zdublować komórki (skip-logic nie widzi jeszcze niezmergowanych wyników).
+concurrency:
+  group: bench-run
+  cancel-in-progress: false
+
 env:
-  # Parametry dispatch dokładane do komend tylko, gdy podane.
+  # Parametry dispatch dokładane do komend tylko, gdy podane; inputy
+  # wyłącznie przez env (wstrzyknięcie komend przy ręcznym dispatchu).
   MODELS_ARG: ${{ inputs.models != '' && format('--models {0}', inputs.models) || '' }}
   TASKS_ARG: ${{ inputs.tasks != '' && format('--tasks {0}', inputs.tasks) || '' }}
   TRIALS_ARG: ${{ inputs.trials != '' && format('--trials {0}', inputs.trials) || '' }}
-  PARALLEL_ARG: ${{ inputs.parallel != '' && format('--parallel {0}', inputs.parallel) || '' }}
   FORCE_ARG: ${{ inputs.force == true && '--force' || '' }}
+  RUN_PARALLEL: ${{ inputs.parallel }}
 
 jobs:
-  # Bramka + macierz: validate musi przejść, zanim wydamy centa na próby.
+  # Bramka + plan + dispatch: validate musi przejść, zanim wydamy centa.
   plan:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-      count: ${{ steps.matrix.outputs.count }}
     env:
       BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
     steps:
@@ -89,12 +89,10 @@ jobs:
       - name: bench validate
         run: npm run bench --prefix .bench-kit/runner --silent -- validate --root "$GITHUB_WORKSPACE"
 
-      # Skip-logic: benchmark jest stateless w obrębie ery scoringu. Historia
-      # raportów z gałęzi bench-data pozwala `bench matrix` wyciąć komórki
-      # (model × zadanie), które w bieżącej erze mają już żądaną liczbę prób —
-      # dispatch bez parametrów dogania tylko braki. Input `force` = pełny
-      # re-run; brak gałęzi (pierwszy run) = bez skip-logic.
-      - name: Historia wyników (bench-data)
+      # Skip-logic: kanoniczne drzewo wyników z gałęzi bench-data pozwala
+      # `bench matrix` wyciąć komórki z żądaną liczbą prób w bieżącej erze.
+      # Brak gałęzi (pierwszy run) = bez skip-logic.
+      - name: Drzewo wyników (bench-data)
         id: history
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,7 +101,7 @@ jobs:
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "gałąź bench-data nie istnieje — macierz bez skip-logic"
+            echo "gałąź bench-data nie istnieje — lista komórek bez skip-logic"
           fi
       - uses: actions/checkout@v4
         if: steps.history.outputs.exists == 'true'
@@ -115,245 +113,73 @@ jobs:
       - name: bench matrix
         id: matrix
         run: |
-          HISTORY_ARG=""
-          if [ "${{ steps.history.outputs.exists }}" = "true" ]; then
-            HISTORY_ARG="--history $GITHUB_WORKSPACE/bench-data/runs"
+          RESULTS_ARG=""
+          if [ -d "$GITHUB_WORKSPACE/bench-data/results" ]; then
+            RESULTS_ARG="--results $GITHUB_WORKSPACE/bench-data/results"
           fi
-          MATRIX="$(npm run bench --prefix .bench-kit/runner --silent -- matrix --batch --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG $HISTORY_ARG $FORCE_ARG)"
+          MATRIX="$(npm run bench --prefix .bench-kit/runner --silent -- matrix --root "$GITHUB_WORKSPACE" $MODELS_ARG $TASKS_ARG $TRIALS_ARG $RESULTS_ARG $FORCE_ARG)"
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "count=$(echo "$MATRIX" | jq '.include | length')" >> "$GITHUB_OUTPUT"
 
-  # Jeden job = jedno ZADANIE (macierz --batch): wszystkie jego modele ×
-  # próby biegną w jednym jobie przez `bench run --parallel` — próba
-  # spędza większość czasu na czekaniu na API modelu, więc job zbiorczy
-  # płaci ~max(próba) job-minut zamiast sumy prób (kilkukrotnie mniej niż
-  # job per próba przy tym samym wall-clocku). Obrazy (bazowy + zadań)
-  # idą przez GHCR: joby po chybieniu budują i wypychają, kolejne
-  # ściągają. Uwaga: awaria joba = re-run całej paczki zadania.
-  trial:
-    needs: plan
-    # count 0 = wszystko już zmierzone w bieżącej erze (skip-logic) — job
-    # pominięty zamiast wywrotki na pustej macierzy.
-    if: needs.plan.outputs.count != '0'
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    runs-on: ubuntu-latest
-    env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
-      # Cache zależności ocen (N1) na katalogu hosta zamiast wolumenu —
-      # wolumen żyje tylko przez czas joba, katalog przenosi actions/cache.
-      BENCH_DEPS_CACHE_DIR: /tmp/bench-deps-cache
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: .bench-kit/runner/package-lock.json
-      - run: npm ci --prefix .bench-kit/runner
-
-      # Ciepły cache zależności między RUNAMI: klucz zawsze świeży (run_id),
-      # restore-keys dociąga najnowszy zapis — cache akumuluje się w czasie.
-      - name: Cache zależności ocen (bench-deps-cache)
-        uses: actions/cache@v4
-        with:
-          path: /tmp/bench-deps-cache
-          key: bench-deps-${{ runner.os }}-${{ github.run_id }}-${{ matrix.slug }}
-          restore-keys: |
-            bench-deps-${{ runner.os }}-
-
-      # Obrazy przez GHCR zamiast docker save/load tar w actions/cache:
-      # pull warstw jest szybszy i współdzielony między jobami oraz runami.
-      # Tagi są treścią, nie czasem — hash wejść (Dockerfile/zadanie), więc
-      # świeżość gwarantuje tag, a nie rebuild. Pull „na miękko": chybienie
-      # (pierwszy run po zmianie) nie wywraca joba, tylko zostawia budowę
-      # runnerowi; brak flag BENCH_REUSE_* = zbuduj normalnie.
-      - name: Obrazy z rejestru (GHCR)
+      # Dispatch komórek: jeden run bench-cell per (model × zadanie).
+      # Fire-and-forget — statusy komórek żyją w ich runach, wyniki wracają
+      # PR-ami na bench-data. Retry per komórka (transient API GitHuba nie
+      # może uciąć paczki w połowie); komórki, których dispatch ostatecznie
+      # zawiódł, lądują IMIENNIE w summary i statusie — ślepy re-run całego
+      # bench-run zdublowałby komórki już wystartowane (i ich koszt),
+      # właściwa naprawa to ręczny dispatch bench-cell dla wymienionych.
+      - name: Dispatch bench-cell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATRIX: ${{ steps.matrix.outputs.matrix }}
+          COUNT: ${{ steps.matrix.outputs.count }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          REGISTRY="ghcr.io/${GITHUB_REPOSITORY,,}"
-          OPENCODE_VERSION="$(tr -d '[:space:]' < .bench-kit/docker/opencode.version)"
-          BASE_HASH="${{ hashFiles('.bench-kit/docker/**') }}"
-          TASK_HASH="${{ hashFiles(format('tasks/{0}/**', matrix.task), '.bench-kit/docker/**') }}"
-          # TASK_SAFE odtwarza sanitize() runnera (run.ts) — lokalny tag musi
-          # trafić w nazwę, której `bench run` szuka przy BENCH_REUSE_TASK_IMAGE.
-          TASK_SAFE="$(echo "${{ matrix.task }}" | sed -E 's/[^A-Za-z0-9._-]+/-/g')"
-          TASK_LC="$(echo "$TASK_SAFE" | tr '[:upper:]' '[:lower:]')"
           {
-            echo "BASE_LOCAL=bench-base:${OPENCODE_VERSION}"
-            echo "BASE_REMOTE=${REGISTRY}/bench-base:${BASE_HASH:0:16}"
-            echo "TASK_LOCAL=bench-task-${TASK_SAFE}:latest"
-            echo "TASK_REMOTE=${REGISTRY}/bench-task-${TASK_LC}:${TASK_HASH:0:16}"
-          } >> "$GITHUB_ENV"
-      - name: Wczytaj obrazy z rejestru
-        run: |
-          if docker pull -q "$BASE_REMOTE"; then
-            docker tag "$BASE_REMOTE" "$BASE_LOCAL"
-            echo "BENCH_REUSE_BASE_IMAGE=1" >> "$GITHUB_ENV"
-          else
-            echo "obraz bazowy: brak w rejestrze — runner zbuduje ($BASE_REMOTE)"
-          fi
-          if docker pull -q "$TASK_REMOTE"; then
-            docker tag "$TASK_REMOTE" "$TASK_LOCAL"
-            echo "BENCH_REUSE_TASK_IMAGE=1" >> "$GITHUB_ENV"
-          else
-            echo "obraz zadania: brak w rejestrze — runner zbuduje ($TASK_REMOTE)"
-          fi
-
-      # continue-on-error: kod != 0 (awarie infrastruktury, budżet, który
-      # pominął próby) nie może ucinać oceny — opłacone próby leżą w out/run
-      # i MUSZĄ przejść przez evaluate + utrwalenie, inaczej pieniądze za
-      # LLM przepadają. Status joba odtwarza ostatni krok (Status prób).
-      - name: bench run
-        id: run
-        continue-on-error: true
-        run: |
-          npm run bench --prefix .bench-kit/runner --silent -- run \
-            --root "$GITHUB_WORKSPACE" \
-            --models "${{ matrix.models }}" --tasks "${{ matrix.task }}" \
-            --trials "${{ matrix.trials }}" $PARALLEL_ARG \
-            --out "$GITHUB_WORKSPACE/out/run"
-      - name: bench evaluate
-        run: |
-          if ! find out/run -name trial.json 2>/dev/null | grep -q .; then
-            echo "brak prób w out/run — pomijam ocenę"
+            echo "## bench-run → dispatch komórek"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" = "0" ]; then
+            echo "wszystkie komórki zmierzone w bieżącej erze — nic do dispatchu"
+            echo "Wszystkie komórki zmierzone w bieżącej erze — nic do dispatchu (force wymusza re-run)." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          npm run bench --prefix .bench-kit/runner --silent -- evaluate \
-            --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
-
-      # Wypchnięcie tylko obrazów zbudowanych w tym jobie (chybienie pull).
-      # Równoległe joby zimnego runu wypychają ten sam tag — push jest
-      # idempotentny; continue-on-error, bo brak uprawnień do pakietu nie
-      # może unieważnić wyników próby.
-      - name: Wypchnij obrazy do rejestru
-        if: env.BENCH_REUSE_BASE_IMAGE != '1' || env.BENCH_REUSE_TASK_IMAGE != '1'
-        continue-on-error: true
-        run: |
-          if [ "$BENCH_REUSE_BASE_IMAGE" != "1" ]; then
-            docker tag "$BASE_LOCAL" "$BASE_REMOTE" && docker push -q "$BASE_REMOTE"
-          fi
-          if [ "$BENCH_REUSE_TASK_IMAGE" != "1" ]; then
-            docker tag "$TASK_LOCAL" "$TASK_REMOTE" && docker push -q "$TASK_REMOTE"
-          fi
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: results-${{ matrix.slug }}
-          path: out/run
-          if-no-files-found: warn
-
-      # Utrwalenie wyników od razu po ocenie: result.json (jedyne, czego
-      # potrzebuje `bench report`, kilka KB per próba) idzie na gałąź
-      # bench-data pod partials/<run_id>/<slug>/ z zachowaniem układu
-      # katalogów runu. Artefakty CI potrafią zniknąć (retencja, blokada
-      # billingowa w połowie runu) — gałąź nie; aggregate scala artefakty
-      # z partials, więc opłacone próby przeżywają awarię agregacji,
-      # a "re-run failed jobs" odtwarza raport bez powtarzania prób.
-      # Token tylko w konfiguracji klonu /tmp — kontenery prób dostają
-      # wyłącznie *_API_KEY/OPENCODE_* i dawno nie żyją.
-      - name: Utrwal wyniki (bench-data/partials)
-        if: always()
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          if [ ! -d out/run ] || ! find out/run -name result.json | grep -q .; then
-            echo "brak result.json — nic do utrwalenia"
-            exit 0
-          fi
-          REMOTE="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
-          DEST="partials/${{ github.run_id }}/${{ matrix.slug }}"
-          # Równoległe joby pchają na tę samą gałąź — przegrany wyścigu
-          # klonuje od nowa i ponawia (rozłączne ścieżki, konflikt niemożliwy).
-          for attempt in 1 2 3 4 5; do
-            rm -rf /tmp/bench-data
-            if ! git clone -q --depth 1 --branch bench-data "$REMOTE" /tmp/bench-data 2>/dev/null; then
-              git init -q -b bench-data /tmp/bench-data
-              git -C /tmp/bench-data remote add origin "$REMOTE"
+          {
+            echo "| komórka | model | zadanie | próby | dispatch |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          FAILED=""
+          # jq → plik zamiast pipe do while: pętla nie może żyć w subshellu
+          # (FAILED musi przetrwać), a `set -e` nie może ucinać paczki po
+          # pierwszym błędzie dispatchu.
+          jq -c '.include[]' <<< "$MATRIX" > /tmp/cells.jsonl
+          while read -r cell; do
+            MODEL="$(jq -r .model <<< "$cell")"
+            TASK="$(jq -r .task <<< "$cell")"
+            TRIALS="$(jq -r .trials <<< "$cell")"
+            SLUG="$(jq -r .slug <<< "$cell")"
+            ok=""
+            for attempt in 1 2 3; do
+              if gh workflow run bench-cell.yaml --ref "$GITHUB_REF_NAME" \
+                  -f "model=$MODEL" -f "task=$TASK" -f "trials=$TRIALS" \
+                  ${RUN_PARALLEL:+-f "parallel=$RUN_PARALLEL"}; then
+                ok=1; break
+              fi
+              echo "dispatch $SLUG nieudany — ponawiam ($attempt/3)"; sleep $((attempt * 5))
+            done
+            if [ -n "$ok" ]; then
+              echo "dispatch: $SLUG (trials=$TRIALS)"
+              echo "| \`$SLUG\` | $MODEL | $TASK | $TRIALS | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              FAILED="$FAILED $SLUG"
+              echo "::error::dispatch komórki $SLUG nieudany po 3 podejściach"
+              echo "| \`$SLUG\` | $MODEL | $TASK | $TRIALS | ❌ |" >> "$GITHUB_STEP_SUMMARY"
             fi
-            rm -rf "/tmp/bench-data/$DEST"
-            mkdir -p "/tmp/bench-data/$DEST"
-            (cd out/run && find . -name result.json -exec cp --parents {} "/tmp/bench-data/$DEST/" \;)
-            git -C /tmp/bench-data add -A
-            if git -C /tmp/bench-data diff --cached --quiet; then
-              echo "partials bez zmian"
-              exit 0
-            fi
-            git -C /tmp/bench-data -c user.name=bench-kit -c user.email=bench-kit@users.noreply.github.com \
-              commit -q -m "bench-data: partials ${{ github.run_id }}/${{ matrix.slug }}"
-            if git -C /tmp/bench-data push -q origin bench-data; then
-              echo "utrwalono $DEST"
-              exit 0
-            fi
-            echo "push odrzucony (wyścig jobów) — ponawiam ($attempt/5)"
-            sleep $((RANDOM % 5 + 1))
-          done
-          echo "::error::nie udało się utrwalić wyników na bench-data po 5 podejściach"
-          exit 1
-
-      # Odtworzenie statusu bench run (continue-on-error wyżej): job jest
-      # czerwony, gdy próby zawiodły albo budżet pominął część macierzy —
-      # ale dopiero PO ocenie i utrwaleniu tego, co opłacone.
-      - name: Status prób
-        if: steps.run.outcome == 'failure'
-        run: |
-          echo "::error::bench run zakończony kodem != 0 (awarie prób / budżet pominął próby) — szczegóły w kroku 'bench run'; wykonane próby są ocenione i utrwalone"
-          exit 1
-
-  # Agregacja: mediana, pass@k, koszt runu → report.json jako artefakt.
-  # (Leaderboard/dashboard celowo później — surowe JSON-y wystarczą.)
-  aggregate:
-    needs: [plan, trial]
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.count != '0'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: .bench-kit/runner/package-lock.json
-      - run: npm ci --prefix .bench-kit/runner
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: results-*
-          path: out/run
-          merge-multiple: true
-
-      # Drugie źródło wyników: partials tego runu z bench-data — te same
-      # ścieżki względne co artefakty (nadpisanie idempotentne), więc
-      # raport powstaje także wtedy, gdy artefakty przepadły (np. blokada
-      # billingowa w połowie runu) — wystarczy "re-run failed jobs".
-      - name: Uzupełnij wyniki z bench-data (partials)
-        run: |
-          REMOTE="https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
-          if ! git clone -q --depth 1 --branch bench-data "$REMOTE" /tmp/bench-data 2>/dev/null; then
-            echo "gałąź bench-data nie istnieje — tylko artefakty"
-            exit 0
+          done < /tmp/cells.jsonl
+          {
+            echo
+            echo "Komórek: **$COUNT**. Statusy w runach workflow **bench-cell**; wyniki wracają PR-ami na gałąź \`bench-data\` — merge ownera czyni je oficjalnymi i przebudowuje leaderboard."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$FAILED" ]; then
+            echo "NIE dispatchowano:$FAILED — odpal je ręcznie workflow bench-cell (NIE ponawiaj całego bench-run: zdublujesz komórki, które wystartowały)." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
-          SRC="/tmp/bench-data/partials/${{ github.run_id }}"
-          if [ ! -d "$SRC" ]; then
-            echo "brak partials dla runu ${{ github.run_id }} — tylko artefakty"
-            exit 0
-          fi
-          mkdir -p out/run
-          for slug_dir in "$SRC"/*/; do
-            cp -R "${slug_dir}." out/run/
-          done
-          echo "scalono partials: $(find "$SRC" -name result.json | wc -l) result.json"
-
-      - name: bench report
-        run: |
-          npm run bench --prefix .bench-kit/runner --silent -- report \
-            --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: report
-          path: out/run/report.json

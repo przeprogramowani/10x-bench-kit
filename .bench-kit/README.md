@@ -10,11 +10,14 @@ Zawartość:
 - `VERSION` — wersja template'u, z którego pochodzi ta strefa; stemplowana
   w każdym `result.json`.
 - `runner/` — CLI `bench` (`run` / `evaluate` / `validate` / `report` /
-  `matrix`); schematy kontraktów w `runner/src/schemas/`.
+  `matrix` / `snapshot`); schematy kontraktów w `runner/src/schemas/`.
 - `docker/` — bazowy Dockerfile obrazu próby, pinowana wersja OpenCode
   (`opencode.version`), adapter metryk, skrypty cyklu próby i oceny.
-- `workflows/` — workflows GitHub Actions (run benchmarku, leaderboard).
-  `bench-kit init`/`update` kopiuje je do `.github/workflows/`.
+- `workflows/` — workflows GitHub Actions: `bench-run` (orkiestrator —
+  dispatchuje komórki), `bench-cell` (jedna komórka model × zadanie,
+  wyniki jako PR na gałąź bench-data), `leaderboard` (publikacja po
+  merge'u wyników). `bench-kit init`/`update` kopiuje je do
+  `.github/workflows/`.
 - `bootstrap/` — logika instancji (`init`/`update`/`repair`) wykonywana
   przez `10x bench-kit` z klonu template'u: żądanie JSON na stdin,
   odpowiedź JSON w ostatniej linii stdout. Zasada podziału: kit zna

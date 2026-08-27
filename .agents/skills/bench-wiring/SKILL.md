@@ -22,10 +22,13 @@ make. Two divisions of labor shape the entire procedure:
   HEAD, and clones the repo into `.repos/<name>/`. Wiring reads that
   and fills the gaps — it does not repeat it.
 - **What CI can do is not local-machine work.** The `bench-run`
-  workflow validates, builds images (cached in GHCR), runs trials,
-  evaluates, and aggregates on its own. The first run happens in GH
-  Actions — local containers are only needed by task authors
-  (bench-build).
+  workflow is an orchestrator: it computes the missing cells
+  (model × task) and dispatches an independent `bench-cell` run per
+  cell — each cell validates, builds images (cached in GHCR), runs its
+  trials, evaluates, and opens a PR with results onto the `bench-data`
+  branch (the owner merges; merging rebuilds the leaderboard). The
+  first run happens in GH Actions — local containers are only needed
+  by task authors (bench-build).
 
 Hence two paths — **A and B are working names internal to this
 document, not words you use in conversation** (rule 8):
@@ -76,7 +79,8 @@ workflow run.
    already in the template — the runner aborts a run once it is
    exceeded, so you do not ask for permission before every launch.
    Human consent is only needed to **raise** the budget. After each run
-   report the actual cost (`report.json`); do not negotiate estimates.
+   report the actual cost (the table in the results PR / `result.json`);
+   do not negotiate estimates.
 7. **Era awareness.** Wiring defines the instance's first era (judge +
    rubric versions). The PR says so explicitly; later changes to those
    fields invalidate the comparability of existing results.
@@ -122,10 +126,17 @@ git.
   errors), `--assert` requires containers — in wiring it is only needed
   when existing tasks have `reference` declarations.
 - **The `bench-run` workflow** (`workflow_dispatch` in GH Actions) —
-  the full cycle with no local work: validate gate, image builds cached
-  in GHCR, trials in parallel, evaluation, `report.json` as an
-  artifact. Parameters: `models`, `tasks`, `trials` (empty = defaults
-  from the config).
+  the orchestrator: validate gate, then one `bench-cell` dispatch per
+  missing cell (model × task). Parameters: `models`, `tasks`, `trials`
+  (empty = defaults from the config). Each cell is its own run with
+  its own status; its results come back as a PR onto the `bench-data`
+  branch, which the benchmark owner merges.
+- **The `bench-cell` workflow** (`workflow_dispatch`) — a single cell:
+  one model × one task. Normally dispatched by `bench-run`, but also
+  the surface for surgical re-runs ("redo model M on task T", or a
+  single attempt via the `trial` input). A re-run overwrites the same
+  paths in the results tree — a failed run produces no `result.json`
+  and never clobbers a previous good result.
 
 ## Path A — first check (budget: one minute, local)
 
@@ -143,8 +154,8 @@ ls-remote/fetch, no decisions beyond those init did not make.
 - `bench.config.yaml` — does `base_repos` have a real entry or a
   placeholder (`demo-app` / `example-org`)? Leave the defaults (models,
   judge, budget, `resources.memory_mb`) as they are.
-- `.github/workflows/` — are `bench-run.yaml` and `leaderboard.yaml`
-  present; if not (an older init), copy them from
+- `.github/workflows/` — are `bench-run.yaml`, `bench-cell.yaml` and
+  `leaderboard.yaml` present; if not (an older init), copy them from
   `.bench-kit/workflows/`.
 
 ### A2. Fill the gaps left by init — gaps only
@@ -207,6 +218,13 @@ gh secret set BASE_REPO_TOKEN --repo <owner/instance-repo>
 
 (or the UI path: Settings → Secrets and variables → Actions).
 
+One repo **setting** joins the secrets here: Settings → Actions →
+General → "Allow GitHub Actions to create and approve pull requests"
+must be enabled — `bench-cell` delivers results as PRs onto
+`bench-data`, and without this setting `gh pr create` on the workflow
+token fails after the paid trials have already run. Verify with the
+user; it cannot be checked by `gh secret list`.
+
 ### B3. Models and judge — only when the defaults are not enough
 
 Otherwise note "template defaults" and move on:
@@ -227,13 +245,13 @@ Otherwise note "template defaults" and move on:
 
 `workflow_dispatch` the `bench-run` workflow with smoke parameters:
 `models=<cheapest evaluated>`, `tasks=demo-hello-bench`, `trials=1`.
-The workflow will run validate, build the images, and evaluate the
-trial on its own — you wait for a green run, download the `report`
-artifact, and read the total, cost, and duration from `report.json`.
-This is the end-to-end proof of the wiring: secrets, clonability,
-images, and the judge tested where they will actually work. A failed
-run = go back to the step the cause belongs to, with the job logs in
-hand.
+The orchestrator dispatches a single `bench-cell` run, which validates,
+builds the images, runs and evaluates the trial, and opens a PR with
+the result onto `bench-data` — you wait for a green `bench-cell` run
+and read total, cost, and duration from the table in the PR body. The
+user merging that PR is part of the smoke: it proves the results path
+end to end and triggers the first leaderboard build. A failed run = go
+back to the step the cause belongs to, with the job logs in hand.
 
 Local variant (optional, when the user deliberately wants to iterate
 without CI): the one-time base image build takes 2–4 min — start it in
@@ -250,7 +268,8 @@ description / the instance README. For **changes** to existing wiring:
 branch `bench-wiring/<description>`, description per
 [PR_TEMPLATE.md](PR_TEMPLATE.md): decisions ("template defaults" is
 also a decision) with justification, the secrets checklist with status,
-proofs (`validate` output, link to the green `bench-run` with total and
+proofs (`validate` output, link to the green `bench-cell` run and the
+merged results PR with total and
 cost), a "Comparability impact" section (the first era: judge + rubric
 versions; what will close it in the future).
 

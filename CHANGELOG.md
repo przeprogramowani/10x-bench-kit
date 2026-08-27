@@ -6,6 +6,53 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.23.0 — 2026-08-27 (neutralny)
+
+**Nowy model operacyjny benchmarku: komórka (model × zadanie) jako
+niezależna jednostka wykonania i zapisu.** Dotychczasowy run-monolit
+(pełna macierz w jednym workflow, wyniki kluczowane run_id) utrudniał
+śledzenie i punktowe powtórki — teraz:
+
+- **`bench-cell` (nowy workflow)** — jedna komórka: model × zadanie,
+  próby równolegle w jednym jobie (ekonomia job-minut z 0.22.0
+  zachowana). Dispatchowany przez orkiestrator albo ręcznie —
+  „powtórz sonnet × zadanie X, próbę 2" to input `trial`. Wyniki
+  wracają jako **PR na gałąź bench-data** (tabela prób w opisie);
+  merge ownera czyni je oficjalnymi. Wymaga włączenia w repo
+  instancji „Allow GitHub Actions to create and approve pull
+  requests" (Settings → Actions → General).
+- **Kanoniczne drzewo wyników** na bench-data:
+  `results/<zadanie>/<era12>/<model>/trial-<n>/result.json` +
+  `era.json` ze stemplami — ścieżki kluczowane TREŚCIĄ, nie run_id:
+  re-run komórki/próby nadpisuje w miejscu, nowa era dostaje świeży
+  katalog obok starej, próba zawalona (budżet, awaria) nie produkuje
+  result.json i niczego nie nadpisuje. Zapis przez nową komendę
+  **`bench snapshot`** (`--run <dir> --out <drzewo>`); układ w
+  `runner/src/lib/results-tree.ts`.
+- **`bench-run` = orkiestrator** — walidacja, `bench matrix`
+  (skip-logic czyta drzewo results/ zamiast historii report.json;
+  uwaga: widzi tylko wyniki ZMERGOWANE) i dispatch bench-cell per
+  komórka z retry i imienną listą nieudanych dispatchów (ślepy re-run
+  całości dublowałby wystartowane komórki). Joby trial/aggregate
+  i partials/ znikają — utrwaleniem jest gałąź `results/*` + PR.
+- **`leaderboard` przebudowuje się po merge'u wyników** (push na
+  bench-data zamiast workflow_run po bench-run); agregacja
+  (mediany, pass@k) liczy się przy publikacji `bench report` na całym
+  drzewie results/. Raporty legacy `runs/<run_id>.json` zostają na
+  gałęzi i dalej zasilają historię er dashboardu.
+- **Failure-proofing CI**: inputy workflow wyłącznie przez env (koniec
+  z interpolacją `${{ inputs.* }}` w shellu — wektor wstrzyknięcia),
+  concurrency per komórka i na orkiestratorze (duplikaty czekają
+  zamiast ścigać się o ścieżki), retry na klonie/pushu wyników
+  i na inicie bench-data (wyścig dwóch komórek o pierwszy commit),
+  jawny komunikat przy odrzuconym `gh pr create` (wyniki są już
+  bezpieczne na gałęzi `results/<run_id>-<slug>`).
+
+Migracja: skip-logic nie czyta starych raportów — pierwszy bench-run
+po update widzi puste drzewo results/ i zmierzy komórki od nowa
+(historia na dashboardzie zostaje). Schematy result/report i klucz ery
+bez zmian — release neutralny.
+
 ## 0.22.1 — 2026-08-27 (neutralny)
 
 **Domknięcie 0.22.0 po pierwszym runie zbiorczym (bench-platforma-edu):

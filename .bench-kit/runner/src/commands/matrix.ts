@@ -1,93 +1,48 @@
 /**
- * bench matrix — helper CI: wylicza macierz jobów model × zadanie × próba.
+ * bench matrix — helper CI: wylicza listę KOMÓREK (model × zadanie) do
+ * zmierzenia. Orkiestrator (workflow bench-run) dispatchuje jeden
+ * niezależny run workflow bench-cell per komórka.
  *
- * Wypisuje na stdout JSON dla `strategy.matrix` GH Actions:
- *   { "include": [{ "model", "task", "trial", "slug" }, …] }
- * gdzie slug to bezpieczna nazwa artefaktu (model+zadanie+próba bez znaków
- * specjalnych). Jeden job = jedna próba (`bench run --trial-index`) —
- * próby biegną równolegle, wall-clock runu ≈ najdłuższa pojedyncza próba
- * zamiast trials × próba. Obrazy zadań idą przez rejestr (GHCR), więc
- * rozmnożenie jobów nie mnoży budowań.
+ * Wypisuje na stdout JSON:
+ *   { "include": [{ "model", "task", "trials", "slug" }, …] }
+ * gdzie slug to bezpieczna nazwa (model+zadanie bez znaków specjalnych).
+ * Próby komórki biegną równolegle wewnątrz jednego joba bench-cell
+ * (`bench run --parallel`) — granulacja per komórka zachowuje ekonomię
+ * job-minut, a pojedynczą próbę da się powtórzyć ręcznym dispatchem
+ * bench-cell z inputem `trial`.
  *
- * --batch: jeden job = jedno ZADANIE (wszystkie jego modele × próby):
- *   { "include": [{ "task", "models" (CSV), "trials", "slug" }, …] }
- * Minuty GH Actions są billowane per job-minuta, a próba spędza większość
- * czasu na czekaniu na API modelu — job zbiorczy z `bench run --parallel`
- * płaci ~max(próba) zamiast sumy prób. Skip-logic działa dalej per
- * komórka: models zawiera tylko modele z brakami w bieżącej erze.
+ * Skip-logic (--results): benchmark jest stateless w obrębie ery —
+ * komórka, która w BIEŻĄCEJ (prospektywnej) erze ma już w kanonicznym
+ * drzewie wyników (gałąź bench-data, układ z lib/results-tree.ts)
+ * >= żądanej liczby prób, wypada z listy. Mniej prób niż żądane
+ * (top-up) = pełny re-run komórki — bench-cell nadpisuje trial-1..N
+ * w miejscu. --force ignoruje drzewo (wymuszone odświeżenie). Pusta
+ * lista PO odfiltrowaniu jest poprawna ({"include":[]}), pusta PRZED
+ * to błąd konfiguracji.
  *
- * Skip-logic (--history): benchmark jest stateless w obrębie ery —
- * komórka (model × zadanie), która w BIEŻĄCEJ (prospektywnej) erze ma już
- * w historii raportów >= żądanej liczby prób, wypada z macierzy. Historia
- * to katalog report.json (gałąź bench-data). Więcej prób niż w historii
- * (top-up) = pełny re-run komórki od zera — próby między runami nie są
- * scalane. --force ignoruje historię (wymuszone odświeżenie). Pusta
- * macierz PO odfiltrowaniu jest poprawna ({"include":[]} — workflow
- * pomija joby prób), pusta PRZED to błąd konfiguracji.
+ * Uwaga: drzewo widzi tylko wyniki ZMERGOWANE do bench-data — komórki
+ * z otwartymi PR-ami wyników wyglądają na niezmierzone; merguj PR-y
+ * przed kolejnym dispatchem bench-run.
  *
  * Użycie: bench matrix [--models a,b] [--tasks x,y] [--trials n]
- *                      [--history <dir>] [--force] [--batch] [--root <dir>]
+ *                      [--results <dir>] [--force] [--root <dir>]
  * (defaults jak w `bench run`: config.defaults.models / wszystkie zadania /
  * config.defaults.trials)
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig } from "../lib/instance.ts";
-import { eraKey, prospectiveEraKey } from "../lib/era.ts";
-import { ReportSchema } from "../schemas/report.ts";
+import { prospectiveEraKey } from "../lib/era.ts";
+import { countTrials, eraDirName, sanitize } from "../lib/results-tree.ts";
 
-const USAGE = "usage: bench matrix [--models a,b] [--tasks x,y] [--trials n] [--history <dir>] [--force] [--batch] [--root <dir>]";
-
-/**
- * Historia z raportów: klucz ery → (model × zadanie) → max prób w jakimkolwiek
- * runie tej ery. Max, nie "ostatni run" — pytanie skip-logic brzmi "czy ta
- * komórka była już zmierzona z >= N próbami w tej erze", a każdy raport ery
- * jest równoprawnym pomiarem.
- */
-function collectTrialsDone(historyDir: string): Map<string, Map<string, number>> {
-  const done = new Map<string, Map<string, number>>();
-  const walk = (dir: string) => {
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name);
-      if (statSync(full).isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!name.endsWith(".json")) continue;
-      let raw: unknown;
-      try {
-        raw = JSON.parse(readFileSync(full, "utf8"));
-      } catch {
-        console.error(`warn:  historia: pomijam nieparsowalny ${full}`);
-        continue;
-      }
-      const parsed = ReportSchema.safeParse(raw);
-      if (!parsed.success) {
-        console.error(`warn:  historia: pomijam ${full} — nie wygląda na report.json`);
-        continue;
-      }
-      for (const era of parsed.data.eras) {
-        const key = eraKey(era.stamps);
-        const cells = done.get(key) ?? new Map<string, number>();
-        done.set(key, cells);
-        for (const row of era.rows) {
-          const cell = `${row.model}\0${row.task}`;
-          cells.set(cell, Math.max(cells.get(cell) ?? 0, row.trials));
-        }
-      }
-    }
-  };
-  walk(historyDir);
-  return done;
-}
+const USAGE = "usage: bench matrix [--models a,b] [--tasks x,y] [--trials n] [--results <dir>] [--force] [--root <dir>]";
 
 export async function matrixCommand(args: string[]): Promise<number> {
   let models: string[] | null = null;
   let tasks: string[] | null = null;
   let trials: number | null = null;
-  let history: string | null = null;
+  let results: string | null = null;
   let force = false;
-  let batch = false;
   let rootArg = process.cwd();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -95,9 +50,8 @@ export async function matrixCommand(args: string[]): Promise<number> {
     if (arg === "--models") models = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--tasks") tasks = value()?.split(",").filter(Boolean) ?? null;
     else if (arg === "--trials") trials = Number(value());
-    else if (arg === "--history") history = resolve(value() ?? "");
+    else if (arg === "--results") results = resolve(value() ?? "");
     else if (arg === "--force") force = true;
-    else if (arg === "--batch") batch = true;
     else if (arg === "--root") rootArg = resolve(value() ?? "");
     else {
       console.error(USAGE);
@@ -127,42 +81,27 @@ export async function matrixCommand(args: string[]): Promise<number> {
     let cells = chosenModels.flatMap((model) => chosenTasks.map((task) => ({ model, task })));
     if (cells.length === 0) throw new Error("pusta macierz — brak modeli lub zadań");
 
-    if (history && !force) {
-      if (statSync(history, { throwIfNoEntry: false })?.isDirectory()) {
-        const done = collectTrialsDone(history);
+    if (results && !force) {
+      if (statSync(results, { throwIfNoEntry: false })?.isDirectory()) {
         // prospektywna era per zadanie — te same źródła co stemple evaluate
-        const eraByTask = new Map(chosenTasks.map((task) => [task, prospectiveEraKey(root, config, task)]));
+        const eraByTask = new Map(chosenTasks.map((task) => [task, eraDirName(prospectiveEraKey(root, config, task))]));
         cells = cells.filter(({ model, task }) => {
-          const had = done.get(eraByTask.get(task) as string)?.get(`${model}\0${task}`) ?? 0;
+          const had = countTrials(results as string, task, eraByTask.get(task) as string, model);
           if (had < chosenTrials) return true;
           console.error(`skip:  ${task} × ${model} — ${had} prób(y) w bieżącej erze (>= ${chosenTrials}); --force wymusza re-run`);
           return false;
         });
       } else {
-        console.error(`warn:  katalog historii nie istnieje (${history}) — bez skip-logic`);
+        console.error(`warn:  katalog drzewa wyników nie istnieje (${results}) — bez skip-logic`);
       }
     }
 
-    const sanitize = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-");
-    // --batch: grupowanie komórek per zadanie — job zbiorczy dostaje CSV
-    // modeli (tylko tych z brakami po skip-logic) i pełną liczbę prób.
-    const include = batch
-      ? [...cells.reduce((byTask, { model, task }) => byTask.set(task, [...(byTask.get(task) ?? []), model]), new Map<string, string[]>())].map(
-          ([task, taskModels]) => ({
-            task,
-            models: taskModels.join(","),
-            trials: chosenTrials,
-            slug: sanitize(task),
-          }),
-        )
-      : cells.flatMap(({ model, task }) =>
-          Array.from({ length: chosenTrials }, (_, i) => ({
-            model,
-            task,
-            trial: i + 1,
-            slug: `${sanitize(model)}--${sanitize(task)}--t${i + 1}`,
-          })),
-        );
+    const include = cells.map(({ model, task }) => ({
+      model,
+      task,
+      trials: chosenTrials,
+      slug: `${sanitize(model)}--${sanitize(task)}`,
+    }));
     if (include.length === 0) console.error("bench matrix: wszystkie komórki zmierzone w bieżącej erze — nic do zrobienia");
     console.log(JSON.stringify({ include }));
     return 0;

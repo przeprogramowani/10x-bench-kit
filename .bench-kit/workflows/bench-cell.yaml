@@ -1,0 +1,300 @@
+# Workflow pojedynczej KOMÓRKI benchmarku: jeden model × jedno zadanie.
+# `bench-kit init`/`update` kopiuje go do .github/workflows/ instancji.
+#
+# Jednostka operacyjna benchmarku: każda komórka to niezależny run
+# w Actions z własnym statusem — orkiestrator (bench-run) dispatchuje
+# komórki, ale każdą można też odpalić ręcznie, np. "powtórz claude
+# sonnet × zadanie X, próbę 2" (input `trial`).
+#
+# Wyniki NIE lądują same na gałęzi bench-data: workflow otwiera PR
+# z result.json wpisanymi w kanoniczne drzewo wyników
+# (results/<zadanie>/<era12>/<model>/trial-<n>/ — układ z
+# lib/results-tree.ts, zapis przez `bench snapshot`). Owner benchmarku
+# przegląda i merguje — merge wyzwala przebudowę leaderboardu.
+# Ścieżki są kluczowane treścią, więc re-run tej samej komórki/próby
+# nadpisuje wynik w miejscu; próba, która ZAWIODŁA (budżet, awaria),
+# nie produkuje result.json i niczego nie nadpisuje.
+#
+# Wymagane ustawienie repo: Settings → Actions → General →
+# "Allow GitHub Actions to create and approve pull requests"
+# (bez tego `gh pr create` na GITHUB_TOKEN kończy się błędem).
+#
+# Wymagane sekrety instancji:
+# - klucze API providerów używanych przez oceniane modele i sędziego
+#   (np. OPENROUTER_API_KEY),
+# - BASE_REPO_TOKEN — gdy którekolwiek repo bazowe jest prywatne:
+#   fine-grained PAT (tylko contents:read) obejmujący wszystkie prywatne
+#   base_repos. Wystarczy env — runner sam wpina token w git fetch/ls-remote
+#   (url.insteadOf per wywołanie); do kontenerów prób nie trafia.
+#   Przy samych repo publicznych sekret jest zbędny.
+
+name: bench-cell
+
+run-name: "bench-cell: ${{ inputs.model }} × ${{ inputs.task }}${{ inputs.trial != '' && format(' (próba {0})', inputs.trial) || '' }}"
+
+# packages: write — obrazy (bazowy + zadania) idą przez GHCR pakietów repo:
+# zbudowane raz, reużywane przez kolejne komórki i runy.
+# contents: write + pull-requests: write — gałąź results/* z wynikami
+# i PR na bench-data.
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model oceniany (np. openrouter/anthropic/claude-sonnet-5)"
+        required: true
+        type: string
+      task:
+        description: "Zadanie (nazwa katalogu z tasks/)"
+        required: true
+        type: string
+      trials:
+        description: "Liczba prób (1..N). Puste = defaults.trials z bench.config.yaml"
+        required: false
+        type: string
+      trial:
+        description: "Pojedyncza próba o TYM numerze (re-do jednej próby). Wyklucza się z trials"
+        required: false
+        type: string
+      parallel:
+        description: "Równoczesne próby. Puste = defaults.parallel z bench.config.yaml"
+        required: false
+        type: string
+
+# Ta sama komórka nie biegnie równolegle sama ze sobą (podwójny dispatch,
+# re-run w trakcie) — duplikat czeka w kolejce zamiast ścigać się o te
+# same ścieżki wyników; cancel-in-progress: false, bo bieżący run już
+# wydał pieniądze na próby.
+concurrency:
+  group: bench-cell-${{ inputs.model }}--${{ inputs.task }}
+  cancel-in-progress: false
+
+env:
+  # Inputy WYŁĄCZNIE przez env — interpolacja ${{ inputs.* }} wprost
+  # w skryptach shell to wektor wstrzyknięcia komend przy ręcznym
+  # dispatchu. trial (pojedyncza próba) ma pierwszeństwo przed trials.
+  CELL_MODEL: ${{ inputs.model }}
+  CELL_TASK: ${{ inputs.task }}
+  TRIALS_ARG: ${{ inputs.trial != '' && format('--trial-index {0}', inputs.trial) || (inputs.trials != '' && format('--trials {0}', inputs.trials) || '') }}
+  PARALLEL_ARG: ${{ inputs.parallel != '' && format('--parallel {0}', inputs.parallel) || '' }}
+
+jobs:
+  cell:
+    runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      BASE_REPO_TOKEN: ${{ secrets.BASE_REPO_TOKEN }}
+      # Cache zależności ocen (N1) na katalogu hosta zamiast wolumenu —
+      # wolumen żyje tylko przez czas joba, katalog przenosi actions/cache.
+      BENCH_DEPS_CACHE_DIR: /tmp/bench-deps-cache
+    steps:
+      # persist-credentials: false — checkout nie może zostawić w .git/config
+      # nagłówka Authorization z GITHUB_TOKEN; git odpalany w workspace
+      # wysyłałby go do repo bazowych zamiast BASE_REPO_TOKEN (url.insteadOf).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: .bench-kit/runner/package-lock.json
+      - run: npm ci --prefix .bench-kit/runner
+
+      # Bramka: nie wydajemy centa na próby w niespójnej instancji.
+      - name: bench validate
+        run: npm run bench --prefix .bench-kit/runner --silent -- validate --root "$GITHUB_WORKSPACE"
+
+      - name: Slug komórki
+        run: |
+          SLUG="$(echo "${CELL_MODEL}--${CELL_TASK}" | sed -E 's/[^A-Za-z0-9._-]+/-/g')"
+          echo "SLUG=$SLUG" >> "$GITHUB_ENV"
+
+      # Ciepły cache zależności między RUNAMI: klucz zawsze świeży (run_id),
+      # restore-keys dociąga najnowszy zapis — cache akumuluje się w czasie.
+      - name: Cache zależności ocen (bench-deps-cache)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bench-deps-cache
+          key: bench-deps-${{ runner.os }}-${{ github.run_id }}-${{ env.SLUG }}
+          restore-keys: |
+            bench-deps-${{ runner.os }}-
+
+      # Obrazy przez GHCR zamiast docker save/load tar w actions/cache:
+      # pull warstw jest szybszy i współdzielony między komórkami oraz runami.
+      # Tagi są treścią, nie czasem — hash wejść (Dockerfile/zadanie), więc
+      # świeżość gwarantuje tag, a nie rebuild. Pull „na miękko": chybienie
+      # (pierwszy run po zmianie) nie wywraca joba, tylko zostawia budowę
+      # runnerowi; brak flag BENCH_REUSE_* = zbuduj normalnie.
+      - name: Obrazy z rejestru (GHCR)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          REGISTRY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          OPENCODE_VERSION="$(tr -d '[:space:]' < .bench-kit/docker/opencode.version)"
+          BASE_HASH="${{ hashFiles('.bench-kit/docker/**') }}"
+          TASK_HASH="${{ hashFiles(format('tasks/{0}/**', inputs.task), '.bench-kit/docker/**') }}"
+          # TASK_SAFE odtwarza sanitize() runnera (run.ts) — lokalny tag musi
+          # trafić w nazwę, której `bench run` szuka przy BENCH_REUSE_TASK_IMAGE.
+          TASK_SAFE="$(echo "$CELL_TASK" | sed -E 's/[^A-Za-z0-9._-]+/-/g')"
+          TASK_LC="$(echo "$TASK_SAFE" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "BASE_LOCAL=bench-base:${OPENCODE_VERSION}"
+            echo "BASE_REMOTE=${REGISTRY}/bench-base:${BASE_HASH:0:16}"
+            echo "TASK_LOCAL=bench-task-${TASK_SAFE}:latest"
+            echo "TASK_REMOTE=${REGISTRY}/bench-task-${TASK_LC}:${TASK_HASH:0:16}"
+          } >> "$GITHUB_ENV"
+      - name: Wczytaj obrazy z rejestru
+        run: |
+          if docker pull -q "$BASE_REMOTE"; then
+            docker tag "$BASE_REMOTE" "$BASE_LOCAL"
+            echo "BENCH_REUSE_BASE_IMAGE=1" >> "$GITHUB_ENV"
+          else
+            echo "obraz bazowy: brak w rejestrze — runner zbuduje ($BASE_REMOTE)"
+          fi
+          if docker pull -q "$TASK_REMOTE"; then
+            docker tag "$TASK_REMOTE" "$TASK_LOCAL"
+            echo "BENCH_REUSE_TASK_IMAGE=1" >> "$GITHUB_ENV"
+          else
+            echo "obraz zadania: brak w rejestrze — runner zbuduje ($TASK_REMOTE)"
+          fi
+
+      # continue-on-error: kod != 0 (awarie infrastruktury, budżet, który
+      # pominął próby) nie może ucinać oceny — opłacone próby leżą w out/run
+      # i MUSZĄ przejść przez evaluate + PR z wynikami, inaczej pieniądze za
+      # LLM przepadają. Status joba odtwarza ostatni krok (Status prób).
+      - name: bench run
+        id: run
+        continue-on-error: true
+        run: |
+          npm run bench --prefix .bench-kit/runner --silent -- run \
+            --root "$GITHUB_WORKSPACE" \
+            --models "$CELL_MODEL" --tasks "$CELL_TASK" \
+            $TRIALS_ARG $PARALLEL_ARG \
+            --out "$GITHUB_WORKSPACE/out/run"
+      - name: bench evaluate
+        run: |
+          if ! find out/run -name trial.json 2>/dev/null | grep -q .; then
+            echo "brak prób w out/run — pomijam ocenę"
+            exit 0
+          fi
+          npm run bench --prefix .bench-kit/runner --silent -- evaluate \
+            --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
+
+      # Wypchnięcie tylko obrazów zbudowanych w tym jobie (chybienie pull).
+      # Równoległe komórki zimnego runu wypychają ten sam tag — push jest
+      # idempotentny; continue-on-error, bo brak uprawnień do pakietu nie
+      # może unieważnić wyników próby.
+      - name: Wypchnij obrazy do rejestru
+        if: env.BENCH_REUSE_BASE_IMAGE != '1' || env.BENCH_REUSE_TASK_IMAGE != '1'
+        continue-on-error: true
+        run: |
+          if [ "$BENCH_REUSE_BASE_IMAGE" != "1" ]; then
+            docker tag "$BASE_LOCAL" "$BASE_REMOTE" && docker push -q "$BASE_REMOTE"
+          fi
+          if [ "$BENCH_REUSE_TASK_IMAGE" != "1" ]; then
+            docker tag "$TASK_LOCAL" "$TASK_REMOTE" && docker push -q "$TASK_REMOTE"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ env.SLUG }}-${{ github.run_id }}
+          path: out/run
+          if-no-files-found: warn
+
+      # Wyniki jako PR na bench-data: `bench snapshot` wpisuje result.json
+      # w kanoniczne drzewo (klucz treścią — task/era/model/próba), commit
+      # idzie na gałąź results/<run_id>-<slug>, PR czeka na review ownera.
+      # Merge = jedyny moment, w którym wyniki stają się oficjalne
+      # (skip-logic i leaderboard czytają wyłącznie bench-data).
+      # if: always() — nawet run z awariami mógł opłacić część prób.
+      - name: PR z wynikami (bench-data)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if [ ! -d out/run ] || ! find out/run -name result.json | grep -q .; then
+            echo "brak result.json — nic do zgłoszenia"
+            exit 0
+          fi
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          BRANCH="results/${GITHUB_RUN_ID}-${SLUG}"
+
+          # Utrwalenie na gałęzi z retry — transient git/sieć nie może
+          # przepalić opłaconych prób. Idempotentne: gałąź unikalna per
+          # run (run_id), push -f, snapshot nadpisuje te same ścieżki.
+          pushed=""
+          for attempt in 1 2 3 4 5; do
+            # Baza PR-a musi istnieć: pierwszy run zakłada pustą bench-data.
+            # Wyścig dwóch komórek o init jest niegroźny: przegrany push
+            # ląduje w kolejnym obiegu pętli i widzi już istniejącą gałąź.
+            if ! git ls-remote --exit-code "$REMOTE" bench-data >/dev/null 2>&1; then
+              rm -rf /tmp/bench-data-init
+              git init -q -b bench-data /tmp/bench-data-init
+              git -C /tmp/bench-data-init -c user.name=bench-kit -c user.email=bench-kit@users.noreply.github.com \
+                commit -q --allow-empty -m "bench-data: init"
+              git -C /tmp/bench-data-init push -q "$REMOTE" bench-data || true
+            fi
+            rm -rf /tmp/bench-data
+            if ! git clone -q --depth 1 --branch bench-data "$REMOTE" /tmp/bench-data; then
+              echo "klon bench-data nieudany — ponawiam ($attempt/5)"; sleep $((RANDOM % 5 + 1)); continue
+            fi
+            git -C /tmp/bench-data checkout -q -b "$BRANCH"
+            npm run bench --prefix .bench-kit/runner --silent -- snapshot \
+              --run "$GITHUB_WORKSPACE/out/run" --out /tmp/bench-data/results
+            git -C /tmp/bench-data add -A
+            if git -C /tmp/bench-data diff --cached --quiet; then
+              echo "wyniki identyczne z bench-data — PR zbędny"
+              exit 0
+            fi
+            git -C /tmp/bench-data -c user.name=bench-kit -c user.email=bench-kit@users.noreply.github.com \
+              commit -q -m "wyniki: ${CELL_TASK} × ${CELL_MODEL} (run ${GITHUB_RUN_ID})"
+            if git -C /tmp/bench-data push -q -f "$REMOTE" "$BRANCH"; then
+              pushed=1; break
+            fi
+            echo "push $BRANCH nieudany — ponawiam ($attempt/5)"; sleep $((RANDOM % 5 + 1))
+          done
+          if [ -z "$pushed" ]; then
+            echo "::error::nie udało się wypchnąć wyników na gałąź $BRANCH po 5 podejściach — result.json zostają w artefakcie results-${SLUG}-${GITHUB_RUN_ID} (odzyskasz je stamtąd ręcznym \`bench snapshot\`)"
+            exit 1
+          fi
+
+          # Treść PR-a: tabela prób z result.json (przegląd bez rozpakowywania).
+          BODY="$(mktemp)"
+          {
+            echo "Wyniki komórki **${CELL_TASK} × ${CELL_MODEL}** — run [\`${GITHUB_RUN_ID}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            echo
+            echo "| próba | total | koszt | czas |"
+            echo "|---|---|---|---|"
+            find out/run -name result.json | sort | while read -r f; do
+              jq -r '"| trial-\(.trial) | \(.total) | $\(.cost_usd) | \(.duration_s)s |"' "$f"
+            done
+            echo
+            echo "Merge = wyniki stają się oficjalne (skip-logic + leaderboard). Ścieżki są kluczowane treścią — re-run tej komórki nadpisze je w miejscu."
+          } > "$BODY"
+          if gh pr list --base bench-data --head "$BRANCH" --json number --jq length | grep -qv '^0$'; then
+            echo "PR dla $BRANCH już istnieje — gałąź zaktualizowana push-em"
+          elif ! gh pr create --base bench-data --head "$BRANCH" \
+              --title "wyniki: ${CELL_TASK} × ${CELL_MODEL} (run ${GITHUB_RUN_ID})" \
+              --body-file "$BODY"; then
+            # Wyniki są już BEZPIECZNE na gałęzi — brak PR-a to zwykle
+            # wyłączone "Allow GitHub Actions to create and approve pull
+            # requests" (Settings → Actions → General).
+            echo "::error::gh pr create nieudane — wyniki są utrwalone na gałęzi $BRANCH; otwórz PR na bench-data ręcznie i włącz w repo 'Allow GitHub Actions to create and approve pull requests'"
+            exit 1
+          fi
+
+      # Odtworzenie statusu bench run (continue-on-error wyżej): job jest
+      # czerwony, gdy próby zawiodły albo budżet pominął część prób —
+      # ale dopiero PO ocenie i zgłoszeniu tego, co opłacone.
+      - name: Status prób
+        if: steps.run.outcome == 'failure'
+        run: |
+          echo "::error::bench run zakończony kodem != 0 (awarie prób / budżet pominął próby) — szczegóły w kroku 'bench run'; wykonane próby są ocenione i zgłoszone PR-em"
+          exit 1

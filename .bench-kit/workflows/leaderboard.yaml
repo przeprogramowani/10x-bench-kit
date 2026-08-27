@@ -1,9 +1,17 @@
 # Workflow publikacji leaderboardu. `bench-kit init`/`update` kopiuje go do
 # .github/workflows/ instancji.
 #
-# Historia jest TRWAŁA: każdy report.json ląduje na gałęzi `bench-data`
-# (runs/<run_id>.json) — artefakty CI wygasają, gałąź nie. Dashboard buduje
-# `bench leaderboard` z całej gałęzi i publikuje na GitHub Pages.
+# Źródło prawdy: gałąź `bench-data`.
+# - `results/` — kanoniczne drzewo wyników (result.json kluczowane treścią:
+#   zadanie / era / model / próba), zasilane PR-ami z workflow bench-cell,
+#   które merguje owner benchmarku. Agregacja (mediany, pass@k) liczy się
+#   tutaj, przy publikacji — `bench report` na całym drzewie.
+# - `runs/<run_id>.json` — raporty LEGACY sprzed modelu per komórka;
+#   zostają na gałęzi i dalej zasilają historię er dashboardu.
+#
+# Triggery:
+# - push na bench-data (= merge PR-a z wynikami): przebudowa i publikacja,
+# - workflow_dispatch: ręczna przebudowa.
 #
 # Cele publikacji (wszystkie warunkowe, dashboard zawsze zostaje
 # artefaktem `leaderboard-site`):
@@ -14,23 +22,16 @@
 # - GitHub Pages — wymaga repo publicznego albo płatnego planu
 #   (dla prywatnych); niedostępność wykrywana sondą, deploy pomijany
 #   z komunikatem.
-#
-# Triggery:
-# - workflow_run po udanym bench-run: dokłada report tego runu i przebudowuje,
-# - workflow_dispatch: backfill — dociąga raporty ze wszystkich udanych runów
-#   bench-run, których artefakty jeszcze nie wygasły, i przebudowuje.
 
 name: leaderboard
 
 on:
-  workflow_run:
-    workflows: [bench-run]
-    types: [completed]
+  push:
+    branches: [bench-data]
   workflow_dispatch: {}
 
 permissions:
-  contents: write # push na gałąź bench-data
-  actions: read # pobieranie artefaktów z runów bench-run
+  contents: read
   pages: write
   id-token: write
 
@@ -44,10 +45,13 @@ env:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
+      # Instancja (runner + config) z gałęzi domyślnej — push-event
+      # wskazuje bench-data, więc ref jawnie.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -55,68 +59,29 @@ jobs:
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - run: npm ci --prefix .bench-kit/runner
 
-      # Gałąź danych jako worktree: istniejąca albo świeży orphan.
-      - name: Przygotuj gałąź bench-data
-        run: |
-          if git ls-remote --exit-code origin bench-data >/dev/null 2>&1; then
-            # jawny ref zdalny — FETCH_HEAD jest per-worktree i nie istnieje w data/
-            git fetch origin bench-data:refs/remotes/origin/bench-data
-            git worktree add data refs/remotes/origin/bench-data
-            git -C data checkout -B bench-data refs/remotes/origin/bench-data
-          else
-            git worktree add --detach data
-            git -C data checkout --orphan bench-data
-            git -C data rm -rf --quiet . || true
-          fi
-          mkdir -p data/runs
+      - uses: actions/checkout@v4
+        with:
+          ref: bench-data
+          path: data
 
-      - name: Zbierz report.json z runów bench-run
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # Historia dla dashboardu: raporty legacy (runs/) + jeden raport
+      # zsyntetyzowany z całego drzewa results/ — `bench report` grupuje
+      # po erach, więc stare i nowe ery nigdy się nie mieszają.
+      - name: Zbuduj historię raportów
         run: |
-          collect() { # <run_id> — pobiera artefakt report, jeśli jeszcze go nie mamy
-            local id="$1"
-            if [ -f "data/runs/${id}.json" ]; then return 0; fi
-            local tmp; tmp="$(mktemp -d)"
-            if gh run download "$id" --repo "$GITHUB_REPOSITORY" -n report -D "$tmp" 2>/dev/null; then
-              mv "$tmp/report.json" "data/runs/${id}.json"
-              echo "dodano runs/${id}.json"
-            else
-              echo "run ${id}: brak artefaktu report (wygasł albo run bez aggregate) — pomijam"
-            fi
-          }
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            collect "${{ github.event.workflow_run.id }}"
-          else
-            for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow bench-run \
-                --status success --limit 100 --json databaseId --jq '.[].databaseId'); do
-              collect "$id"
-            done
+          mkdir -p /tmp/history
+          if compgen -G "data/runs/*.json" >/dev/null; then
+            cp data/runs/*.json /tmp/history/
+            echo "legacy: $(ls data/runs/*.json | wc -l) raport(ów) z runs/"
           fi
-
-      - name: Wypchnij historię
-        run: |
-          cd data
-          # Sprzątanie partials (kopii roboczych prób pchanych przez joby
-          # bench-run): run z raportem w runs/<id>.json ma już trwały
-          # zapis — jego partials schodzą z gałęzi. Partials runów bez
-          # raportu zostają (materiał do odzyskania agregacji).
-          if [ -d partials ]; then
-            for dir in partials/*/; do
-              id="$(basename "$dir")"
-              if [ -f "runs/${id}.json" ]; then
-                git rm -r -q "$dir"
-                echo "usunięto partials/${id} (raport w runs/)"
-              fi
-            done
+          if [ -d data/results ] && find data/results -name result.json | grep -q .; then
+            npm run bench --prefix .bench-kit/runner --silent -- report \
+              --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/data/results" \
+              --out /tmp/history/results.json
           fi
-          git add runs
-          if git diff --cached --quiet; then
-            echo "historia bez zmian"
-          else
-            git -c user.name="bench-kit" -c user.email="bench-kit@users.noreply.github.com" \
-              commit -m "bench-data: raporty $(ls runs | wc -l | tr -d ' ') runów"
-            git push origin bench-data
+          if ! compgen -G "/tmp/history/*.json" >/dev/null; then
+            echo "::error::bench-data bez wyników (ani results/, ani runs/) — nie ma z czego zbudować dashboardu"
+            exit 1
           fi
 
       # --root: dashboard pokazuje wyłącznie zadania istniejące w tasks/
@@ -125,7 +90,7 @@ jobs:
       - name: bench leaderboard
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- leaderboard \
-            --history "$GITHUB_WORKSPACE/data/runs" --out "$GITHUB_WORKSPACE/site" \
+            --history /tmp/history --out "$GITHUB_WORKSPACE/site" \
             --root "$GITHUB_WORKSPACE" \
             --title "${{ github.event.repository.name }} — benchmark agentów AI"
 
