@@ -333,6 +333,14 @@ from this standard set:
   (or the name of an existing repo to hook up).
 - **Repo secrets** — the `gh secret set … --repo …` commands with
   concrete names (rule 2: names and presence only, never values).
+- **Actions PR permission** — Settings → Actions → General → enable
+  "Allow GitHub Actions to create and approve pull requests". Without
+  it every `bench-cell` run ends red at the PR step (results survive
+  on the `results/*` branch, but each cell needs a hand-made PR).
+  Include this line whenever you could not positively confirm the
+  setting is on — checking it via API requires admin on the repo
+  (`gh api repos/<owner/repo>/actions/permissions/workflow`, 404/403 =
+  you cannot see it, so the user must confirm in the UI).
 - **Provider credit** — if any evaluated model or the judge is paid
   (e.g. via OpenRouter), remind the user to check/top up the account
   balance; an empty balance fails the first run in a way no validate

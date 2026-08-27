@@ -6,6 +6,18 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.23.1 — 2026-08-27 (neutralny)
+
+**Lekcja z pierwszego runu per komórka (bench-platforma-edu): wyłączone
+„Allow GitHub Actions to create and approve pull requests" położyło
+wszystkie komórki na kroku PR — wyniki przeżyły na gałęziach
+`results/*` (failure-proofing zadziałał), ale każdy PR trzeba było
+otworzyć ręcznie.** bench-wiring: uprawnienie Actions do PR-ów dołącza
+do STANDARDOWEGO zestawu „Your steps" w zamknięciu (obok sekretów) —
+wiring ma je wymuszać przed pierwszym runem, nie odkrywać po nim;
+weryfikacja przez API wymaga admina, więc bez potwierdzenia setting
+zawsze ląduje na checkliście użytkownika.
+
 ## 0.23.0 — 2026-08-27 (neutralny)
 
 **Nowy model operacyjny benchmarku: komórka (model × zadanie) jako
