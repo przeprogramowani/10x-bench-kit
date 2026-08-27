@@ -37,9 +37,12 @@ defaults:
     - openrouter/anthropic/claude-sonnet-5
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
-  # Budżet kosztu prób jednego runu (USD) — `bench run` przerywa po jego
-  # przekroczeniu. Zgoda człowieka jest potrzebna przy podnoszeniu budżetu,
-  # nie przy każdym uruchomieniu; koszt faktyczny jest w report.json.
+  # Budżet kosztu prób (USD) per WYWOŁANIE `bench run` — w CI to job
+  # jednego zadania (wszystkie jego modele × próby), nie cały dispatch.
+  # Po przekroczeniu run nie zleca kolejnych prób (biegnące kończą się,
+  # wykonane idą do oceny); dobierz do sumy prób najdroższego zadania.
+  # Zgoda człowieka jest potrzebna przy podnoszeniu budżetu, nie przy
+  # każdym uruchomieniu; koszt faktyczny jest w report.json.
   max_cost_usd: 10
   # Równoczesne próby w jednym `bench run` (pool kontenerów). Próba
   # spędza większość czasu na czekaniu na API modelu, więc równoległość

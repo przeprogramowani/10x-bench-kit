@@ -29,8 +29,12 @@
  * `--smoke` = sprawdzenie rur po wiringu: 1 próba, tylko pierwszy model
  * z listy (jawnie wskaż tani przez --models), zadania jak podano.
  *
- * Budżet: defaults.max_cost_usd w bench.config.yaml — run przerywa się
- * po przekroczeniu sumy kosztów prób (koszt czytany z metrics.json).
+ * Budżet: defaults.max_cost_usd w bench.config.yaml — po przekroczeniu
+ * sumy kosztów prób (z metrics.json) run nie zleca kolejnych prób.
+ * Budżet obowiązuje per WYWOŁANIE `bench run` (w CI: per job zadania).
+ * Przekroczenie po ostatniej próbie to warning, nie błąd — kod 1 dopiero,
+ * gdy budżet realnie pominął zaplanowane próby; wykonane próby zawsze
+ * zostają na dysku do oceny (bench evaluate).
  *
  * Przejściowe awarie providera (5xx/429 w agent.log przy agent exit != 0)
  * dostają provider_error w trial.json i jeden retry — artefakty pierwszego
@@ -430,8 +434,8 @@ export async function runCommand(args: string[]): Promise<number> {
         if (spentUsd > budget && !overBudget) {
           overBudget = true;
           console.error(
-            `budget: przekroczony defaults.max_cost_usd ($${spentUsd.toFixed(4)} > $${budget}) — przerywam run; ` +
-              "podnieś budżet w bench.config.yaml, jeśli to świadoma decyzja",
+            `budget: przekroczony defaults.max_cost_usd ($${spentUsd.toFixed(4)} > $${budget}) — nie zlecam kolejnych prób; ` +
+              "wykonane próby zostają do oceny (bench evaluate); podnieś budżet w bench.config.yaml, jeśli to świadoma decyzja",
           );
         }
       }
@@ -449,14 +453,24 @@ export async function runCommand(args: string[]): Promise<number> {
       }),
     );
 
+    // Przekroczenie budżetu PO ostatniej próbie niczego nie ucina — pieniądze
+    // już wydane, wyniki kompletne; głośny warning zamiast wywrotki, żeby
+    // pipeline (evaluate → raport) nie wyrzucał opłaconych prób. Kod 1 dopiero,
+    // gdy budżet realnie pominął zaplanowane próby (macierz niedomierzona).
+    const skippedByBudget = specs.length - nextSpec;
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
     const killNote = resourceKills
       ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, run do powtórzenia po naprawie zasobów)`
       : "";
+    const status = overBudget
+      ? skippedByBudget > 0
+        ? `PRZERWANE (budżet) — ${skippedByBudget} prób(y) niezlecone`
+        : "gotowe (budżet przekroczony po ostatniej próbie — nic nie pominięto)"
+      : "gotowe";
     console.log(
-      `\nbench run: ${overBudget ? "PRZERWANE (budżet)" : "gotowe"} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}`,
+      `\nbench run: ${status} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}`,
     );
-    return failures > 0 || resourceKills > 0 || overBudget ? 1 : 0;
+    return failures > 0 || resourceKills > 0 || skippedByBudget > 0 ? 1 : 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     return 1;

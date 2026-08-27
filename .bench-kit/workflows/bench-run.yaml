@@ -205,7 +205,13 @@ jobs:
             echo "obraz zadania: brak w rejestrze — runner zbuduje ($TASK_REMOTE)"
           fi
 
+      # continue-on-error: kod != 0 (awarie infrastruktury, budżet, który
+      # pominął próby) nie może ucinać oceny — opłacone próby leżą w out/run
+      # i MUSZĄ przejść przez evaluate + utrwalenie, inaczej pieniądze za
+      # LLM przepadają. Status joba odtwarza ostatni krok (Status prób).
       - name: bench run
+        id: run
+        continue-on-error: true
         run: |
           npm run bench --prefix .bench-kit/runner --silent -- run \
             --root "$GITHUB_WORKSPACE" \
@@ -214,6 +220,10 @@ jobs:
             --out "$GITHUB_WORKSPACE/out/run"
       - name: bench evaluate
         run: |
+          if ! find out/run -name trial.json 2>/dev/null | grep -q .; then
+            echo "brak prób w out/run — pomijam ocenę"
+            exit 0
+          fi
           npm run bench --prefix .bench-kit/runner --silent -- evaluate \
             --root "$GITHUB_WORKSPACE" --run "$GITHUB_WORKSPACE/out/run"
 
@@ -284,6 +294,15 @@ jobs:
             sleep $((RANDOM % 5 + 1))
           done
           echo "::error::nie udało się utrwalić wyników na bench-data po 5 podejściach"
+          exit 1
+
+      # Odtworzenie statusu bench run (continue-on-error wyżej): job jest
+      # czerwony, gdy próby zawiodły albo budżet pominął część macierzy —
+      # ale dopiero PO ocenie i utrwaleniu tego, co opłacone.
+      - name: Status prób
+        if: steps.run.outcome == 'failure'
+        run: |
+          echo "::error::bench run zakończony kodem != 0 (awarie prób / budżet pominął próby) — szczegóły w kroku 'bench run'; wykonane próby są ocenione i utrwalone"
           exit 1
 
   # Agregacja: mediana, pass@k, koszt runu → report.json jako artefakt.

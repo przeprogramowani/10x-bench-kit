@@ -6,6 +6,29 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.22.1 — 2026-08-27 (neutralny)
+
+**Domknięcie 0.22.0 po pierwszym runie zbiorczym (bench-platforma-edu):
+przekroczony budżet wywracał job PRZED oceną — 6 opłaconych prób
+($10.21) przepadło bez result.json, choć wszystkie się wykonały.**
+Warunek stopu doprecyzowany:
+
+- **Budżet nie wyrzuca opłaconych prób** (run.ts). Przekroczenie
+  `max_cost_usd` PO ostatniej próbie (nic niezlecone) to głośny warning
+  i kod 0 — pieniądze już wydane, macierz domierzona; kod 1 dopiero,
+  gdy budżet realnie pominął zaplanowane próby (podsumowanie mówi ile).
+  Komunikat budżetu mówi wprost: wykonane próby zostają do oceny.
+  Budżet obowiązuje per wywołanie `bench run` — w CI per job zadania,
+  nie per próba jak przy jobach jednostkowych; komentarz w
+  bench.config.yaml każe wymiarować go na sumę prób najdroższego
+  zadania.
+- **Ocena i utrwalenie niezależne od kodu bench run**
+  (workflows/bench-run.yaml). Krok `bench run` ma continue-on-error;
+  evaluate biegnie zawsze, gdy w out/run są trial.json, a status joba
+  odtwarza końcowy krok „Status prób" — dopiero PO ocenie, artefaktach
+  i partials. Awaria/budżet nie może już zostawić opłaconych prób bez
+  result.json.
+
 ## 0.22.0 — 2026-08-26 (neutralny)
 
 **Wnioski z runu bench-platforma-edu utrąconego limitem billingowym GH
