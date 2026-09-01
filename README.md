@@ -56,7 +56,7 @@ full contract):
      an evaluation container; their exit codes are **facts**.
    - The judge is an **agent with tools** (the `rate-attempt` skill):
      it reads the rubric, takes the guards as ground truth, and may
-     build, test, and run the app on a disposable copy of the preserved
+     build, test, and run the app in a disposable container over a copy of the preserved
      workspace before scoring. Its verdict is folded in
      deterministically by `bench evaluate --verdict`. (A built-in
      API-judge path exists for automation/smoke.)
@@ -85,12 +85,17 @@ after init):
 npm run bench --prefix .bench-kit/runner --silent -- validate
 
 # 3. Execute attempts (local; projection + budget ceiling up front;
-#    top-up semantics: existing preserved attempts count)
+#    top-up semantics: existing preserved attempts count). Detach it —
+#    several processes (per model, another machine) can top up the same
+#    matrix without colliding; `bench status` is the tracker.
 npm run bench --prefix .bench-kit/runner --silent -- attempt \
   --tasks my-task --models openrouter/... --trials 3
+npm run bench --prefix .bench-kit/runner --silent -- status
 
-# 4. Evaluate: guards + judge-with-tools
-#    (rate-attempt skill per attempt, or the API judge for automation)
+# 4. Evaluate what is done: guards + judge-with-tools
+#    (rate-attempt skill per attempt — its sandbox is `bench shell`,
+#    a container over a copy of the preserved workspace; or the API
+#    judge for automation)
 npm run bench --prefix .bench-kit/runner --silent -- evaluate
 
 # 5. Review and commit results/ — the leaderboard workflow rebuilds the

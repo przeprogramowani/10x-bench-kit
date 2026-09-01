@@ -2,10 +2,12 @@
 name: bench-build
 description: >-
   Builds benchmark tasks from pending orders in the backlog
-  (`tasks/backlog.md`): fans the orders out to subagents, and each
-  subagent performs full task authoring (pin, overlay, prompt,
-  assertions, weights, self-check on the starting state) and leaves
-  finished files in the working tree with an evidence report — no git.
+  (`tasks/backlog.md`): fans the orders out to subagents — each does
+  the authoring as text work (pin, overlay, prompt, assertions,
+  weights), containers only where its own files need proof — then
+  proves the whole batch once at the batch gate (`bench validate
+  --assert` + smoke) and leaves finished files in the working tree
+  with an evidence report — no git.
   Use when the user wants to build tasks from the backlog or says
   "bench-build / build the tasks / process the backlog".
 ---
@@ -13,10 +15,20 @@ description: >-
 # bench-build — building tasks from the backlog
 
 You orchestrate task construction: you read `pending` orders from
-`tasks/backlog.md`, fan them out to subagents, and keep statuses
-accurate. The actual task authoring — pin, overlay, prompt, assertions,
-weights, self-check — is done by a **subagent** following the procedure
-in [TASK_AUTHORING.md](TASK_AUTHORING.md), one order per subagent.
+`tasks/backlog.md`, fan them out to subagents, keep statuses accurate,
+and run the **batch gate** at the end. The actual task authoring —
+pin, overlay, prompt, assertions, weights, self-check — is done by a
+**subagent** following the procedure in
+[TASK_AUTHORING.md](TASK_AUTHORING.md), one order per subagent.
+
+Authoring is text work. After 0.20.0 the scripted assertions are
+repo-native execution guards shared by every task on a base repo, so
+"is the starting state green" is a fact about **repo@pin**, not about
+each task — proving it once per batch is enough. A subagent enters a
+container only when its own files need proof (an overlay it seeded, a
+guard it created); everything else is proven once, by you, at the gate.
+That is what keeps a batch fast: no per-task `bench validate --assert`,
+no per-task smoke, no waves throttled by container contention.
 
 **Empty backlog**: if `tasks/backlog.md` does not exist or has no
 `pending` entries, tell the user that orders are created first with the
@@ -43,25 +55,25 @@ do not invent tasks yourself.
    solely the user's decision. Keep tasks from one batch separate:
    separate directories, separate reports, no merging.
 4. **Backlog statuses are the source of truth.** Before a subagent
-   starts, the entry moves to `in-progress`; when it finishes, it moves
-   to `done` or back to `pending` with a note explaining why. Backlog
+   starts, the entry moves to `in-progress`; when it returns, to
+   `built` (files + report present) or back to `pending` with a note
+   explaining why; `done` only after the batch gate (step 5). Backlog
    updates are file edits, not commits (rule 3).
-5. **Parallel is the default mode.** Orders in one batch are
-   independent: each subagent writes only to `tasks/<its-task>/` and
-   its own directories in `evaluation-pool/`, and treats
-   `.repos/<name>/` as read-only — so there is nothing to clobber and
-   building in a single working tree is safe. An isolated repo copy
-   (worktree) is not required; it can even be harmful, because
-   `.repos/` is in `.gitignore` and a fresh worktree simply has no
-   clones. Limit yourself to 2–3 subagents at a time — not out of
-   concern for files, but because evaluation containers compete for the
-   machine. Release further orders in waves when the batch is larger.
-   Build sequentially only when two orders genuinely target the same
-   files (e.g. a shared new assertion in the pool) — in that case tell
-   the subagents explicitly or run them one after another. If you
-   nevertheless use isolated copies, after a subagent finishes move its
-   files (the report has the list) into the instance's working tree —
-   copying files, not git operations.
+5. **Parallel is the default mode — the whole batch at once.** Orders
+   in one batch are independent: each subagent writes only to
+   `tasks/<its-task>/` and its own directories in `evaluation-pool/`,
+   and treats `.repos/<name>/` as read-only — so there is nothing to
+   clobber and building in a single working tree is safe. An isolated
+   repo copy (worktree) is not required; it can even be harmful,
+   because `.repos/` is in `.gitignore` and a fresh worktree simply
+   has no clones. Subagents do text work (rule 9), so containers no
+   longer throttle the fan-out — launch every order of the batch
+   together. Build sequentially only when two orders genuinely target
+   the same files (e.g. a shared new assertion in the pool) — in that
+   case tell the subagents explicitly or run them one after another.
+   If you nevertheless use isolated copies, after a subagent finishes
+   move its files (the report has the list) into the instance's
+   working tree — copying files, not git operations.
 6. **Prepare shared resources once, before the fan-out.** Run
    `git fetch origin` in the `.repos/<name>/` clones of the base repos
    the batch needs (clone missing ones — convention from AGENTS.md) and
@@ -110,6 +122,15 @@ do not invent tasks yourself.
 8. **Do not touch `.bench-kit/`** or task directories outside the batch
    being built; the scope rules from TASK_AUTHORING.md bind the
    subagents, and their sum binds you.
+9. **Containers are a batch resource, not a per-task ritual.** A
+   subagent may enter a container only to prove **its own** files:
+   an overlay it seeded (bugfix orders — the red/green counter-proof)
+   or a guard it created. Reused guards on the batch's pin, the full
+   `bench validate --assert`, and the smoke attempt are proven once
+   for the whole batch at the **batch gate** (step 5), by you. Pass
+   this policy in every subagent prompt; a subagent running
+   `bench validate --assert` or `bench attempt` on its own is spending
+   the batch's container time on something you will prove anyway.
 
 ## Runner tools
 
@@ -147,18 +168,17 @@ list of gaps — for completion, not for building.
   makes sense on it, and may deviate with a justification in the
   report. Without this step, every subagent separately walks the
   history and queries CI for the same thing.
-- **Evaluation environment ready before the fan-out**: get to a state
-  where a single container entry passes — e.g. `bench assert` on any
-  existing green task of the instance. The `bench-base` image, runner
-  dependencies, and docker availability are shared batch
-  infrastructure: you fix it, once, here — not the first subagent that
-  stumbles into it as part of its task.
 - Inventory of `evaluation-pool/` + assertion coverage decision for the
   batch's orders (rule 6a): what to reuse, what is new and shared (with
   an owner), what is new and disjoint.
 - Check whether any two orders target the same files — if not (the
-  default case), build in parallel, in waves of 2–3 (rule 5). An order
-  waiting on a shared assertion goes in the wave after its owner.
+  default case), build the whole batch in parallel (rule 5). An order
+  waiting on a shared assertion starts after its owner finishes.
+- Container readiness (engine up, `bench-base` image, runner
+  dependencies) is needed by bugfix orders (overlay proofs) and by
+  the gate — check `bench doctor` now if the batch has bugfix orders,
+  otherwise before step 5. Infrastructure is fixed once, by you —
+  never by a subagent mid-task.
 
 ### 3. Fan-out
 
@@ -187,6 +207,10 @@ launch a subagent via your tool's mechanism, and pass in its prompt:
   change underneath it while it works (a neighbor adds its
   directories), so re-scanning the pool mid-work settles nothing — your
   decision is binding, and any divergence from it must be reported;
+- the container policy (rule 9): `bench assert` only for the overlay
+  it seeds or a guard it creates; no `bench validate --assert`, no
+  `bench attempt` — the batch gate covers those, and its output will
+  be appended to the subagent's report by you;
 - a reminder about the progress view: the subagent's first action is
   creating `tasks/<name>/todo.md` (step 0 of the procedure), updated
   immediately after each step — this file is how you and the user watch
@@ -224,20 +248,51 @@ or flag it to the user as a leftover to remove (a working file would
 enter `task_hash`).
 
 After each subagent: (in the default mode its files are already in the
-instance tree; only with isolated copies move them — rule 5), update
-the entry to `done` or restore `pending` with a note on
-refusal/failure. **The `done` gate includes the report file**: before
-switching an entry to `done`, confirm that
+instance tree; only with isolated copies move them — rule 5), mark the
+entry `built` (an interim status: files and report present, gate
+pending) or restore `pending` with a note on refusal/failure. **The
+report file is part of the deliverable**: confirm that
 `reports/<task-name>-build.md` exists in the working tree and that its
-evidence sections carry **pasted command output** — in particular a
-`bench assert` result backing every `reference` declaration in
-task.yaml, and `bench validate --assert`. A report that arrived only in
-the subagent's message, or whose evidence sections are declarations
-without output, is a missing report: send the subagent back to persist
-it (or restore `pending` with that note) — "runner output confirms
-states, not declarations" applies to the build itself, not just to
-runs. Do not fix a subagent's work yourself — a failed order
-goes back into the queue with a diagnosis, not with your patch.
+evidence sections carry **pasted command output** for everything the
+subagent owns — a `bench assert` result behind every overlay
+counter-proof and every guard it created, `bench validate --offline`
+green. A report that arrived only in the subagent's message, or whose
+evidence sections are declarations without output, is a missing
+report: send the subagent back to persist it (or restore `pending`
+with that note) — "runner output confirms states, not declarations"
+applies to the build itself, not just to runs. Do not fix a subagent's
+work yourself — a failed order goes back into the queue with a
+diagnosis, not with your patch.
+
+### 5. Batch gate
+
+One pass, for the whole batch, once every subagent has returned. This
+is where the starting state of every new task is proven — the step the
+subagents deliberately skipped (rule 9).
+
+1. `bench doctor` if you have not already (engine, image, deps).
+2. `bench validate --assert` — verifies **every** `reference`
+   declaration of the batch's tasks (and the instance) on the starting
+   state in containers. Red on a task of the batch → that order goes
+   back to its subagent with the pasted output (status `pending` with
+   the note), the rest of the batch proceeds.
+3. Smoke, **provided the session has provider API keys**:
+   `bench attempt --smoke --tasks <all batch tasks> --models
+   <cheap-model>` then `bench evaluate --no-write-results` on the
+   produced attempts. This is the **solvability probe** (there is no
+   reference implementation): an assertion that no smoke attempt
+   greens is suspect-harness — back to the subagent for diagnosis, or
+   weight 0 with a note, never a charge against models. Without keys:
+   note "smoke deferred — no secrets in the session" and hand it to the
+   Next step; points 1–2 remain unconditional.
+4. Append a `## Batch gate` section (REPORT_TEMPLATE.md) with the
+   pasted outputs of 2–3 to **each** task report of the batch — the
+   report must carry the proof, not your chat message.
+5. Only now: `built` → `done` for every order that passed.
+
+The gate costs one `validate --assert` pass and one smoke attempt per
+task — the same container time a single subagent used to spend on
+itself, paid once instead of N times.
 
 **Workspace preservation needs no configuration.** Every trial keeps
 its full post-agent workspace on disk as part of the preserved-attempt
@@ -246,7 +301,7 @@ contract (`attempts/<task>/<model>/trial-N/workspace/`,
 task. Legacy orders carrying a `Workspace archive` decision are simply
 satisfied by that default; do not edit the config for them.
 
-### 5. Next step
+### 6. Next step
 
 End your summary response with a **Next step** section: batch status
 (how many tasks are ready in the working tree — with file lists and
@@ -263,15 +318,14 @@ it. Typical transitions:
   close an era; after computed results it does.
 - **Orders went back to `pending`** → complete the entries
   (bench-new-task) or re-run bench-build on the subset.
-- **Reports note a deferred smoke test (no secrets in the session)** →
-  after the user accepts the files, one trial
-  `bench attempt --smoke` on all of the batch's new tasks at once, in
-  an environment with keys — you run it once the user provides keys to
-  the session (never ask the user to run `bench` themselves) — before
-  the full run, as the batch gate. The smoke run doubles as the **solvability
-  probe** (there is no reference implementation): an assertion that no
-  smoke attempt greens is suspect-harness — flag it for diagnosis
-  instead of letting it count against models.
+- **The batch gate deferred its smoke (no secrets in the session)** →
+  after the user accepts the files, one `bench attempt --smoke` on all
+  of the batch's new tasks at once, in a session with keys — you run
+  it once the user provides them (never ask the user to run `bench`
+  themselves) — before the full run. The smoke run doubles as the
+  **solvability probe**: an assertion that no smoke attempt greens is
+  suspect-harness — flag it for diagnosis instead of letting it count
+  against models.
 - **A report's full-run cost projection exceeds `max_cost_usd`** →
   surface it here, before anything runs: the recommendation is
   a single-model run (or the smoke gate alone) first, with the

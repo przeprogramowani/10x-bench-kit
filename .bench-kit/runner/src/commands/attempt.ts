@@ -22,6 +22,12 @@
  * istniejących prób) przenosi stary katalog do
  * trial-<n>.superseded-<stempel>/ zamiast go kasować.
  *
+ * Wiele procesów `bench attempt` naraz (per model, w tle, na dwóch
+ * maszynach ze wspólnym drzewem): numer próby jest zajmowany markerem
+ * running.json PRZED startem kontenera (zapis atomowy), więc niezależne
+ * wywołania doganiają braki bez koordynacji; stan macierzy pokazuje
+ * `bench status`.
+ *
  * Retry 1× przy przejściowej awarii providera (5xx/429) i killu
  * sygnałowym (OOM) — artefakty pierwszego podejścia zostają obok.
  *
@@ -39,7 +45,8 @@
  * `--trial-index n` = dokładnie próba nr n (chirurgiczny re-run z --force).
  * Domyślny cel: attempts/ w korzeniu instancji (kanoniczne drzewo prób).
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
 import { detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, shAsync, signalFromExit } from "../lib/containers.ts";
@@ -131,16 +138,50 @@ function trialEnvNames(): string[] {
   return Object.keys(process.env).filter((name) => /_API_KEY$/.test(name) || /^OPENCODE_/.test(name));
 }
 
-/** Numery zachowanych prób komórki (katalogi trial-<n> z attempt.json). */
-function existingTrials(cellDir: string): Set<number> {
-  const found = new Set<number>();
+/**
+ * Stan prób komórki: `done` = zachowana (attempt.json), `running` =
+ * w toku w INNYM procesie `bench attempt` (running.json bez attempt.json,
+ * marker nieprzeterminowany). Marker w toku pozwala uruchamiać kilka
+ * niezależnych `bench attempt` na tej samej instancji (per model, w tle,
+ * na drugiej maszynie ze wspólnym drzewem) bez kolizji o trial-<n>.
+ */
+function existingTrials(cellDir: string): Map<number, "done" | "running"> {
+  const found = new Map<number, "done" | "running">();
   if (!statSync(cellDir, { throwIfNoEntry: false })?.isDirectory()) return found;
   for (const name of readdirSync(cellDir)) {
     const match = name.match(/^trial-(\d+)$/);
-    if (match && existsSync(join(cellDir, name, "attempt.json"))) found.add(Number(match[1]));
+    if (!match) continue;
+    const dir = join(cellDir, name);
+    if (existsSync(join(dir, "attempt.json"))) found.set(Number(match[1]), "done");
+    else if (readRunningMarker(dir) === "running") found.set(Number(match[1]), "running");
   }
   return found;
 }
+
+/**
+ * Marker próby w toku: running.json w katalogu próby, zapisywany PRZED
+ * startem kontenera i usuwany po zapisie attempt.json. Przeterminowany
+ * (started_at + timeout_s + zapas) = proces zginął bez sprzątania —
+ * katalog jest odkładany do trial-<n>.aborted-<stempel>/ przy następnym
+ * zajęciu numeru (artefakty częściowe zostają; opłacona praca nie ginie).
+ */
+const RUNNING_GRACE_S = 900;
+
+function readRunningMarker(trialDir: string): "running" | "stale" | null {
+  const path = join(trialDir, "running.json");
+  if (!existsSync(path)) return null;
+  try {
+    const marker = JSON.parse(readFileSync(path, "utf8")) as { started_at?: string; timeout_s?: number };
+    const started = Date.parse(marker.started_at ?? "");
+    const timeoutS = typeof marker.timeout_s === "number" ? marker.timeout_s : 0;
+    if (!Number.isFinite(started)) return "stale";
+    return Date.now() > started + (timeoutS + RUNNING_GRACE_S) * 1000 ? "stale" : "running";
+  } catch {
+    return "stale";
+  }
+}
+
+const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
 
 /**
  * Projekcja kosztu próby komórki z historii results/ w repo: mediana
@@ -225,6 +266,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       model: string;
       numbers: number[];
       skipped: number;
+      running: number;
     }
     const plan: PlannedCell[] = [];
     for (const task of taskNames) {
@@ -233,28 +275,42 @@ export async function attemptCommand(args: string[]): Promise<number> {
         const existing = existingTrials(cellDir);
         let numbers: number[];
         if (opts.trialIndex !== null) {
-          if (existing.has(opts.trialIndex) && !opts.force) {
+          const state = existing.get(opts.trialIndex);
+          if (state === "running") {
+            throw new Error(`${task} × ${model}: próba trial-${opts.trialIndex} jest W TOKU w innym procesie bench attempt (running.json) — poczekaj albo sprawdź \`bench status\``);
+          }
+          if (state === "done" && !opts.force) {
             throw new Error(
               `${task} × ${model}: próba trial-${opts.trialIndex} już istnieje — ` +
                 "zachowane próby nie są nadpisywane; --force odkłada starą do trial-N.superseded-* i wykonuje nową",
             );
           }
           numbers = [opts.trialIndex];
-        } else if (opts.force) {
-          numbers = Array.from({ length: trials }, (_, i) => i + 1);
         } else {
-          numbers = Array.from({ length: trials }, (_, i) => i + 1).filter((n) => !existing.has(n));
+          // Próby w toku nigdy nie są dublowane — także przy --force.
+          numbers = Array.from({ length: trials }, (_, i) => i + 1).filter((n) => existing.get(n) !== "running" && (opts.force || !existing.has(n)));
         }
-        plan.push({ task, model, numbers, skipped: opts.force ? 0 : [...existing].filter((n) => n <= trials).length });
+        const inRange = [...existing.entries()].filter(([n]) => n <= trials);
+        plan.push({
+          task,
+          model,
+          numbers,
+          skipped: opts.force ? 0 : inRange.filter(([, s]) => s === "done").length,
+          running: inRange.filter(([, s]) => s === "running").length,
+        });
       }
     }
     const totalPlanned = plan.reduce((acc, c) => acc + c.numbers.length, 0);
     const totalSkipped = plan.reduce((acc, c) => acc + c.skipped, 0);
+    const totalRunning = plan.reduce((acc, c) => acc + c.running, 0);
     if (totalSkipped > 0) {
       console.log(`plan:   ${totalSkipped} zachowanych prób już na dysku — doganiam tylko braki (--force wymusza re-run)`);
     }
+    if (totalRunning > 0) {
+      console.log(`plan:   ${totalRunning} prób(y) w toku w innym procesie bench attempt — pomijam (stan: bench status)`);
+    }
     if (totalPlanned === 0) {
-      console.log("bench attempt: wszystkie zaplanowane próby już zachowane — nic do zrobienia");
+      console.log("bench attempt: wszystkie zaplanowane próby już zachowane lub w toku — nic do zrobienia");
       return 0;
     }
 
@@ -349,16 +405,44 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     const runTrial = async ({ name, task, image, startSha, model, trial, memoryMb, limitArgs }: TrialSpec) => {
       const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
+      const label = `${name} × ${model} × próba ${trial}`;
       // Zachowane próby są nienaruszalne: re-run (--force / --trial-index)
       // odkłada starą próbę obok zamiast ją kasować.
       if (existsSync(join(trialDir, "attempt.json"))) {
-        const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
-        renameSync(trialDir, `${trialDir}.superseded-${stamp}`);
-        console.log(`trial:  ${name} × ${model} × próba ${trial} — poprzednia próba odłożona do trial-${trial}.superseded-${stamp}/`);
+        const s = stamp();
+        renameSync(trialDir, `${trialDir}.superseded-${s}`);
+        console.log(`trial:  ${label} — poprzednia próba odłożona do trial-${trial}.superseded-${s}/`);
+      } else {
+        // Marker w toku: cudzy i żywy = ktoś inny wykonuje tę próbę (plan
+        // był chwilę temu — wyścig dwóch procesów); przeterminowany =
+        // proces zginął — artefakty częściowe odkładamy, numer zajmujemy.
+        const marker = readRunningMarker(trialDir);
+        if (marker === "running") {
+          console.log(`trial:  ${label} — w toku w innym procesie bench attempt, pomijam`);
+          return;
+        }
+        if (marker === "stale") {
+          const s = stamp();
+          renameSync(trialDir, `${trialDir}.aborted-${s}`);
+          console.error(`trial:  ${label} — przeterminowany marker w toku (proces zginął?); artefakty częściowe odłożone do trial-${trial}.aborted-${s}/`);
+        }
       }
       mkdirSync(trialDir, { recursive: true });
-      const label = `${name} × ${model} × próba ${trial}`;
       const startedAt = new Date().toISOString();
+      // Zajęcie numeru próby atomowo (flag wx): przegrany wyścig = pomiń.
+      try {
+        writeFileSync(
+          join(trialDir, "running.json"),
+          JSON.stringify({ task: name, model, trial, started_at: startedAt, timeout_s: task.timeout_s, pid: process.pid, host: hostname() }, null, 2) + "\n",
+          { flag: "wx" },
+        );
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+          console.log(`trial:  ${label} — właśnie zajęta przez inny proces bench attempt, pomijam`);
+          return;
+        }
+        throw err;
+      }
 
       // Retry 1× przy przejściowej awarii providera — pusta próba
       // z HTTP 500 wliczona do median to pomiar pogody, nie modelu.
@@ -388,7 +472,8 @@ export async function attemptCommand(args: string[]): Promise<number> {
           const archive = join(trialDir, `${kind}-attempt-${attempts}`);
           mkdirSync(archive);
           for (const entry of readdirSync(trialDir)) {
-            if (!/^(provider-error|signal-kill)-attempt-/.test(entry)) renameSync(join(trialDir, entry), join(archive, entry));
+            if (entry === "running.json" || /^(provider-error|signal-kill)-attempt-/.test(entry)) continue;
+            renameSync(join(trialDir, entry), join(archive, entry));
           }
           const why = providerError
             ? "awaria providera (5xx/429 w agent.log)"
@@ -468,6 +553,8 @@ export async function attemptCommand(args: string[]): Promise<number> {
           2,
         ) + "\n",
       );
+      // attempt.json zapisany = próba zachowana; marker w toku schodzi.
+      rmSync(join(trialDir, "running.json"), { force: true });
 
       // Budżet biegu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
       // (pool sprawdza flagę przed startem każdej próby; próby już

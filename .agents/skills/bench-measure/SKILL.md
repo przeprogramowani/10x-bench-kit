@@ -25,9 +25,18 @@ The loop you own end to end:
 
 ```
 scope matrix → project cost vs budget → bench attempt (preserved
-attempts) → evaluation (rate-attempt / API judge) → results table →
-user commits results/
+attempts, detached) → bench status → evaluation of what is done
+(rate-attempt / API judge) → results table → user commits results/
 ```
+
+The loop is non-blocking by construction: attempts are claimed on
+disk (`running.json`) before their container starts, so several
+`bench attempt` processes — one per model, one in the background, one
+on another machine sharing the tree through git — top up the same
+matrix without coordination, and evaluation picks up whatever has
+finished. `bench status` is the tracker: it reads `attempts/` and
+`results/` and shows per cell what is preserved, running, stale, and
+evaluated.
 
 ## Hard rules
 
@@ -57,6 +66,15 @@ user commits results/
    rubrics, weights, or the config mid-run — that would fork the era
    between trials of the same run. Config changes go through
    bench-wiring/bench-rubric, before or after a measurement.
+7. **Long runs are detached, never awaited in the foreground.** A
+   matrix run is hours of mostly waiting on provider APIs; start it
+   detached (a `tmux` session or `nohup … > <log> &`) and come back
+   with `bench status`. Never sit blocking on the runner's stdout,
+   and never re-launch a cell that `bench status` shows as running —
+   the marker exists precisely so a second launch skips it.
+8. **Evaluate where the workspace lives.** Attempt metadata travels
+   through git; `workspace/` does not. rate-attempt (and `bench
+   shell`) run on the machine that executed the attempt.
 
 ## Procedure
 
@@ -72,7 +90,10 @@ cold (engine down, keys missing).
 
 ### 2. Projection and consent
 
-Run `bench attempt` — it prints the projection before executing. If
+Run `bench status` first: it shows what is already preserved, what
+another process is still running, and how many trials each cell is
+missing — that is the scope you will actually pay for. Then run
+`bench attempt` — it prints the projection before executing. If
 the projection exceeds the budget, stop at the printed warning and put
 the decision to the user (rule 2). Cells without cost history (first
 measurement of a pair) are flagged in the projection as unknown — say
@@ -80,19 +101,29 @@ so rather than pretending precision.
 
 ### 3. Execute
 
-`bench attempt --tasks … --models … [--trials n] [--parallel n]`.
-Long runs: report progress as trials complete (the runner logs each),
-and after the run summarize per cell: completed / timeout / failed,
-with cost so far. New models or tasks with no rubric calibration yet:
+`bench attempt --tasks … --models … [--trials n] [--parallel n]`,
+detached (rule 7); a matrix can be split into several processes
+(e.g. one per model) — they will not collide. Progress: `bench
+status` (running cells with elapsed time, preserved counts) plus the
+runner log of each process; after the run summarize per cell:
+completed / timeout / failed, with cost so far. A cell `bench status`
+marks as STALE (a marker older than timeout + 15 min) means a runner
+process died — diagnose the log before re-launching; the next
+`bench attempt` sets the partial directory aside as
+`trial-N.aborted-*` and redoes the trial. New models or tasks with no rubric calibration yet:
 flag it — scores will be provisional until bench-rubric runs.
 
 ### 4. Evaluate
+
+Evaluate what `bench status` shows as preserved without a fresh
+evaluation — this can start while other cells are still running.
 
 - **Default (real tasks): rate-attempt per attempt** — the
   judge-with-tools; launch it per the rate-attempt skill (subagent per
   attempt where available, verdicts independent). It runs guards
   (`bench evaluate --skip-judge`), investigates the preserved
-  workspace, and folds its verdict via `bench evaluate --verdict`.
+  workspace in a container (`bench shell`), and folds its verdict via
+  `bench evaluate --verdict`.
 - **Smoke / demo / explicitly cheap runs**: plain `bench evaluate`
   (API judge) is acceptable — say which judge path produced the
   numbers, because they are not interchangeable in interpretation.

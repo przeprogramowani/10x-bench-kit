@@ -18,10 +18,10 @@ Kolejność odpowiada cyklowi życia instancji:
 |---|---|---|---|
 | 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszej zmierzonej próby LOKALNIE: braki po init, silnik kontenerów, klucze API w env, smoke `bench attempt` + `bench evaluate`, commit wyników; opcjonalnie ścieżka publikacji (readiness + leaderboard w GHA) | raz, przy powstaniu instancji (i przy zmianach wiringu) |
 | 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania | cyklicznie, gdy pojawia się pomysł na zadanie |
-| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi, wszystko udowodnione na stanie startowym (bez implementacji referencyjnej — oczekiwania wobec przyszłych prób wyraża rubryka i asercje); gotowe pliki + raport-plik `reports/<zadanie>-build.md` w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
+| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + wagi jako praca tekstowa (kontener tylko dla własnych dowodów: overlay, nowy guard), potem JEDNA bramka partii u orkiestratora (`bench validate --assert` + smoke) dowodzi stan startowy całej paczki; bez implementacji referencyjnej — oczekiwania wobec przyszłych prób wyraża rubryka i asercje; gotowe pliki + raport-plik `reports/<zadanie>-build.md` w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
 | 4 | **bench-rubric** | Rubryka LLM-as-judge z kryteriów oceny zadania (osie ze zlecenia) + kalibracja na syntetycznym zbiorze o zaprojektowanej jakości i diffach z realnych runów | razem z zadaniem używającym sędziego; przy dryfie werdyktów |
-| 5 | **bench-measure** | Bieg macierzy na tej maszynie: zakres modele × zadania × próby, projekcja kosztu vs budżet, `bench attempt` (top-up zachowanych prób), ocena (rate-attempt / sędzia API), tabela wyników + ścieżki `results/` do commita | „zmierz model X / uruchom benchmark" — każdy pomiar po wiringu |
-| 6 | **rate-attempt** | Sędzia jako agent Z NARZĘDZIAMI: ocena zachowanej próby (`attempts/<zadanie>/<model>/trial-N/`) — guardy jako fakty, praca na jednorazowej kopii workspace'u (build/testy/uruchomienie), werdykt składany przez `bench evaluate --verdict` do `results/` | wołany z bench-measure per próba; przy re-ocenie zachowanych prób nową rubryką |
+| 5 | **bench-measure** | Bieg macierzy na tej maszynie: zakres modele × zadania × próby, projekcja kosztu vs budżet, `bench attempt` w tle (top-up zachowanych prób; wiele procesów naraz bez kolizji — marker próby w toku), `bench status` jako tracker, ocena tego, co gotowe (rate-attempt / sędzia API), tabela wyników + ścieżki `results/` do commita | „zmierz model X / uruchom benchmark" — każdy pomiar po wiringu |
+| 6 | **rate-attempt** | Sędzia jako agent Z NARZĘDZIAMI: ocena zachowanej próby (`attempts/<zadanie>/<model>/trial-N/`) — guardy jako fakty, praca na jednorazowej kopii workspace'u W KONTENERZE (`bench shell --attempt`: build/testy/uruchomienie — cudzy kod nigdy na hoście), werdykt składany przez `bench evaluate --verdict` do `results/` | wołany z bench-measure per próba; przy re-ocenie zachowanych prób nową rubryką |
 | 7 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
 | 8 | **bench-explain-results** | Diagnoza wyników: wina modelu / zadania / infrastruktury, z dowodami z zachowanych prób | po biegu, gdy wynik zaskakuje |
 
@@ -35,7 +35,10 @@ Kolejność odpowiada cyklowi życia instancji:
   raport nieistniejący) — **do gita wnosi
   je użytkownik**, skille nie commitują i nie pushują niczego.
 - **Udowodnij na stanie startowym, zanim zaproponujesz** — asercja czy
-  overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR).
+  overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR);
+  dowód dla tego, co wspólne dla paczki (guardy reużyte na pinie,
+  `bench validate --assert`, smoke), składa raz orkiestrator
+  bench-build na bramce partii — nie każdy subagent osobno.
   Benchmark nie utrzymuje implementacji referencyjnych: kierunek
   "da się zaliczyć" chroni zasada neutralności kształtu asercji
   (TASK_AUTHORING.md — skrypty to wyłącznie repo-natywne guardy
@@ -55,6 +58,13 @@ Kolejność odpowiada cyklowi życia instancji:
   są wyrzucane; zmiana rubryki/sędziego to RE-OCENA zachowanych prób
   (`bench evaluate` / rate-attempt), nie nowy bieg. Wyniki żyją w
   `results/` w repo — commituje je użytkownik, historię wersjonuje git.
+- **Bieg nie blokuje, tracker to dysk** — `bench attempt` zajmuje numer
+  próby markerem `running.json` przed startem kontenera, więc kilka
+  procesów (per model, w tle, na drugiej maszynie) dogania tę samą
+  macierz bez kolizji; stan (zachowane / w toku / ocenione) czyta
+  `bench status`, ocena bierze to, co skończone. Ocena z narzędziami
+  biegnie tam, gdzie leży `workspace/`, i zawsze w kontenerze
+  (`bench shell`).
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
   nie deklaracja.

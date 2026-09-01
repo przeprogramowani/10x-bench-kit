@@ -9,8 +9,9 @@ tree — git (commit, push) is managed by the user.
 Entry status lifecycle:
 
 `pending` → `in-progress` (bench-build launched a subagent) →
-`done` (the task's complete set of files is ready in the working tree)
-or back to `pending` with a note when the build failed. Mark abandoned
+`built` (files + report in the working tree, batch gate pending) →
+`done` (the batch gate — `bench validate --assert` + smoke — passed)
+or back to `pending` with a note when the build or the gate failed. Mark abandoned
 orders as `dropped` with a one-sentence reason — do not delete entries,
 the decision history stays.
 
@@ -20,7 +21,7 @@ Document template:
 # Task order backlog
 
 Orders are created by the **bench-new-task** skill and built by the
-**bench-build** skill. Statuses: pending / in-progress / done / dropped.
+**bench-build** skill. Statuses: pending / in-progress / built / done / dropped.
 Skills only edit this file — git is managed by the user.
 
 ## <task-name>

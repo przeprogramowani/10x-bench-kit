@@ -50,7 +50,7 @@ Target set (concept: SKILLS_DESIGN in the project repo):
 - **rate-attempt** *(available)* — the judge as an agent WITH TOOLS:
   takes a preserved attempt (`attempts/<task>/<model>/trial-N/`),
   reads the rubric, treats guard results as facts, investigates a
-  disposable copy of the preserved workspace (build, tests, running
+  disposable containerized copy of the preserved workspace (build, tests, running
   the app) and produces a verdict that `bench evaluate --verdict`
   folds into `results/` deterministically. Batch mode: a thin loop /
   subagent per attempt.

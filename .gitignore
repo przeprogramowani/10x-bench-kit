@@ -5,6 +5,7 @@ out/
 # Zachowane próby (ATTEMPT_FORMAT.md): metadane i patch.diff są commitowalne,
 # workspace'y (GB) żyją wyłącznie na dysku — poza gitem; logi łapie *.log.
 attempts/**/workspace/
+attempts/**/running.json
 *.log
 # Lokalne klony rep bazowych (konwencja .repos/<nazwa> — patrz AGENTS.md).
 .repos/

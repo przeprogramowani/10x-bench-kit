@@ -6,6 +6,67 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.25.0 — 2026-09-01 (neutralny)
+
+**Minimalny kształt biegu nieblokującego: tracker na dysku, sędzia
+w kontenerze, bench-build bez kontenerów per zadanie.** Scoring,
+schematy i stemple er bez zmian; format zachowanej próby dalej `1`
+(zmiany addytywne).
+
+- **Marker próby w toku** (`attempt.ts`, ATTEMPT_FORMAT.md):
+  `bench attempt` zajmuje numer próby plikiem `running.json` PRZED
+  startem kontenera (zapis atomowy `O_EXCL`), usuwanym po zapisie
+  `attempt.json`. Dotąd `attempt.json` powstawał dopiero na końcu,
+  więc dwa równoległe wywołania (per model, w tle, na drugiej maszynie
+  ze wspólnym drzewem) planowały tę samą `trial-N` i się nadpisywały.
+  Teraz próba w toku jest dla planu zajęta (także przy `--force`;
+  `--trial-index` na niej = błąd), przegrany wyścig o numer pomija
+  próbę, a `bench evaluate` pomija katalogi z markerem. Marker
+  przeterminowany (`started_at + timeout_s + 15 min`) = proces zginął:
+  następne zajęcie numeru odkłada artefakty częściowe do
+  `trial-N.aborted-<stempel>/` (pomijane przez ocenę, jak superseded)
+  i wykonuje próbę od nowa. `running.json` poza gitem.
+- **`bench status` (nowa komenda)** — tracker macierzy czytany
+  z dysku: per zadanie × model — zachowane/cel (`defaults.trials`),
+  ocenione (result.json ze stemplem BIEŻĄCEGO task_hash; ocena starą
+  definicją liczona osobno), brakujące, koszt prób, w toku (z czasem
+  od startu), przeterminowane, infra, aborted; lista prób w toku,
+  podpowiedź następnego kroku; `--json` dla skilli. Modele = z configu
+  + wszystkie obecne w attempts/.
+- **`bench shell` (nowa komenda)** — sandbox sędziego-z-narzędziami:
+  jednorazowy kontener z obrazu zadania (odtwarzany z task.yaml, gdy
+  brak) z kopią zachowanego `workspace/` w `/workspace`; oryginał
+  zamontowany `:ro`, kopia robiona wewnątrz kontenera, limity zasobów
+  i cache zależności jak w ocenie. `-- <komenda>` wykonuje jedno
+  polecenie (`bash -lc`) i zwraca jego kod wyjścia; bez — powłoka
+  interaktywna. Zamyka jedyną realną lukę izolacyjną modelu
+  local-first: rate-attempt kazał kopiować workspace na hosta
+  (`cp -a … $(mktemp -d)`) i tam uruchamiać build/testy/aplikację —
+  czyli wykonywać kod wyprodukowany przez oceniany model na maszynie
+  operatora. Reguła: ocena z narzędziami biegnie tam, gdzie leży
+  workspace (metadane i patch.diff wędrują gitem, workspace nie).
+- **bench-build bez kontenerów per zadanie** (SKILL.md,
+  TASK_AUTHORING.md, REPORT_TEMPLATE.md, BACKLOG_TEMPLATE.md).
+  Diagnoza „zamulania": po 0.20.0 asercje skryptowe to repo-natywne
+  guardy współdzielone per repo, więc `bench validate --assert`
+  i smoke per subagent dowodziły N razy tego samego faktu o repo@pin,
+  a fale po 2–3 subagentów wynikały z rywalizacji kontenerów.
+  Nowy podział: subagent robi pracę tekstową (pin w worktree, prompt,
+  task.yaml, digest kryteriów, `bench validate --offline`), kontener
+  wyłącznie dla WŁASNYCH dowodów (zasiany overlay, nowy guard);
+  orkiestrator uruchamia całą paczkę naraz i na końcu JEDNĄ **bramkę
+  partii**: `bench validate --assert` (wszystkie deklaracje
+  `reference` paczki) + smoke `bench attempt` na wszystkich nowych
+  zadaniach + `bench evaluate --no-write-results`, wklejając wyjścia
+  do sekcji „Batch gate" każdego raportu. Nowy status backlogu `built`
+  (pliki + raport, bramka w toku) między `in-progress` a `done`.
+- **Skille**: rate-attempt — całe wykonanie przez `bench shell`, próba
+  bez `workspace/` (inna maszyna) to stop z raportem, batch przez
+  `bench status`; bench-measure — biegi odłączone (tmux/nohup),
+  `bench status` przed i po, ocena tego, co gotowe, gdy reszta
+  jeszcze biegnie, reguła „oceniaj tam, gdzie workspace"; AGENTS.md
+  i README-i zaktualizowane.
+
 ## 0.24.0 — 2026-08-27 (neutralny)
 
 **Pivot: benchmark local-first, wykonanie oddzielone od oceny

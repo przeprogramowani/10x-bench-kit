@@ -128,9 +128,15 @@ function findAttempts(dir: string): AttemptRef[] {
       found.push({ dir: current, meta: parsed.data });
       return;
     }
+    if (existsSync(join(current, "running.json"))) {
+      // Próba w toku (bench attempt jeszcze nie zapisał attempt.json) —
+      // nie ma czego oceniać; stan i przeterminowane markery: bench status.
+      console.error(`skip:  ${current} — próba w toku (running.json), ocena po zakończeniu`);
+      return;
+    }
     for (const name of readdirSync(current)) {
       const full = join(current, name);
-      if (statSync(full).isDirectory() && !/\.superseded-/.test(name)) walk(full);
+      if (statSync(full).isDirectory() && !/\.(superseded|aborted)-/.test(name)) walk(full);
     }
   };
   walk(dir);

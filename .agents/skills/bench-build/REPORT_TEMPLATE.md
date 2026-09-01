@@ -37,20 +37,28 @@ backlog order), timeout and its justification. Human-in-the-loop scan
 at were scanned for instructions presupposing an interactive human, and
 what the prompt overrides — or "none found".>
 
-## Evidence from the starting state
+## Evidence from the starting state (subagent)
 
-- starting state: `bench assert --task <name>` → <result per assertion>
-- overlay counter-proof (bugfix tasks): `bench assert --task <name>
-  --no-overlay` → <result>; for an overlay adding files — the
-  bug-inverse probe: `--patch <probe.diff>` → <result> + the probe
+- guards you created: `bench assert <ref> --task <name>` → <pasted
+  result>; guards reused from the pool on the batch pin: "reference:
+  pass — proven at the batch gate" (no container entry of your own)
+- overlay counter-proof (bugfix tasks): `bench assert <ref> --task
+  <name>` → red, `--no-overlay` → green; for an overlay adding files —
+  the bug-inverse probe: `--patch <probe.diff>` → <result> + the probe
   diff pasted here (the file itself is deleted at handoff)
 - an empty diff does not pass: <judge verdict; for a guard-observed
   bugfix seed also the red guard>
-- `bench validate --assert` → 0 errors
-- smoke run: <result per component, or "deferred — no secrets in the
-  session"; the smoke run is the solvability probe — an assertion no
-  attempt greens is flagged suspect-harness here, not counted against
-  models>
+- `bench validate --offline` → 0 errors
+
+## Batch gate (orchestrator)
+
+<left as this placeholder by the subagent; the orchestrator pastes
+here, once for the batch: `bench validate --assert` → <result for this
+task's reference declarations>; smoke attempt `bench attempt --smoke`
++ `bench evaluate --no-write-results` → <result per component, or
+"deferred — no secrets in the session">. The smoke run is the
+solvability probe — an assertion no attempt greens is flagged
+suspect-harness here, not counted against models.>
 
 ## Shape-neutrality checklist
 

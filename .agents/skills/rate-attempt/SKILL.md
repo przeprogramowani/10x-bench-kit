@@ -3,8 +3,9 @@ name: rate-attempt
 description: >-
   Judges a preserved benchmark attempt as an agent WITH TOOLS: reads the
   rubric, takes the execution guards' results as facts, works on a
-  disposable copy of the attempt's preserved workspace (may run build,
-  tests, lint, even the app) and produces a verdict JSON that
+  disposable copy of the attempt's preserved workspace inside a
+  container (`bench shell` — may run build, tests, lint, even the app)
+  and produces a verdict JSON that
   `bench evaluate --verdict` folds deterministically into result.json in
   the repo's results/ tree. Use when the user says "rate / judge / score
   an attempt (or a model's attempts)", after `bench attempt` finishes,
@@ -40,11 +41,18 @@ judge session, not a matrix run.
 
 ## Hard rules
 
-1. **The preserved attempt is read-only.** Never modify anything under
-   the attempt directory. Anything you want to execute happens on a
-   **disposable copy** of `workspace/` (e.g. `cp -a … $(mktemp -d)`) —
-   builds and test runs mutate the workspace, and the original is the
-   permanent record. Delete the copy when done.
+1. **The preserved attempt is read-only, and its code never runs on
+   the host.** Never modify anything under the attempt directory.
+   Anything you want to execute — build, tests, lint, starting the
+   app, even `cat`-ing files is fine on the host but nothing that
+   *runs* the workspace — happens in a **disposable container** from
+   the task image over a copy of `workspace/`:
+   `bench shell --attempt <dir> -- <command>` (one command, its exit
+   code comes back) or `bench shell --attempt <dir>` (interactive).
+   The workspace produced by the evaluated model is untrusted code;
+   the container is the same isolation the guards get, the original
+   is mounted read-only, and the copy disappears with the container.
+   No `cp -a … $(mktemp -d)` on the host.
 2. **Guards are facts, not suggestions.** Before scoring, run the guard
    step and read `checks.json` (exit codes, log tails). A criterion
    whose substance the guards already falsified (red tests, failing
@@ -82,6 +90,20 @@ From the instance root: `node --experimental-strip-types
 one-time prerequisite: `npm ci --prefix .bench-kit/runner`). You run
 these yourself.
 
+- `bench evaluate --attempt <dir> --skip-judge` — guards in the
+  evaluation container → `checks.json` (facts).
+- `bench shell --attempt <dir> [-- <command>]` — your sandbox: a
+  container from the task image with a copy of the preserved
+  workspace at `/workspace` (original read-only, network and the
+  dependency cache available, resource limits as in evaluation).
+  With `-- <command>` it runs one command via `bash -lc` and returns
+  its exit code; without, an interactive shell. Every execution of
+  step 3 goes through it.
+- `bench evaluate --attempt <dir> --verdict <file>` — folds your
+  verdict into `result.json`.
+- `bench status` — which preserved attempts still lack a fresh
+  evaluation (batch mode).
+
 ## Procedure — single attempt
 
 Input: the attempt directory (e.g.
@@ -108,8 +130,12 @@ this step's evidence — the rubric still rules.
 
 ### 3. Investigate with tools
 
-Work on a disposable copy of `workspace/` (rule 1). Typical moves, in
-increasing cost — go only as deep as the rubric's criteria require:
+All execution goes through `bench shell` (rule 1) — e.g.
+`bench shell --attempt <dir> -- npm test -- <file>`,
+`bench shell --attempt <dir> -- 'npm run build 2>&1 | tail -40'`;
+reading files can happen directly in `<dir>/workspace/` on the host.
+Typical moves, in increasing cost — go only as deep as the rubric's
+criteria require:
 
 - read the final state of files the diff touched (the workspace shows
   the end state; the diff alone can hide deletions and leftovers),
@@ -123,6 +149,10 @@ increasing cost — go only as deep as the rubric's criteria require:
 
 Facts you could not verify (missing toolchain, app will not start) are
 stated as such in justifications — never silently assumed true.
+An attempt whose `workspace/` is missing (`bench shell` says so) was
+executed on another machine: evaluation with tools runs where the
+workspace lives — report it and stop rather than judging from the
+diff alone.
 
 ### 4. Verdict JSON
 
@@ -147,9 +177,10 @@ user's move — you never commit or push.
 ## Procedure — batch (a model, a task, or "everything new")
 
 The unit above is one attempt; a batch is a thin loop over attempt
-directories (`find attempts -name attempt.json`, minus those whose
-up-to-date result already exists in `results/` — compare stamps when in
-doubt). For each attempt run the single-attempt procedure; with
+directories — `bench status` lists, per cell, how many preserved
+attempts lack a fresh evaluation (result stamped with the current
+task definition) and which are still running (skip those; `bench
+attempt` may still be working in the background). For each attempt run the single-attempt procedure; with
 subagent support, one subagent per attempt keeps verdicts independent
 (they must not see each other — cross-attempt anchoring biases scores).
 Summarize at the end: a table of attempt → total, skipped attempts with

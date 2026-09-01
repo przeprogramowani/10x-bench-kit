@@ -5,10 +5,16 @@ from `tasks/backlog.md` with the design decisions already made (type,
 base repo, guidance level, difficulty/timeout, description, notes).
 From it you build the `tasks/<name>/` directory in the benchmark
 instance. The task must be measurable, not passable with an empty diff,
-and proven on the starting state before handoff. The guiding
-principle: **you hand off nothing whose behaviour on the starting
-state you have not measured yourself** — that is what `bench assert`
-and `bench validate --assert` are for (see "Runner tools" below).
+and proven on the starting state before it is measured. The guiding
+principle: **nothing you author is handed off on a declaration** —
+what you own (an overlay you seed, a guard you create) you prove
+yourself with `bench assert`; what the batch shares (reused guards on
+the batch pin, `bench validate --assert`, the smoke attempt) the
+orchestrator proves once for the whole batch at the **batch gate**,
+after you return. Your work is text work: the repo at the pin in a
+worktree, `prompt.md`, `task.yaml`, the criteria digest. You enter a
+container only for your own proofs — never for `bench validate
+--assert` or `bench attempt`.
 
 **You never implement the task.** The benchmark is graded by
 LLM-as-judge plus assertions, not by distance to an author-made
@@ -43,13 +49,14 @@ task built on guesses.
    (the only exception: `evaluation: [...]` entries in task.yaml).
    `prompt.md` must not reveal how the task will be evaluated or quote
    rubric criteria.
-3. **Prove on the starting state before you propose.** Every scripted
-   assertion must be run through `bench assert` before handoff and
-   behave as declared on the starting state — guards green (or red,
-   when the task seeds a bug that a guard observes — step 2). You
-   declare this in `reference` in task.yaml (the declarations describe
-   the starting state; the runner verifies them with
-   `bench validate --assert`). The "not passable with an empty diff"
+3. **Prove what you own before you propose.** An overlay you seed
+   (step 2) and a guard you create (step 4) go through `bench assert`
+   before handoff and behave as declared on the starting state. Guards
+   you **reuse** from the pool on the batch's pin candidate are not
+   yours to re-prove: declare their `reference` (pass, unless your
+   overlay breaks them) and the orchestrator's batch gate verifies
+   every declaration with `bench validate --assert` — a red there
+   comes back to you with the output. The "not passable with an empty diff"
    property is the judge's job — the rubric's floor (empty diff ≈ 0)
    is proven in self-check and at calibration, not by a scripted work
    measure. The green direction — "can this task be satisfied at
@@ -104,9 +111,9 @@ internals for you to run; in your report, `bench` commands may appear
 as evidence of what you ran, never as instructions for the user to
 execute.
 
-The evaluation environment (the `bench-base` image, runner
-dependencies, docker) was prepared and verified by the orchestrator
-before you started. If a `bench` command still fails for
+If you need a container at all (your own overlay or guard proof), the
+environment (the `bench-base` image, runner dependencies, docker) is
+the orchestrator's responsibility. If a `bench` command fails for
 infrastructural reasons (image build, network/TLS, docker), report it
 and refuse instead of fixing the environment — it is the batch's shared
 zone, and your fix would race with neighbors building in parallel.
@@ -128,11 +135,11 @@ zone, and your fix would race with neighbors building in parallel.
 - `bench judge --task <name> --patch <file> [--rubric judge/<r>]` —
   a single judge verdict on a diff (calibration: see the bench-rubric
   skill).
-- `bench validate --assert` — the full gate + verification of the
-  `reference` declarations on the starting state.
-- `bench attempt <name> <cheap-model> --trials 1` +
-  `bench evaluate --attempt <dir> --no-write-results` — a trial full
-  cycle producing a preserved attempt (step 6).
+- `bench validate --offline` — the instance gate without network or
+  containers (schemas, `evaluation[]` vs the pool, weights, rubric
+  format). `--assert`, `bench attempt` and `bench evaluate` are **not**
+  your tools — the orchestrator runs them once for the whole batch at
+  the batch gate.
 
 ## Procedure
 
@@ -312,16 +319,18 @@ guard or the named task is deleted. When reusing an assertion that
 carries such an attribution, flag it in your report as debt (you do not
 edit other people's assertions yourself).
 
-Entering the evaluation container rebuilds the environment from
-scratch and costs minutes — prototype the guard outside the container,
-in the local `.repos/<name>/` clone (worktree at the pin, rule 8),
-until it works; then one container entry proves everything:
-`bench assert --task <name>` covers the whole starting state, with
-`--patch` entries added only for step 2's bug-inverse probe. If you
-must enter several times, run the calls in parallel in the background
-and collect the results together (no output from a background command
-means "still running" OR "died silently" — settle which before you
-build a conclusion on it).
+Reused guard, no overlay (the common case for implementation
+orders): **no container entry at all** — declare `reference: pass` and
+move on; the batch gate proves it. New guard, or an overlay: entering
+the evaluation container rebuilds the environment from scratch and
+costs minutes — prototype the guard outside the container, in the
+local `.repos/<name>/` clone (worktree at the pin, rule 8), until it
+works; then one container entry proves your files:
+`bench assert <your refs> --task <name>`, with `--patch` entries added
+only for step 2's bug-inverse probe. If you must enter several times,
+run the calls in parallel in the background and collect the results
+together (no output from a background command means "still running" OR
+"died silently" — settle which before you build a conclusion on it).
 
 Record the starting-state behaviour in `reference` in task.yaml:
 guards on a healthy start → `pass`; a guard the overlay deliberately
@@ -360,10 +369,8 @@ to 1.
 
 ### 6. Self-check
 
-The order is deliberately cheap→expensive: reading before `validate`,
-`validate` before the judge, the judge before the full run — the full
-run is last, because only it requires everything at once. In order,
-each must pass before you move on:
+Cheap→expensive, and nothing that the batch gate will do anyway.
+In order, each must pass before you move on:
 
 1. **Shape-neutrality review of the assertions** (a reading step,
    free): re-read every scripted assertion the task uses against the
@@ -372,35 +379,30 @@ each must pass before you move on:
    discovery, or copied-in test files must come back empty (paths the
    prompt fixes verbatim are the only exception). Record the result
    in the report.
-2. `bench validate --assert` — green (`reference` declarations match
-   the starting state). The gate covers the whole instance — if the
-   red comes from files outside your scope (rule 5; with parallel
-   builds it may be another subagent's unfinished work), note it in
-   the report in one sentence and do not "fix" other people's files to
-   get green.
+2. `bench validate --offline` — green (schemas, `evaluation[]` vs the
+   pool, weights, rubric format; no containers). The gate covers the
+   whole instance — if the red comes from files outside your scope
+   (rule 5; with parallel builds it may be another subagent's
+   unfinished work), note it in the report in one sentence and do not
+   "fix" other people's files to get green. The `reference`
+   declarations themselves are verified at the batch gate
+   (`bench validate --assert`, orchestrator).
 3. An empty diff **must not** score at or above the passing threshold.
    With guards green on the starting state this rests on the judge:
    `bench judge --task <name> --patch <empty.diff>` yields a low
    score (the calibrated floor is re-proven later by bench-rubric's
    empty-diff probe). For a bugfix task on the guard-observed route,
    the red guard from step 2 is additional evidence.
-4. A trial `bench attempt --smoke --tasks <name> --models
-   <cheap-model>` + `bench evaluate` (the instance budget guards
-   costs — rule 6) —
-   **provided the session has provider API keys**. The smoke run is
-   also the **solvability probe**: with no reference implementation,
-   real attempts are the first green-direction evidence. An assertion
-   that **no attempt ever greens** — in smoke or in the first full
-   run — is suspect-harness, not proof of model failure: it goes back
-   to step 4 for diagnosis (wrong path? broken env?) and, if it cannot
-   be fixed, gets weight 0 with a note, rather than silently dragging
-   every model down. If there are no keys, do not work around it and
-   do not treat it as a failure: note in the report "smoke deferred —
-   no secrets in the session" and hand off the work; the trial run of
-   all the batch's new tasks will happen where the secrets are, after
-   the user accepts the files (the batch gate at the orchestrator, not
-   a per-task ritual). Points 1–3 remain unconditional.
-   A task that passes with an empty diff goes back to step 4.
+4. **No smoke attempt from you.** The smoke `bench attempt` for all
+   of the batch's new tasks is the orchestrator's batch gate — one
+   attempt per task, paid once, doubling as the **solvability probe**
+   (with no reference implementation, real attempts are the first
+   green-direction evidence). If the gate finds an assertion that no
+   attempt greens, the order comes back to you as suspect-harness for
+   diagnosis (wrong command? broken env?) — weight 0 with a note if
+   it cannot be fixed, never a charge against models. Points 1–3 are
+   unconditional. A task that passes with an empty diff goes back to
+   step 4.
 
 ### 7. Handoff
 
@@ -422,8 +424,10 @@ would enter `task_hash`.
 created/changed files, what the task measures (including the
 human-in-the-loop scan from step 3), evidence from the
 starting state (command results from steps 2/4/6 — per point: command →
-result, pasted output — every `reference` declaration in task.yaml must
-be backed by a pasted `bench assert` result here), the
+result, pasted output — every overlay counter-proof and every guard
+you created backed by a pasted `bench assert` result; reused guards
+marked "proven at the batch gate"; leave the `## Batch gate` section
+as the template's placeholder — the orchestrator fills it), the
 shape-neutrality checklist, the criteria digest
 for bench-rubric (step 4), assertions and weights, comparability impact
 (rule 7), actual cost (trial run, judge calls) and the full-run cost
