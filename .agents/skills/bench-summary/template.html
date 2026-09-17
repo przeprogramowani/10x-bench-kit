@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#262b35;--fg:#e6e9ef;--muted:#949cad;--ok:#3ecf8e;--bad:#f2555a;--warn:#e3b341;--accent:#6aa9ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:28px}
+.verdict{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:20px 22px;margin-bottom:12px}
+.verdict .label{color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-size:11px}
+.verdict .pick{font-size:26px;font-weight:600;margin:6px 0 2px}
+.verdict .price{font-size:15px;color:var(--ok)}
+.verdict .why{color:var(--muted);margin-top:10px;font-size:13px}
+.none{border-left-color:var(--bad)}
+.none .pick{color:var(--bad)}
+h2{font-size:15px;margin:32px 0 10px;font-weight:600}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+tbody tr:last-child td{border-bottom:none}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.model{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.pass{color:var(--ok)}.fail{color:var(--bad)}
+.best{background:rgba(106,169,255,.07)}
+.pill{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.bar{height:5px;border-radius:3px;background:#2a2f3a;position:relative;min-width:80px}
+.bar>i{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--ok)}
+.bar>u{position:absolute;top:-3px;bottom:-3px;border-left:1px solid var(--muted);border-right:1px solid var(--muted);opacity:.55}
+.foot{color:var(--muted);font-size:12px;margin-top:28px;border-top:1px solid var(--line);padding-top:14px}
+.foot code{color:var(--fg)}
+.warnbox{background:rgba(227,179,65,.08);border:1px solid rgba(227,179,65,.3);border-radius:8px;padding:12px 14px;margin-top:10px;font-size:13px;color:#f0d79a}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const DATA = __DATA__;
+
+const usd = (v, d = 3) => v == null ? "—" : "$" + v.toFixed(d);
+const pct = (v) => (v * 100).toFixed(0) + "%";
+const mins = (s) => s == null ? "—" : s >= 90 ? Math.round(s / 60) + " min" : Math.round(s) + " s";
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function verdict(task) {
+  const r = task.recommendation;
+  if (!r) {
+    return `<div class="verdict none">
+      <div class="label">Rekomendacja — ${esc(task.task)}</div>
+      <div class="pick">Brak modelu, który przechodzi</div>
+      <div class="why">Żaden mierzony model nie osiągnął progu ${task.pass_threshold}. To nie jest ranking do odczytania — to wynik pusty.</div>
+    </div>`;
+  }
+  const tie = r.tied_with.length
+    ? `<div class="why">Nierozróżnialny wynikowo od: ${r.tied_with.map((m) => `<span class="model">${esc(m)}</span>`).join(", ")}. ${esc(r.tie_note || "")}</div>`
+    : "";
+  return `<div class="verdict">
+    <div class="label">Rekomendacja — ${esc(task.task)}</div>
+    <div class="pick model">${esc(r.model_id)}</div>
+    <div class="price">${usd(r.expected_cost_per_pass)} za jeden akceptowalny wynik &nbsp;·&nbsp; podstawa ${esc(r.basis)}</div>
+    ${tie}
+  </div>`;
+}
+
+function row(m, best) {
+  const ci = m.interval;
+  return `<tr class="${m.model_id === best ? "best" : ""}">
+    <td class="model">${esc(m.model_id)}</td>
+    <td class="num ${m.passes ? "pass" : "fail"}">${m.passes}/${m.trials}</td>
+    <td><div class="bar" title="95% Wilson: ${pct(ci.lo)}–${pct(ci.hi)}">
+      <i style="width:${pct(m.pass_rate)}"></i>
+      <u style="left:${pct(ci.lo)};right:${pct(1 - ci.hi)}"></u></div></td>
+    <td class="num">${m.median_total == null ? "—" : m.median_total.toFixed(3)}</td>
+    <td class="num">${usd(m.mean_cost_usd)}</td>
+    <td class="num ${m.expected_cost_per_pass == null ? "fail" : ""}"><b>${m.expected_cost_per_pass == null ? "brak" : usd(m.expected_cost_per_pass)}</b></td>
+    <td class="num">${mins(m.mean_duration_s)}</td>
+    <td class="num">${m.review_burden ? m.review_burden.files + " plik. / +" + m.review_burden.added : "—"}</td>
+  </tr>`;
+}
+
+function table(task) {
+  const best = task.recommendation ? task.recommendation.model_id : null;
+  return `<table>
+    <thead><tr>
+      <th>Model</th><th>Zdane</th><th>Pass-rate (95%)</th><th>Mediana</th>
+      <th>Koszt / próbę</th><th>Koszt / wynik</th><th>Czas</th><th>Do przejrzenia</th>
+    </tr></thead>
+    <tbody>${task.models.map((m) => row(m, best)).join("")}</tbody>
+  </table>`;
+}
+
+function thinData(task) {
+  const weak = task.models.filter((m) => m.trials < 5);
+  if (!weak.length) return "";
+  return `<div class="warnbox"><b>Mało prób.</b> ${weak.map((m) => esc(m.model_id) + " (n=" + m.trials + ")").join(", ")}
+   — przedziały są szerokie, więc kolejność wewnątrz remisu nic nie znaczy. Tanie modele warto domierzyć: pass-rate to jedyna liczba, na którą ta decyzja jest czuła.</div>`;
+}
+
+document.getElementById("app").innerHTML = `
+  <h1>__TITLE__</h1>
+  <div class="sub">Stan na ${new Date(DATA.generated_at).toLocaleString("pl-PL")} · próg zdania ${DATA.pass_threshold} · łączny koszt prób ${usd(DATA.total_spend_usd, 2)}</div>
+  ${DATA.tasks.map((t) => verdict(t) + thinData(t) + `<h2>${esc(t.task)}</h2>` + table(t)).join("")}
+  <div class="foot">
+    <div><b>Koszt / wynik</b> = koszt próby ÷ pass-rate — ile kosztuje jeden akceptowalny rezultat wraz z ponowieniami. To jest liczba decyzyjna; mediana służy tylko do sprawdzenia, czy model w ogóle przechodzi.</div>
+    <div style="margin-top:6px"><b>Do przejrzenia</b> = średni rozmiar diffu (pliki / dodane linie). Nie wchodzi do scoringu — to koszt Twojego czasu, nie ocena modelu.</div>
+    <div style="margin-top:6px">Era: ${DATA.eras.map((e) => `<code>${esc(e)}</code>`).join(" · ") || "—"}. Wyniki z różnych er nie są porównywalne.</div>
+  </div>`;
+</script>
+</body>
+</html>

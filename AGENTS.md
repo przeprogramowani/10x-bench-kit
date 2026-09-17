@@ -24,6 +24,7 @@ Kolejność odpowiada cyklowi życia instancji:
 | 6 | **rate-attempt** | Sędzia jako agent Z NARZĘDZIAMI: ocena zachowanej próby (`attempts/<zadanie>/<model>/trial-N/`) — guardy jako fakty, praca na jednorazowej kopii workspace'u W KONTENERZE (`bench shell --attempt`: build/testy/uruchomienie — cudzy kod nigdy na hoście), werdykt składany przez `bench evaluate --verdict` do `results/` | wołany z bench-measure per próba; przy re-ocenie zachowanych prób nową rubryką |
 | 7 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
 | 8 | **bench-explain-results** | Diagnoza wyników: wina modelu / zadania / infrastruktury, z dowodami z zachowanych prób | po biegu, gdy wynik zaskakuje |
+| 9 | **bench-summary** | Migawka decyzyjna nad `results/`: ekonomia liczona deterministycznie przez `summarize.mjs` (pass-rate z przedziałem, **koszt jednego akceptowalnego wyniku** = koszt próby ÷ pass-rate, koszt przeglądu diffu), samowystarczalna strona HTML z werdyktem + krótka narracja; remisy raportowane jako remisy (wybór po cenie), cele niezmierzone jako niezmierzone, nigdy jako zero; żadnych zmian w scoringu | po pomiarze / gdy trzeba wybrać model do klasy pracy („podsumuj wyniki", „czego używamy") |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 

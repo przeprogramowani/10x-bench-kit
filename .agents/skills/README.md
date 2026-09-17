@@ -62,6 +62,14 @@ Target set (concept: SKILLS_DESIGN in the project repo):
   preserved attempt's artifacts and classifying the root cause
   (model / task / infrastructure fault) with evidence; the output is
   a comment or an issue, never a scoring change.
+- **bench-summary** *(available)* — the decision snapshot over
+  `results/`: `summarize.mjs` computes the economics deterministically
+  (pass rate with a Wilson interval, **cost per acceptable result** =
+  cost per attempt ÷ pass rate, diff size as review burden) from the
+  git-tracked trees only, renders a self-contained one-page HTML
+  verdict, and adds a short narrative. Ties are reported as ties and
+  settled on price; unmeasured cells are reported as unmeasured, never
+  as zero; it never changes scoring.
 
 In the template, skills live under the tool-agnostic `.agents/skills/`;
 `10x bench-kit init` materializes them in the instance under the path of

@@ -6,6 +6,35 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## Nierelease'owane (neutralny)
+
+**Nowy skill `bench-summary` — migawka decyzyjna zamiast rankingu.**
+Scoring, schematy i stemple er bez zmian; skill wyłącznie czyta
+`results/` i renderuje.
+
+- **Jednostka decyzji: koszt jednego akceptowalnego wyniku**
+  (`koszt próby ÷ pass-rate`), a nie mediana. Model, który przechodzi
+  połowę razy, kosztuje podwójnie za użyteczny wynik; model bez ani
+  jednego zdania nie dostaje dużej liczby, tylko **„brak"**.
+- **`summarize.mjs`** liczy to deterministycznie z drzew śledzonych
+  przez gita (`results/**/result.json` + `attempts/**/patch.diff`),
+  więc działa po `git clone`, bez `workspace/`. Dochodzą: przedział
+  Wilsona dla pass-rate i **koszt przeglądu** (pliki / dodane linie),
+  który celowo NIE wchodzi do scoringu — to koszt czasu operatora,
+  nie oś, pod którą optymalizuje się modele.
+- **Remisy raportowane jako remisy.** Gdy przedziały pass-rate nachodzą
+  się, skill odmawia ustawiania modeli w kolejności i rozstrzyga po
+  cenie. To najczęstszy sposób, w jaki podsumowanie wprowadza w błąd
+  (różnica median, której próba nie utrzymuje).
+- **`template.html`** — samowystarczalna strona z werdyktem na wejściu
+  (model, cena akceptowalnego wyniku, nota o remisie), tabelą i
+  przypisami definiującymi dwie nieoczywiste kolumny. Bez bundlera i
+  bez sieci, jak asset leaderboardu.
+- Rozgraniczenie: **bench-explain-results** zostaje debuggerem jednej
+  anomalii, **bench-rubric** kalibracją sędziego, **bench-measure**
+  kupowaniem prób. bench-summary niczego nie diagnozuje i nie mierzy —
+  składa to, co już jest, w jedną odpowiedź.
+
 ## 0.26.0 — 2026-09-17 (neutralny)
 
 **Rubryka powstaje w bench-build; bench-rubric to diagnostyka sędziego
