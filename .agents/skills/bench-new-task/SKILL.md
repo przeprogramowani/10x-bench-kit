@@ -39,6 +39,12 @@ interview only, no cloning repos, no containers, no runner commands.
 5. **The order must be self-sufficient.** The bench-build subagent will
    receive the backlog entry and nothing else — no access to this
    conversation. Everything you agreed on must be in the entry.
+6. **A premise is not a fact until it is probed.** Every claim the
+   order makes about the base repo is checked against the repo before
+   the order is accepted (step 1a), and the entry records the verdict
+   with the SHA. An unprobed claim may be written down only as what it
+   is — an assumption, marked as one — never in the grammar of
+   established fact.
 
 ## Procedure
 
@@ -80,14 +86,6 @@ two exceptions you always ask about:
   - *surgical* — specific files/symbols; measures execution alone —
     easier, shorter timeout.
 
-When the user chooses the **surgical** level, the backlog entry must
-name specific files/symbols — perform the base-repo analysis in
-`.repos/` needed to determine them via an **independent subagent** (the
-agent receives the repo name and the task's intent, and returns a list
-of files/symbols with a short justification). Do not read the base repo
-yourself in this session — this is this skill's only permitted contact
-with `.repos/`, and it still is not building (rule 1).
-
 Remaining fields (ask only when the description does not settle them):
 
 - **What the task measures**: implementation / bugfix / refactor /
@@ -104,11 +102,64 @@ Remaining fields (ask only when the description does not settle them):
 - **Task name**: kebab-case, saying what is to be done
   (e.g. `fix-cart-total-rounding`), not how (`edit-cart-ts`).
 
+### 1a. Premise probe (every order, before acceptance)
+
+An order rests on claims about the base repo — "the feature is absent",
+"both pages load the same data", "this bug is observable here". These
+are its **load-bearing premises**, and the interview cannot verify
+them: they come from the user's memory of the repo, and that is exactly
+what turns out wrong. A false premise does not fail cheaply — it fails
+after a full bench-build authoring cycle, as a refusal, or worse as a
+task that builds fine while its evaluation axis measures nothing.
+
+So for every order, whatever its guidance level:
+
+1. **Enumerate the load-bearing premises** as a short list of
+   individually checkable claims — not one narrative sentence. A
+   narrative premise fails all-or-nothing; an enumerated one fails only
+   in the place that is actually wrong, and the rest of the order
+   survives.
+2. **Have them falsified by an independent subagent** against the base
+   repo in `.repos/`. It receives the repo name, the task's intent and
+   the premise list, and returns per premise: *confirmed* / *refuted* /
+   *partly true*, each with the evidence that settles it (path + what
+   is there) and the commit SHA it read.
+3. When the guidance level is **surgical**, the same probe also returns
+   the specific files/symbols the entry must name, with a short
+   justification.
+
+Do not read the base repo yourself in this session — the probe is this
+skill's only permitted contact with `.repos/`, and it still is not
+building (rule 1).
+
+What the verdict obliges you to do:
+
+- **confirmed** → record it in the entry's **Premises** field with the
+  SHA. bench-build then knows the claim was checked, not assumed.
+- **refuted** → the order as stated cannot be built. Take it back to
+  the user with the evidence; the idea usually survives in a changed
+  form, because the gap is elsewhere or smaller than they thought.
+  Never record a refuted premise as fact, and never demote it to a
+  "Notes" aside — it is the reason the order changes.
+- **partly true** → the order is buildable but asymmetric. The
+  asymmetry belongs in the entry, and from there in the rubric —
+  not in the builder's surprise, and not in a judge that punishes
+  solvers for the half that was never there.
+
+One probe costs a single subagent. Skipping it costs an authoring
+cycle, and the bill arrives after the work, not before it.
+
 ### 2. Batch acceptance
 
 Present the orders collectively (a table: name, type, repo, guidance,
 timeout, evaluation axis + a one-sentence description) and get the
 user's acceptance. Only then write to the backlog.
+
+Present the probe's verdict (step 1a) alongside each order, and call
+out every premise that came back **refuted** or **partly true**
+explicitly — that is the point in the flow where the user can still
+reshape the idea for free. An order whose premise was refuted is not
+presented for acceptance at all; it goes back into the interview.
 
 ### 3. Writing to the backlog
 

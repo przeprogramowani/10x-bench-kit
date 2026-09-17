@@ -40,6 +40,13 @@ Skills only edit this file — git is managed by the user.
   set are derived from these criteria (bench-build → bench-rubric).
   When the user deliberately named no axis: "at bench-build's
   discretion".>
+- **Premises**: <the order's load-bearing claims about the base repo,
+  one line each, carrying the probe's verdict and the SHA it read:
+  "confirmed @<sha> — <evidence>" / "partly true @<sha> — <what holds,
+  what does not>". A refuted premise never appears here as a claim —
+  the order was reshaped around it before being written. A claim that
+  was not probed is marked "assumed, unverified" in plain words, so the
+  builder can see what is load-bearing and unchecked.>
 - **Description**: <2–6 sentences: what is to be done, the symptom/goal,
   boundaries ("change nothing beyond…"). For bugfix-type tasks: what
   bug is to be seeded via the overlay and how to tell it is fixed.>
@@ -58,3 +65,9 @@ Entry rules:
 - The **Description** and **Notes** fields are design decisions, not
   the content of `prompt.md` — bench-build will write the prompt at the
   declared guidance level.
+- **Premises** are probed, never assumed (bench-new-task step 1a). The
+  field exists because a false premise survives the interview intact
+  and only breaks in bench-build, after a whole authoring cycle has
+  been spent on it — and a "partly true" one can survive even that,
+  into a rubric that grades solvers against a half of the repo that
+  does not exist.
