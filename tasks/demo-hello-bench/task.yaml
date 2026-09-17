@@ -13,15 +13,28 @@ timeout_s: 300
 # Dobór asercji z evaluation-pool/ — montowane dopiero na etapie oceny,
 # nigdy nie trafiają do workspace'u agenta.
 evaluation:
+  - static/demo-readme-section
   - judge/default-rubric
 
 # Wagi składowych oceny (muszą sumować się do 1).
 # Składowe bez asercji w `evaluation` mają wagę 0.
+# Deterministyczna połowa oceny (static) + opinia sędziego (judge).
+# Demo było wcześniej judge: 1 — czyli cała jego ocena zależała od
+# jednego wywołania LLM-a. Bramka e2e w CI gatowała na total >= 0.7,
+# więc pojedyncza halucynacja sędziego (correctness 0.0 → total 0.40)
+# czerwieniła CI bez regresji w kodzie. Po podziale wagi wynik demo ma
+# część, która liczy się sama i zawsze tak samo — i to na niej gatuje CI.
 weights:
-  static: 0
+  static: 0.5
   tests: 0
   e2e: 0
-  judge: 1
+  judge: 0.5
+
+# Stan startowy: README repo bazowego nie ma sekcji z prompt.md, więc
+# guard na nietkniętym repo@pin MUSI być czerwony (inaczej mierzyłby
+# zastany stan, nie pracę agenta). `bench validate --assert` to sprawdza.
+reference:
+  static/demo-readme-section: fail
 
 # Data ważności — po niej `bench validate` ostrzega o konieczności
 # odświeżenia (nowy pin + asercje = nowa era zadania).
