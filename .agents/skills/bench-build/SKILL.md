@@ -4,7 +4,7 @@ description: >-
   Builds benchmark tasks from pending orders in the backlog
   (`tasks/backlog.md`): fans the orders out to subagents — each does
   the authoring as text work (pin, overlay, prompt, assertions,
-  weights), containers only where its own files need proof — then
+  rubric, weights), containers only where its own files need proof — then
   proves the whole batch once at the batch gate (`bench validate
   --assert` + smoke) and leaves finished files in the working tree
   with an evidence report — no git.
@@ -17,9 +17,10 @@ description: >-
 You orchestrate task construction: you read `pending` orders from
 `tasks/backlog.md`, fan them out to subagents, keep statuses accurate,
 and run the **batch gate** at the end. The actual task authoring —
-pin, overlay, prompt, assertions, weights, self-check — is done by a
-**subagent** following the procedure in
-[TASK_AUTHORING.md](TASK_AUTHORING.md), one order per subagent.
+pin, overlay, prompt, assertions, the rubric, weights, self-check — is
+done by a **subagent** following the procedure in
+[TASK_AUTHORING.md](TASK_AUTHORING.md) (rubric:
+[RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md)), one order per subagent.
 
 Authoring is text work. After 0.20.0 the scripted assertions are
 repo-native execution guards shared by every task on a base repo, so
@@ -99,7 +100,10 @@ do not invent tasks yourself.
      <name>/` entries with a one-sentence "what it checks" (the
      `check.yaml` header is enough). You put this list into every
      subagent's prompt — reuse should be a decision based on facts, not
-     each agent's own scan.
+     each agent's own scan. Rubrics (`judge/`) are outside this
+     decision: each task writes its own `judge/<task>-rubric`, never
+     shared, so there is nothing to deduplicate — `default-rubric` is
+     the demo's, not a fallback for real tasks.
    - **Cross-check it against the order notes**: backlog notes say
      which assertions an order needs. Spot pairs of orders targeting
      the same thing — for execution guards this is the norm: two tasks
@@ -218,7 +222,7 @@ launch a subagent via your tool's mechanism, and pass in its prompt:
   backfilled just before the report;
 - the final report format: REPORT_TEMPLATE.md, written as a **file** to
   `reports/<task-name>-build.md` (file list, evidence from the starting
-  state, shape-neutrality checklist, criteria digest, cost, full-run
+  state, shape-neutrality checklist, rubric section, cost, full-run
   cost projection) — the subagent's closing message is a pointer to that
   file + problems, never the report's only copy.
 
@@ -255,8 +259,9 @@ report file is part of the deliverable**: confirm that
 `reports/<task-name>-build.md` exists in the working tree and that its
 evidence sections carry **pasted command output** for everything the
 subagent owns — a `bench assert` result behind every overlay
-counter-proof and every guard it created, `bench validate --offline`
-green. A report that arrived only in the subagent's message, or whose
+counter-proof and every guard it created, a `bench judge` empty-diff
+verdict behind the rubric, `bench validate --offline` green. A report
+that arrived only in the subagent's message, or whose
 evidence sections are declarations without output, is a missing
 report: send the subagent back to persist it (or restore `pending`
 with that note) — "runner output confirms states, not declarations"
@@ -313,9 +318,12 @@ decision. The fate of the built files — commit, PR, review, rejection —
 is ALWAYS the user's decision; the reports give them the evidence for
 it. Typical transitions:
 
-- **A task with a judge component** → **bench-rubric, BEFORE the first
-  run** — calibrating a fresh rubric before its first use does not
-  close an era; after computed results it does.
+- **A task with a judge component** → straight to **bench-measure**;
+  the rubric is calibrated by the first real attempts (the report names
+  the criterion to spot-check first). A rubric fix after that run
+  re-evaluates preserved attempts, never re-runs them. bench-rubric is
+  not a step here — it is a diagnostic for judge stability / judge
+  comparison once attempts exist.
 - **Orders went back to `pending`** → complete the entries
   (bench-new-task) or re-run bench-build on the subset.
 - **The batch gate deferred its smoke (no secrets in the session)** →

@@ -6,6 +6,55 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.26.0 — 2026-09-17 (neutralny)
+
+**Rubryka powstaje w bench-build; bench-rubric to diagnostyka sędziego
+na realnych próbach.** Scoring, schematy i stemple er bez zmian —
+zmiana dotyczy wyłącznie skilli (kto pisze rubrykę i czym ją
+kalibruje).
+
+- **bench-build pisze rubrykę zadania** (`TASK_AUTHORING.md` krok 4a,
+  nowy `RUBRIC_AUTHORING.md`): subagent — ten, który ma repo otwarte
+  na pinie — zamienia oś oceny zlecenia w `evaluation-pool/judge/
+  <zadanie>-rubric.md` (frontmatter `version`/`weights`, klauzula
+  anty-nitpickingowa i kontrakt zwięzłości verbatim). Przewodnik
+  dokłada: wycenę niekompletności raz (zadania fazowe), asymetrie
+  repo kodowane w rubryce zamiast w prompcie, **reguły kciuka
+  junior/senior/lead** per kryterium (rozpoznawalne wzorce
+  i błędy z praktyki inżynierskiej, nie drabina złożoności) oraz
+  checklistę wad wykrywanych czytaniem (brak podłogi dla pustego
+  diffu, kotwice liczące zdarzenia zamiast ważące skutek, przeciek
+  kompletności). Dowód: `bench validate --offline` + werdykt pustego
+  diffu z `bench judge` wklejony do raportu. Sekcja raportu
+  "Criteria digest for bench-rubric" → "Rubric" (REPORT_TEMPLATE.md).
+  Rubryki nie podlegają decyzji o reużyciu (jedna na zadanie;
+  `default-rubric` jest rubryką dema). Next step po judge-component:
+  prosto do bench-measure — **pierwszy realny bieg jest kalibracją**;
+  poprawka rubryki po nim to edycja + bump `version` + re-ocena
+  zachowanych prób, nigdy re-run.
+- **bench-rubric bez syntetyków** (`SKILL.md` napisany od nowa,
+  `CALIBRATION_SET.md` usunięty): cienkie proxy nad `bench calibrate`
+  — zbiór to `patch.diff` zachowanych prób (+ pusty diff) z ręczną
+  oceną w `expected.md`; wymaga prób w `attempts/`, bez nich kończy
+  się wskazaniem na bench-measure. Dwa kształty wywołania: stabilność
+  jednego sędziego albo porównanie modeli sędziego (`--model`,
+  kandydatów podaje użytkownik). Nie edytuje rubryk — wynik "rubryka
+  źle rankuje" wraca jako edycja wg RUBRIC_AUTHORING.md. Skill mówi
+  wprost, co mierzy: sędziego API, nie rate-attempt — stabilność
+  przenosi się na sędziego-z-narzędziami tylko przez wspólny tekst
+  rubryki. Powód zmiany: zbiór syntetyczny fabrykowała ta sama głowa,
+  która pisała rubrykę (echo własnych kryteriów), kosztował realizm
+  na pinie, a kalibrował instrument, którego leaderboard nie używa.
+- Odwołania dostosowane: bench-measure (pierwszy pomiar = kalibracja,
+  spot-check 2–3 diffów; edycje rubryk przez RUBRIC_AUTHORING.md),
+  bench-explain-results (rozjazd rankingu → rubric fault jako edycja;
+  rozrzut przy sensownym rankingu → bench-rubric), bench-refresh-task
+  (rubryka czytana na nowo na nowym pinie: zmiana brzmienia = refresh,
+  zmiana kryteriów = bump `version`; zbiór kalibracyjny ze starej ery
+  nie jest portowany), bench-new-task + BACKLOG_TEMPLATE (oś oceny
+  jako źródło rubryki), `evaluation-pool/judge/README.md`, AGENTS.md,
+  README skilli.
+
 ## 0.25.0 — 2026-09-01 (neutralny)
 
 **Minimalny kształt biegu nieblokującego: tracker na dysku, sędzia

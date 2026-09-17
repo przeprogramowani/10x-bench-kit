@@ -8,8 +8,8 @@ description: >-
   small/smoke runs) and hands the user a results table plus the
   `results/` paths to commit. Use when the user says "run the
   benchmark / measure model X / benchmark task Y / add a new model to
-  the leaderboard", or after bench-build/bench-rubric when tasks are
-  ready to measure.
+  the leaderboard", or after bench-build when tasks are ready to
+  measure.
 ---
 
 # bench-measure — the measurement loop
@@ -65,7 +65,8 @@ evaluated.
 6. **Do not touch scoring while measuring.** No edits to tasks,
    rubrics, weights, or the config mid-run — that would fork the era
    between trials of the same run. Config changes go through
-   bench-wiring/bench-rubric, before or after a measurement.
+   bench-wiring, rubric edits through bench-build's RUBRIC_AUTHORING.md
+   (version bump + re-evaluation) — before or after a measurement.
 7. **Long runs are detached, never awaited in the foreground.** A
    matrix run is hours of mostly waiting on provider APIs; start it
    detached (a `tmux` session or `nohup … > <log> &`) and come back
@@ -110,8 +111,13 @@ completed / timeout / failed, with cost so far. A cell `bench status`
 marks as STALE (a marker older than timeout + 15 min) means a runner
 process died — diagnose the log before re-launching; the next
 `bench attempt` sets the partial directory aside as
-`trial-N.aborted-*` and redoes the trial. New models or tasks with no rubric calibration yet:
-flag it — scores will be provisional until bench-rubric runs.
+`trial-N.aborted-*` and redoes the trial. **A task's first measurement
+is its rubric's calibration**: flag the tasks measured for the first
+time — their build report names the criterion to spot-check first —
+and read 2–3 of their `patch.diff`s against the verdicts before
+treating the numbers as settled. A disagreement is a rubric edit
+(RUBRIC_AUTHORING.md, version bump if results were written) followed by
+re-evaluation of the preserved attempts, never a re-run.
 
 ### 4. Evaluate
 
@@ -142,5 +148,6 @@ Close with:
   push;
 - actual spend vs budget;
 - next step: bench-explain-results for surprises, bench-rubric if
-  judge verdicts look unstable, or nothing — a clean measurement is a
+  judge verdicts on similar diffs look unstable (it calibrates on the
+  attempts just preserved), or nothing — a clean measurement is a
   finished job.

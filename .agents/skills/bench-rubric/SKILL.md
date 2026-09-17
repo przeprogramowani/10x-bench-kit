@@ -1,269 +1,167 @@
 ---
 name: bench-rubric
 description: >-
-  Builds the rubric from the task's review criteria (the order's
-  evaluation axes) and calibrates it on a synthetic calibration set —
-  diffs of designed quality fabricated per CALIBRATION_SET.md, plus
-  real attempt diffs as runs accrue. Measures the judge's resolution
-  and stability, iterates on the criteria, and finalizes with a
-  rubric version bump. Use when creating a rubric for a new
-  task, when judge scores look random or drift, or when the user says
-  "calibrate the rubric / the judge".
+  Thin proxy over `bench calibrate`: measures how stably a task's rubric
+  is read by the API judge — or compares two judge models on it — using
+  REAL preserved attempts as the calibration set (plus the empty diff).
+  Requires attempts in `attempts/<task>/`; does not write rubrics (that
+  is bench-build's RUBRIC_AUTHORING.md) and fabricates no synthetic
+  diffs. Use when judge verdicts on similar diffs look unstable, when
+  choosing or changing the judge model, or when the user says
+  "calibrate the judge / compare judges".
 ---
 
-# bench-rubric — judge calibration
+# bench-rubric — judge calibration on real attempts
 
-A rubric without calibration is a number generator, not an evaluation.
-You calibrate it empirically: the judge gets diffs whose quality you
-**know in advance** — because you designed them that way — and you
-check whether its ranking and values match yours, repeatably. There is
-**no reference implementation** in this benchmark: the rubric's
-criteria come from the task's review criteria (the order's Evaluation
-axis — do's, don'ts, milestones — and bench-build's criteria digest in
-its report), and the calibration set is **synthetic**, fabricated from
-those criteria per [CALIBRATION_SET.md](CALIBRATION_SET.md). Real
-attempt diffs (`patch.diff` from preserved attempts in
-`attempts/<task>/<model>/trial-N/`) join the set as runs accrue — they
-are the best material, they just cannot exist before the first run. The tool is `bench calibrate --task <name> --set
-<set-directory>` (from the instance root: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts calibrate …`) — the same evaluation path
-as `bench evaluate`, so calibration results transfer 1:1 to real runs.
-The runner does the arithmetic (repeats, min/med/max, spread, appending
-the round to `results.json`); your contribution is judgment: designing
-the set, assessing ranking and separation, deciding whether to iterate.
-For a single ad-hoc verdict (e.g. comparing judges) there is
-`bench judge --task <name> --patch <file> [--model …]`.
+This skill answers one question: **is the measuring instrument stable?**
+Not "is the rubric right" — the rubric is written by bench-build
+(RUBRIC_AUTHORING.md) and corrected by reading real attempts against
+it — but "given this rubric, does the judge return the same verdict on
+the same diff, and do two judges rank the diffs the same way?". It is
+a diagnostic, not a phase of the pipeline: a new task goes
+bench-build → bench-measure without passing through here.
+
+The tool is `bench calibrate --task <name> --set <dir>` (from the
+instance root: `node --experimental-strip-types
+.bench-kit/runner/src/index.ts calibrate …`): it evaluates every diff
+in the set `--repeats` times through the **API judge** (the same path
+as `bench evaluate` without `--verdict`) and prints min/med/max per
+diff, medians per criterion, spread, and the cost. `--model` switches
+the judge model for the round; `--label` names the round in the set's
+`results.json`; `--json` returns the summary structurally.
+
+**What this measures and what it does not.** `bench calibrate` drives
+the text-only API judge. On real tasks the leaderboard verdicts come
+from **rate-attempt** — the judge with tools. Stability measured here
+transfers to rate-attempt only to the extent the rubric text is the
+common factor: a rubric the API judge reads consistently is a rubric
+rate-attempt reads consistently; a rubric with 0.3 spread on the API
+path will not be rescued by tools. Say this in the summary — do not
+present a calibration number as a property of the leaderboard's judge.
 
 ## Hard rules
 
-1. **A rubric change = a new era for the tasks that use it.** The
-   version is declared in the rubric's frontmatter (`version`); the era
-   stamp is per rubric, so a bump invalidates comparability only for
-   tasks with that rubric in their `evaluation[]` — list them
-   explicitly in your summary. Calibrating a freshly created rubric before its first
-   use does not close an era — which is why you calibrate right after
-   building the task with bench-build, before its first run, not after
-   results have been computed. A bump after results exist is no longer
-   a $1000 event: attempts are preserved, so the new era's results come
-   from RE-EVALUATING them (`bench evaluate` / rate-attempt over
-   `attempts/`, ~judge-cost per attempt) — name that follow-up in your
-   summary.
-   (The global `judge.rubric_version` in the config is a legacy
-   contract for rubrics without frontmatter — migrate them at their
-   first calibration.)
-2. **The calibration set is evaluation material.** It lives in
-   `evaluation-pool/judge/<task>-calibration/`, never in `tasks/`
-   (it would leak into the agent's workspace). Successive rubric
-   iterations are measured on THE SAME set — otherwise you are
-   comparing rubrics on different data.
-3. **Budget instead of a consent ritual.** Calibration means dozens of
-   judge calls, but costs are guarded by the instance budget, not by
-   negotiating estimates — report the actual cost after measuring
-   (`bench calibrate` prints it from the judge's usage). User consent
-   is only needed for a measurement clearly larger than usual (e.g.
-   comparing several judges on a large set).
-4. **The response format is a contract.** New rubrics declare criterion
-   weights in YAML frontmatter (`weights:`, sum = 1) — the runner
-   computes the total from `criteria[*].score`, so the ```json block
-   contains only `criteria` with keys matching the weights
-   (`bench validate` checks this). Do not ask the judge to do
-   arithmetic — it is the source of "expression instead of a number"
-   class errors. A rubric without frontmatter is a legacy contract
-   (`criteria` + a numeric `total` from the model); a response without
-   valid JSON = 0. The rubric also needs a **conciseness contract**
-   (see the template's default-rubric for the pattern): start with `{`,
-   justification as one sentence ≤ 150 characters with no quotes or
-   newlines, score as a single number — with reasoning judges, verbose
-   justifications truncate the JSON at the token limit precisely on
-   mid-scale diffs.
+1. **Real attempts or nothing.** The calibration set is built from
+   `patch.diff` of preserved attempts (`attempts/<task>/<model>/
+   trial-N/patch.diff`) plus one empty diff. If `attempts/<task>/`
+   holds no completed attempts, stop: tell the user the task has not
+   been measured yet and that the first measurement (bench-measure)
+   is what produces calibration material — there is nothing to
+   fabricate.
+2. **You assess the diffs before the judge does.** Every diff in the
+   set gets a line in `expected.md`: your manual read against the
+   rubric (a score range per criterion is not needed — a ranking
+   relative to its neighbours and one sentence why is). A diff you
+   cannot rank has no place in the set. Read the diff *and* the
+   attempt's guard results (`checks.json` if evaluated) — a diff that
+   looks complete with red tests is ranked with the red tests in mind.
+3. **The set lives in `evaluation-pool/judge/<task>-calibration/`**,
+   never in `tasks/` (it would leak into the agent's workspace). Diffs
+   are copied in under attempt-derived names
+   (`<model>-trial-N.diff`); `results.json` accrues rounds.
+   Successive rounds on the same rubric use **the same set**.
+4. **No rubric edits here.** If the measurement shows the rubric is
+   *wrong* (ranking disagrees with your `expected.md`), the fix is a
+   rubric edit per bench-build's RUBRIC_AUTHORING.md — name the
+   criterion and the anchor in your summary and hand it over; a bump
+   of `version` is due if results were computed with the rubric, and
+   the follow-up is re-evaluating the preserved attempts, never a
+   re-run. If the measurement shows the judge is *unstable* (spread)
+   with a ranking that matches — that is a judge-model or
+   conciseness-contract finding, also reported, not fixed here.
+5. **Judge-model changes are a global era.** `judge.model` in
+   bench.config.yaml stamps every result; changing it closes the
+   comparability era for the whole instance. A comparison round with
+   `--model` is free of that (it writes nothing to `results/`), the
+   decision to switch is the user's and goes through the config PR.
+6. **Budget instead of a consent ritual.** A round is `diffs × repeats`
+   judge calls per model — report the actual cost from the command's
+   output. Ask before measuring only when the round is clearly larger
+   than usual (several judges × a large set × many repeats).
 
 ## Procedure
 
-### 1. Rubric v1 + synthetic calibration set
+### 1. Intake — what is being asked
 
-**The rubric first.** Derive the criteria from the order's Evaluation
-axis and bench-build's criteria digest: each axis becomes a criterion
-(or a named penalty), milestone/phase maps become the partial-credit
-scale, safety-flavoured axes ("a single leak is a hard fail") become
-dominating clauses, not deductions.
+Two shapes, and you ask which if the invocation does not say:
 
-**Price incompletion once (phased tasks).** On a task where most
-attempts will land partial, a property criterion that scores 0.0
-whenever the phase containing the behaviour was never reached is a
-hidden second completion criterion: completion then controls its own
-weight *plus* every such axis, and the rubric loses resolution exactly
-among the partial attempts it exists to rank (two attempts that both
-finished the early phases — one carefully, one sloppily — become
-indistinguishable on those axes). The runner computes the total
-mechanically from `criteria[*].score` × frontmatter weights, so there
-is no N/A mechanism — design around it instead: anchor property
-criteria so they grade **whatever fragment of the behaviour landed**
-(most properties have precursors in earlier phases — how secrets are
-handled wherever they exist so far, how text enters the DOM wherever it
-does); where a property genuinely has no precursor before its phase,
-fold it into that phase's completion anchors rather than giving it a
-standalone criterion whose only reachable score for an honest partial
-attempt is 0.0.
+- **Stability of one judge** on the task's rubric (the default when
+  bench-measure or bench-explain-results sent you here because
+  verdicts on similar diffs diverged).
+- **Comparison of judge models** — the user names two (or more)
+  `provider/model` ids, or asks you to propose a cheaper candidate
+  against the configured `judge.model`. Ask for the candidate ids
+  explicitly; do not pick a second judge silently.
 
-Three contracts every rubric must honour:
+Also confirm the rubric under test: the task's `judge/*` entry from
+`evaluation[]` (with several, `--rubric` picks one).
 
-- **Good/bad in behavioural language.** Criteria and anchors describe
-  what a good implementation *does* and what a bad one *does* — never
-  "file X contains symbol Y". A multi-file task has many correct
-  shapes; the rubric grades substance the way a senior reviewer would,
-  and exact paths/symbols appear only when the prompt itself fixes
-  them verbatim.
-- **The anti-nitpicking clause (mandatory, verbatim in every
-  rubric):** implementation choices the prompt left to the agent —
-  file layout, naming, decomposition, internal helpers — are never
-  penalized; only violations of stated criteria are. This is what
-  makes "code review without nitpicking" enforceable rather than
-  aspirational.
-- **Division of labour with the guards.** The judge reads the diff as
-  text and never executes it — do not write criteria that require
-  running the code ("all tests pass", "the build is green"): that is
-  what the execution guards measure. The judge's turf is what review
-  can see: completeness, architecture, scope, whether real tests were
-  written for the new behaviour.
+### 2. Set from preserved attempts
 
-**Then the set**: 4–6 diffs of designed quality per task, each with an
-expected score range, fabricated per
-[CALIBRATION_SET.md](CALIBRATION_SET.md). The canonical roster:
+`bench status --json` (or a listing of `attempts/<task>/`) shows which
+attempts exist. Build the set:
 
-| Diff | How it is made | Expectation |
-|---|---|---|
-| empty diff | `: > empty.diff` | ≈0 |
-| hard violation | a small realistic diff that violates a dominating axis (e.g. leaks the secret into server code) while otherwise looking competent | ≈0 / below threshold — the violation must dominate |
-| partial milestone | a plausible sketch of only the first milestone/phase | middle, clearly above empty |
-| complete but sloppy | full scope sketched, but breaking the non-dominating do's (scope creep, untestable layering, hardcoded copy) | above partial, clearly below good |
-| complete and good | full scope sketched, following the axes | high (≈1) |
-| real diffs from runs | `patch.diff` from trial artifacts, once runs exist | per your manual assessment |
+- copy `patch.diff` of every completed attempt (skip `running.json`,
+  `*.aborted-*`, infra-flagged attempts) into the set directory;
+  cap at ~8 diffs — pick across models and across outcomes
+  (complete, partial, empty-ish) so the set spans the scale;
+- add `empty.diff` (`: > empty.diff`) — the floor probe, free;
+- write `expected.md`: per diff, the source attempt, your ranking
+  relative to the neighbours, one sentence why, and — if the attempt
+  was already evaluated — the recorded judge score from `results/`.
 
-**Phased tasks add a mandatory pair**: *early phases done well, later
-phase absent* vs *the same completion, done sloppily* (breaking
-non-dominating do's within the finished phases). Calibration fails if
-these two do not separate — overlap here is the completion-bleed
-symptom (see step 1): the property criteria are pricing the missing
-phase again instead of grading the work that exists, and the fix is
-re-anchoring those criteria, not adjusting expectations.
-
-Synthetic diffs are **judge-only material**: the judge reads the diff
-as text and never applies or builds it, so a synthetic diff does not
-have to apply or compile — but it must be **realistic**: real paths and
-symbols from the repo at the task's pin, plausible hunks and context
-lines, size proportional to what it claims to be. A judge calibrated
-on fantasy code is calibrated on nothing — CALIBRATION_SET.md's realism
-rules are binding. Store the set in
-`evaluation-pool/judge/<task>-calibration/` together with `expected.md`
-(expectations + rationale, and per diff: which axis it exercises).
-
-Entry checklist, **before the first measurement**:
-
-- [ ] The rubric's criteria trace back to the order's axes / criteria
-      digest — no criterion is your invention without a source, no axis
-      is left uncovered.
-- [ ] The three contracts hold: behavioural anchors (no paths/symbols
-      the prompt does not fix), the anti-nitpicking clause present
-      verbatim, no criterion that requires executing the code.
-- [ ] Phased task → incompletion is priced once: every property
-      criterion is scoreable by an honest partial attempt (grades the
-      fragment that exists), and the calibration set contains the
-      mandatory pair from the roster.
-- [ ] Every synthetic diff passes the realism rules of
-      CALIBRATION_SET.md (real paths/symbols at the pin, plausible
-      hunks, proportional size) — verified against the repo, not from
-      memory.
-- [ ] Each diff exercises a **named** axis or scale point — a diff you
-      cannot say the expected ranking of has no place in the set.
-- [ ] Real attempt diffs (if any runs exist) are included and manually
-      assessed in `expected.md`.
-- [ ] Only now the first `calibrate`.
-
-### 2. Resolution measurement
+### 3. Measure
 
 ```
 bench calibrate --task <task> --set evaluation-pool/judge/<task>-calibration \
-  [--repeats 3] [--label <round-name>]
+  --repeats 3 [--model <provider/model>] [--label <round>] [--parallel 3]
 ```
 
-The command evaluates each diff `--repeats` times, prints a min/med/max
-table + spread per diff and medians per criterion, and appends the
-round to the set's `results.json`.
+One round per judge under test, same set, same `--repeats`. Diagnostic
+rounds with `--repeats 2` are fine when you are only looking for
+ranking errors; a confirming round at `--repeats 3–5` once. Drop
+`--parallel` to 1 under provider rate limits.
 
-Use a **precision ladder**: diagnostic rounds with the minimum number
-of repeats (`--repeats 2`) — you are looking for ranking errors and
-gross spread, which needs no precision; the full repeat count
-(`--repeats 5`) belongs to the confirming round, **once**, at the end,
-after the last rubric change. Not the other way around — the difference
-is a dozen-plus model calls per iteration. Calls within a round are
-independent of each other — the runner executes them in parallel
-(`--parallel`, default 3; drop to 1 under tight provider rate limits).
-`--json` returns the round summary structurally, without parsing the
-table.
+### 4. Read the table
 
-On the measurement table, check:
+- **Ranking** — do the medians order the diffs the way `expected.md`
+  does? A disagreement is a rubric finding (rule 4), unless your own
+  read was wrong — say which.
+- **Separation** — adjacent diffs' ranges do not overlap (max of the
+  worse < min of the better).
+- **Stability** — spread per diff ≤ ~0.1. Larger with a correct
+  ranking = the judge is noisy on this rubric: check the conciseness
+  contract and `finish_reason` in the raw verdicts before blaming the
+  model.
+- **Threshold** — diffs you ranked as passing sit above
+  `defaults.pass_threshold`, the others below; the empty diff clearly
+  below.
+- **Between judges** (comparison shape) — same ranking? similar
+  separation? cost per verdict? A cheaper judge that reproduces the
+  configured judge's ranking with comparable spread is a candidate;
+  one that reorders the middle of the scale is not, however cheap.
 
-- **Ranking**: do the medians line up with expectations
-  (good > sloppy > partial > … > hard violation ≈ empty)?
-- **Separation**: do the ranges of adjacent diffs avoid overlapping?
-  (max of the worse < min of the better — otherwise the judge cannot
-  tell them apart)
-- **Stability**: spread per diff ≤ ~0.1? Larger = criteria too
-  discretionary.
-- **Threshold**: are the "passing" diffs above the `pass_threshold`
-  from bench.config.yaml, and the failing ones below it?
+### 5. Finalize
 
-### 3. Iterating on the criteria
+Leave in the working tree: the set directory (diffs, `expected.md`,
+`results.json` with the rounds). Nothing in git. In your summary: the
+medians table per round, the reading from step 4, the cost, and the
+finding class — *stable*, *rubric finding* (criterion + anchor to fix,
+handed to a rubric edit per RUBRIC_AUTHORING.md), *judge finding*
+(noise / format), or *judge comparison* (recommendation + what a switch
+would cost in eras).
 
-Where the judge confuses good with bad — sharpen the rubric, not the
-expectations: spell out in the criterion what exactly 1.0 means and
-what 0.5 means (anchors), name the penalties (e.g. "changes not
-required by the task lower scope by…"), add a criterion if two aspects
-blur together.
+### 6. Next step
 
-Before measuring anything, read the rubric for two failure patterns
-that recur regardless of domain and that are fixed by reading alone
-(a minute instead of a wasted measurement round):
+End with a **Next step** section: the instance state in one sentence,
+**one** recommendation with a one-sentence justification, at most two
+alternatives with their cost, and — separately — what awaits a human
+decision. Typical transitions:
 
-1. **A criterion with no floor for the degenerate case.** A diff that
-   does nothing scores points on "negative" criteria (didn't break
-   anything, didn't go out of scope). Every criterion of this type
-   needs an explicit clause: with no work to evaluate — zero.
-2. **Anchors that count events instead of weighing impact.** "One
-   change beyond what was needed" is a counting anchor; the judge will
-   apply it literally and punish three harmless nits more harshly than
-   one risky rewrite. Anchors should describe **impact**, not counts.
-3. **Completion bleed on phased tasks.** A property criterion whose
-   anchors bottom out at 0.0 when a later phase simply does not exist
-   re-prices incompletion outside the completion criterion (see the
-   "price incompletion once" rule in step 1). Check each property
-   criterion: can an honest attempt that finished only the early phases
-   score on it at all? If not, re-anchor it to grade the fragment that
-   exists, or fold it into the completion anchors.
-
-After changing the rubric, measure the **whole set** (otherwise you are
-comparing rubrics on different data) — but a diagnostic round may be
-narrowed to the diffs the change affects, as long as the confirming
-round covers the full set. Stop when ranking + separation + stability
-are achieved; do not keep tuning (overfitting the rubric to the set is
-also a failure).
-
-### 4. Finalize
-
-- the new/changed rubric in `evaluation-pool/judge/`,
-- the calibration set + `expected.md` + raw measurement results
-  (`results.json` with `bench calibrate` rounds) in
-  `…/<task>-calibration/`,
-- a `version` bump in the rubric's frontmatter **only if** the changed
-  rubric has already been used in computed results (rule 1),
-- in your summary: the medians table from step 2, conclusions,
-  calibration cost.
-
-### 5. Next step
-
-End your summary response with a **Next step** section: the instance
-state in one sentence, **one** recommendation with a one-sentence
-justification, at most two alternatives with their cost, and —
-separately — whatever awaits a human decision. Typical transition:
-rubric calibrated → **a full run on 2+ models via bench-measure** —
-calibration predicts the results, the run verifies them.
+- **stable** → nothing; continue measuring with bench-measure.
+- **rubric finding** → edit the rubric (RUBRIC_AUTHORING.md), bump
+  `version` if results exist, re-evaluate preserved attempts via
+  rate-attempt — list the tasks whose era closes.
+- **judge comparison favours a switch** → `judge.model` change through
+  the config PR (bench-wiring's era rules), then re-evaluation of
+  preserved attempts under the new judge — a human decision.

@@ -26,20 +26,21 @@ Target set (concept: SKILLS_DESIGN in the project repo):
 - **bench-build** *(available)* — builds tasks from pending backlog
   requests: distributes them across subagents, each of which performs
   full authoring (prompt + pin + overlay + assertions with `reference`
-  declarations + weights, all proven on the starting state via
-  `bench assert` / `bench validate --assert`; no reference
-  implementation — expectations for future attempts live in the review
-  criteria and assertions); the result lands as files in the working
-  tree with a per-task evidence report — git stays on the user's side.
-- **bench-rubric** *(available)* — builds LLM-as-judge rubrics from
-  the task's review criteria and calibrates them on a synthetic
-  calibration set of designed quality (CALIBRATION_SET.md; real
-  attempt diffs from `attempts/` join as runs accrue), measuring the
-  judge's resolution and stability (`bench calibrate`), iterating on
-  criteria, and a PR bumping the rubric version (frontmatter
-  `version`). Calibration is cheap by construction: attempts are
-  preserved, so a new rubric version means re-evaluating them, not
-  re-running the matrix.
+  declarations + weights + the task's rubric, all proven on the
+  starting state via `bench assert` / `bench validate --assert` /
+  the empty-diff floor; no reference implementation — expectations
+  for future attempts live in the rubric (RUBRIC_AUTHORING.md: axes →
+  criteria with anchors, junior/senior/lead rules of thumb, read-only
+  failure checklist) and assertions); the result lands as files in the
+  working tree with a per-task evidence report — git stays on the
+  user's side. The rubric is calibrated by the first real measurement.
+- **bench-rubric** *(available)* — thin proxy over `bench calibrate`:
+  measures the API judge's stability on a task's rubric, or compares
+  two judge models on it, using REAL preserved attempts (plus the empty
+  diff) as the set — requires attempts, fabricates nothing, writes no
+  rubrics. A diagnostic, not a pipeline step; a rubric finding is
+  handed back as an edit per RUBRIC_AUTHORING.md (version bump →
+  re-evaluate preserved attempts, never re-run).
 - **bench-measure** *(available)* — the measurement loop on this
   machine: scopes the matrix (models × tasks × trials), projects cost
   against the run budget, executes `bench attempt` (preserved

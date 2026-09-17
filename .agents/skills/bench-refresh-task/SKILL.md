@@ -49,9 +49,9 @@ rescuing it artificially.
    changing and someone else uses it: create a new version in the pool
    (e.g. `tests/<name>-v2`) and swap it in this task's `evaluation[]`.
 6. **Isolation of evaluation materials.** As in bench-build: nothing
-   from `evaluation-pool/` goes into `tasks/<name>/`; the calibration
-   set lives in `evaluation-pool/judge/<task>-calibration/`, never in
-   `tasks/`.
+   from `evaluation-pool/` goes into `tasks/<name>/`; the task's
+   rubric and any calibration set (bench-rubric, from preserved
+   attempts) live under `evaluation-pool/judge/`, never in `tasks/`.
 7. **Do not touch `.bench-kit/`** or other people's tasks.
 8. **Budget instead of a consent ritual.** Costs are guarded by
    `defaults.max_cost_usd` in bench.config.yaml — do not ask for
@@ -74,8 +74,8 @@ git.
 - `bench assert <ref...> --task <name> [--no-overlay] [--patch <file>]...`
   — observability and feasibility proofs on the new pin; repeating
   `--patch` = the full set of diffs in a single container entry.
-- `bench judge --task <name> --patch <file>` — judge verdict on a
-  calibration diff / empty diff.
+- `bench judge --task <name> --patch <file>` — judge verdict on the
+  empty diff (the rubric's floor on the new pin).
 - `bench attempt` + `bench evaluate` — optional smoke run (step 7).
 
 ## Procedure
@@ -88,9 +88,11 @@ Read before changing anything:
   stated reason for the refresh),
 - `tasks/<name>/`: task.yaml (repo, pin, evaluation, reference,
   weights, expires), prompt.md, overlay/,
-- related materials: the calibration set in
-  `evaluation-pool/judge/<task>-calibration/` (you will need it on
-  the new pin),
+- related materials: the task's rubric
+  `evaluation-pool/judge/<task>-rubric.md` — its judge-facing context
+  names mechanisms of the old pin; a calibration set in
+  `evaluation-pool/judge/<task>-calibration/`, if bench-rubric built
+  one, holds old-era attempt diffs,
 - the task's most recent results (results/<task>/ in the repo) — after the
   refresh they stop being comparable; it is worth knowing what you are
   closing out.
@@ -140,7 +142,7 @@ Three possible outcomes — name which one applies:
 
 **Adapt the material before running the gates, not after they go red.**
 If the area diff (step 2) shows a file has drifted, then the overlay
-and the calibration set need porting — do it right away, in one
+and the rubric's repo-specific context need porting — do it right away, in one
 sitting in the repo, instead of discovering each one via another red
 pass through the container.
 
@@ -176,14 +178,15 @@ Then redo the observability proof from scratch, as in bench-build
   drifts between pins.
 - **Shared assertions**: changes only via a new version in the pool
   (rule 5).
-- **Judge**: the calibration set was fabricated against the old pin
-  (its realism rules tie paths and context lines to the pin — see
-  bench-rubric's CALIBRATION_SET.md). Port the diffs whose context
-  survived; re-fabricate the ones whose files drifted; then re-measure
-  (`bench judge` / `bench calibrate`). If the set cannot be salvaged —
-  note in the PR that it belongs to the old era and that recalibration
-  (the bench-rubric skill) is due before the next run. Do not change
-  the rubric as part of a refresh.
+- **Judge**: re-read the rubric against the new pin. The context it
+  gives the judge (mechanisms, surfaces, asymmetries — see bench-build's
+  RUBRIC_AUTHORING.md) may have drifted: a wording update that keeps
+  every criterion's meaning is part of the refresh (say so in the PR);
+  a change of criteria, anchors or weights is a rubric change — a
+  `version` bump, a new era for the task, named explicitly in the PR.
+  A calibration set from preserved attempts, if one exists, belongs to
+  the old pin's era: note it, do not port it — the new era's first
+  measurement recalibrates.
 
 ### 6. New `expires` date
 
@@ -228,5 +231,6 @@ End your summary response with a **Next step** section: the instance
 state in one sentence, **one** recommendation with a one-sentence
 justification, at most two alternatives with their cost, and —
 separately — whatever awaits a human decision. Typical transition:
-task on the new pin, PR open → **merge**; if the calibration set did
-not survive the new pin — **bench-rubric**.
+task on the new pin, PR open → **merge**; if the rubric needed more
+than a wording update — the era note in the PR and re-evaluation of
+preserved attempts are the follow-up.

@@ -12,7 +12,7 @@ yourself with `bench assert`; what the batch shares (reused guards on
 the batch pin, `bench validate --assert`, the smoke attempt) the
 orchestrator proves once for the whole batch at the **batch gate**,
 after you return. Your work is text work: the repo at the pin in a
-worktree, `prompt.md`, `task.yaml`, the criteria digest. You enter a
+worktree, `prompt.md`, `task.yaml`, the task's rubric. You enter a
 container only for your own proofs — never for `bench validate
 --assert` or `bench attempt`.
 
@@ -20,7 +20,8 @@ container only for your own proofs — never for `bench validate
 LLM-as-judge plus assertions, not by distance to an author-made
 solution: the task's expectations for future attempts are expressed as
 **review criteria** (the order's Evaluation axis — do's, don'ts,
-milestones — which bench-rubric turns into a rubric) and as assertions
+milestones — which you turn into the task's rubric per
+[RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md)) and as assertions
 proven on the starting state. Building a reference implementation, or
 "variant" diffs degraded from one, is explicitly out of scope — for a
 large order it is unmaintainable, and it is never needed for grading.
@@ -41,9 +42,11 @@ task built on guesses.
    `reports/<task-name>-build.md` per
    [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) with evidence from the
    reference; what happens to them next (commit, PR, review) is the
-   user's decision. Rubrics and `bench.config.yaml` are NOT your scope
-   (bench-rubric / bench-wiring). You do not touch the backlog
-   (`tasks/backlog.md`) at all — the orchestrator manages statuses.
+   user's decision. The task's own rubric
+   (`evaluation-pool/judge/<name>-rubric.md`) IS your scope; other
+   rubrics and `bench.config.yaml` are not (bench-wiring). You do not
+   touch the backlog (`tasks/backlog.md`) at all — the orchestrator
+   manages statuses.
 2. **Isolation of evaluation materials.** Nothing from
    `evaluation-pool/` may be copied or referenced in `tasks/<name>/`
    (the only exception: `evaluation: [...]` entries in task.yaml).
@@ -58,7 +61,7 @@ task built on guesses.
    every declaration with `bench validate --assert` — a red there
    comes back to you with the output. The "not passable with an empty diff"
    property is the judge's job — the rubric's floor (empty diff ≈ 0)
-   is proven in self-check and at calibration, not by a scripted work
+   is proven in self-check (`bench judge`), not by a scripted work
    measure. The green direction — "can this task be satisfied at
    all?" — is guarded by the shape-neutrality rule (step 4) and by
    the batch smoke run (step 6), which doubles as the solvability
@@ -68,7 +71,8 @@ task built on guesses.
    If the runner lacks something, report it (an issue), do not work
    around it.
 5. **Work only within your scope**: the `tasks/<name>/` directory of
-   the task being built + new assertions in `evaluation-pool/`. Edit
+   the task being built + new assertions in `evaluation-pool/` + the
+   task's rubric `evaluation-pool/judge/<name>-rubric.md`. Edit
    nothing else — in particular `.bench-kit/` (the tool's zone), the
    backlog, and other tasks' directories (other subagents may be
    building in parallel next to you). The state of the rest of the repo
@@ -133,8 +137,8 @@ zone, and your fix would race with neighbors building in parallel.
   with `tail`'s exit code. With long output, it is safer to read the
   `score` lines from the output than to rely on the exit code.
 - `bench judge --task <name> --patch <file> [--rubric judge/<r>]` —
-  a single judge verdict on a diff (calibration: see the bench-rubric
-  skill).
+  a single API-judge verdict on a diff; here used once, for the
+  empty-diff floor of your rubric (step 6.3).
 - `bench validate --offline` — the instance gate without network or
   containers (schemas, `evaluation[]` vs the pool, weights, rubric
   format). `--assert`, `bench attempt` and `bench evaluate` are **not**
@@ -154,7 +158,8 @@ procedure's steps to tick off as you work:
 - [ ] 1. Pin
 - [ ] 2. Overlay (bugfix-type tasks)
 - [ ] 3. prompt.md
-- [ ] 4. Assertions (+ criteria digest)
+- [ ] 4. Assertions
+- [ ] 4a. Rubric (RUBRIC_AUTHORING.md)
 - [ ] 5. Weights
 - [ ] 6. Self-check
 - [ ] 7. Handoff
@@ -221,8 +226,8 @@ bug description from the order. Requirement: the bug must be
   symptom and mechanism go verbatim into the evaluation-axis criteria
   — the rubric will say what a real fix removes, and a diff that does
   not touch it scores 0 on correctness — and the proof is the
-  empty-diff floor (step 6.3) plus bench-rubric's calibration probes.
-  Record the delegation explicitly in the report.
+  empty-diff floor (step 6.3). Record the delegation explicitly in
+  the report.
 
 Never make the bug observable by writing a bespoke hidden test — that
 is the retired convention (step 4). If neither route works, the bug is
@@ -336,20 +341,23 @@ Record the starting-state behaviour in `reference` in task.yaml:
 guards on a healthy start → `pass`; a guard the overlay deliberately
 breaks (step 2, guard-observed route) → `fail`.
 
-**Review criteria are the task's main assertion artifact.** For the
-`judge/*` component: the rubric is created and calibrated by the
-**bench-rubric** skill, not by hand within this procedure. The rubric
-material is the order's **Evaluation axis** (do's, don'ts, milestones)
-— binding when present; pass it to bench-rubric verbatim. You
-fabricate no calibration diffs — bench-rubric builds a **synthetic**
-calibration set from the criteria (see its CALIBRATION_SET.md). Your
-deliverable, because you have the repo context open now, is the
-**criteria digest** in your report: per axis, a natural-language
-description of what a good implementation looks like and what a bad
-one looks like (behaviour, structural qualities, milestones for
-partial credit — never exact paths or symbol names unless the prompt
-itself fixes them verbatim), plus the concrete signals in this repo
-that distinguish compliance from violation.
+### 4a. Rubric
+
+**Review criteria are the task's main assertion artifact**, and you
+write them — as the task's rubric,
+`evaluation-pool/judge/<name>-rubric.md`, referenced from
+`evaluation[]` as `judge/<name>-rubric`. The procedure, the format
+contract, the three pool contracts, the junior/senior/lead rules of
+thumb and the read-only failure checklist are in
+[RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md) — binding. The material is
+the order's **Evaluation axis** (do's, don'ts, milestones) plus what
+you learned from the repo at the pin: the mechanisms the solver has to
+find, the asymmetries between surfaces, the presentation precedents.
+That context is why the rubric is written *now*, by you, and not later
+by someone without the repo open. No calibration set is fabricated:
+the rubric is proven by the checklist and the empty-diff floor, and
+calibrated by the first real attempts (RUBRIC_AUTHORING.md, "After the
+first run").
 
 ### 5. Weights
 
@@ -388,11 +396,13 @@ In order, each must pass before you move on:
    declarations themselves are verified at the batch gate
    (`bench validate --assert`, orchestrator).
 3. An empty diff **must not** score at or above the passing threshold.
-   With guards green on the starting state this rests on the judge:
-   `bench judge --task <name> --patch <empty.diff>` yields a low
-   score (the calibrated floor is re-proven later by bench-rubric's
-   empty-diff probe). For a bugfix task on the guard-observed route,
-   the red guard from step 2 is additional evidence.
+   With guards green on the starting state this rests on your rubric:
+   `bench judge --task <name> --patch <empty.diff>` yields a score
+   clearly below `defaults.pass_threshold` — paste the verdict into the
+   report; a floor leak means a criterion without the "no work = 0.0"
+   clause (RUBRIC_AUTHORING.md checklist), fix the rubric and re-run
+   the call. For a bugfix task on the guard-observed route, the red
+   guard from step 2 is additional evidence.
 4. **No smoke attempt from you.** The smoke `bench attempt` for all
    of the batch's new tasks is the orchestrator's batch gate — one
    attempt per task, paid once, doubling as the **solvability probe**
@@ -428,8 +438,9 @@ result, pasted output — every overlay counter-proof and every guard
 you created backed by a pasted `bench assert` result; reused guards
 marked "proven at the batch gate"; leave the `## Batch gate` section
 as the template's placeholder — the orchestrator fills it), the
-shape-neutrality checklist, the criteria digest
-for bench-rubric (step 4), assertions and weights, comparability impact
+shape-neutrality checklist, the rubric section (step 4a: path,
+criteria/weights table with source axes, checklist results, empty-diff
+verdict), assertions and weights, comparability impact
 (rule 7), actual cost (trial run, judge calls) and the full-run cost
 projection against `defaults.max_cost_usd`. Your final message to the
 orchestrator is a **pointer to the report file** plus problems — the
@@ -438,7 +449,5 @@ missing report. In addition:
 
 - a **refusal** + reason instead of a report, when the order turned out
   to be infeasible (see the header);
-- whether the task has a `judge/*` component (the orchestrator will
-  recommend bench-rubric before the first run);
 - problems outside your scope, if you noticed any (without fixing
   them).

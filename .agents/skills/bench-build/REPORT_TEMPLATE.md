@@ -68,20 +68,22 @@ grep discovery, copied-in test files, forced environments — paths the
 prompt fixes verbatim are the only exception); how pre-existing repo
 problems are not punished; dependency self-install.>
 
-## Criteria digest for bench-rubric
+## Rubric
 
-<the task's main assertion artifact, for tasks with a judge component:
-per evaluation axis from the order — what a good implementation looks
-like and what a bad one looks like, in behavioural terms (never exact
-paths/symbols unless the prompt fixes them verbatim), plus the
-concrete signals in this repo that distinguish compliance from
-violation; milestone map for partial credit if the order defines
-phases. For phased orders, also name which property axes only become
-observable in a later phase — bench-rubric needs this to price
-incompletion once (in the completion criterion), not again in every
-property criterion an unfinished attempt cannot reach.
-bench-rubric builds the rubric and its synthetic calibration
-set from this.>
+<for tasks with a judge component — the task's main assertion
+artifact, written per RUBRIC_AUTHORING.md: the rubric's path
+(`evaluation-pool/judge/<name>-rubric.md`, version 1); a table
+criterion → weight → source axis in the order (every axis covered, no
+criterion without a source); how decisive axes dominate and how
+milestones map to partial credit; for phased orders, where
+incompletion is priced (once, in the completion criterion) and how
+property criteria grade the fragment that exists; the repo asymmetries
+the rubric encodes; the read-only checklist results (floor clauses,
+impact anchors, no completion bleed, format contract); the empty-diff
+verdict pasted from `bench judge`. The rubric is calibrated by the
+first real attempts — say so, and name which criterion you are least
+sure the judge will resolve, so the first measurement's manual
+spot-check starts there.>
 
 ## Assertions and weights
 

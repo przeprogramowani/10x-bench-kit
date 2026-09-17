@@ -145,7 +145,7 @@ difference usually points to one component, not all of them.
 | `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
 | assertion 0 in `checks.json` | assertion log + read the assertion + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (broken env, repo command drift — and a shape-neutrality violation: the script assuming an implementation shape, the retired convention), task fault; green for some attempts → model fault |
 | judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |
-| judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread → rubric needs calibration (bench-rubric), task fault |
+| judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread with a sane ranking → judge instability (bench-rubric on the preserved attempts); wrong ranking against a manual read → rubric fault (edit per bench-build's RUBRIC_AUTHORING.md), task fault |
 | large out-of-scope `patch.diff` | prompt.md + the scope criterion in the verdict | prompt sets no boundaries → task fault; it does → model fault |
 | non-empty `patch.diff`, yet judge 0 | hunk headers (`@@ -1,N +1,M @@` spanning the whole file) | destructive overwrite instead of incremental edits → model fault (the judge's verdict will confirm it in the justifications) |
 
@@ -179,7 +179,9 @@ that produces it — otherwise you pay the same triage every run.
   number: "loses tool calling", "does not respect scope").
 - **Task fault** — an issue in the instance repo + delegation:
   assertion / overlay / prompt / timeout → bench-refresh-task (or
-  bench-new-task + bench-build for a new task), rubric → bench-rubric.
+  bench-new-task + bench-build for a new task), rubric → a rubric edit
+  per bench-build's RUBRIC_AUTHORING.md (version bump, re-evaluation
+  of preserved attempts), judge instability → bench-rubric.
   Note in the issue which results of the current era are tainted — the
   era will close with the fix anyway.
 - **Infrastructure fault** — an issue in the template repo (runner /
@@ -205,7 +207,8 @@ decision. Typical transitions by class:
 
 - **task fault** → bench-refresh-task or bench-new-task + bench-build —
   depending on whether the fix preserves the task's intent;
-- **rubric fault** → bench-rubric;
+- **rubric fault** → rubric edit (RUBRIC_AUTHORING.md) + re-evaluation
+  of preserved attempts; **judge instability** → bench-rubric;
 - **infrastructure fault** → repeat the run after the fix — the
   affected trials' results are uninterpretable;
 - **model fault** → nothing in the benchmark — that is the answer, not

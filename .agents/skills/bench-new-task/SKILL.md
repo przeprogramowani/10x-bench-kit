@@ -59,15 +59,16 @@ unavailable — plain questions in the conversation), **in a single block
 for the whole batch of orders**, only about gaps and ambiguities — with
 two exceptions you always ask about:
 
-- **Evaluation axis (rubric calibration)** — what in THIS task should
+- **Evaluation axis (the rubric's source)** — what in THIS task should
   differentiate scores between executions: the user often has specific
   do's and don'ts in mind (e.g. "a minimal diff is what counts", "the
   public API must not be touched", "we reward a regression test") and
   those are what should be recorded in the entry, instead of leaving
   the differentiation to the guesses of the agent building the rubric.
   This is the task's **primary grading source**: the benchmark keeps
-  no reference implementation, so the rubric and its synthetic
-  calibration set are derived from these criteria — the more concrete
+  no reference implementation, so the rubric (written by bench-build
+  from these criteria, calibrated by the first real attempts) is
+  derived from them — the more concrete
   the do's/don'ts (and, for large tasks, the milestone/phase map for
   partial credit), the better the task grades. Phrase the axes as
   **behaviour** — what a good implementation does and what a bad one

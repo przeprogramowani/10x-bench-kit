@@ -36,8 +36,8 @@ Skills only edit this file — git is managed by the user.
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
   API must not change"), and for large tasks the milestone/phase map
   for partial credit. This is the primary grading source: there is no
-  reference implementation — the rubric and the synthetic calibration
-  set are derived from these criteria (bench-build → bench-rubric).
+  reference implementation — the rubric is derived from these criteria
+  (written by bench-build, calibrated by the first real attempts).
   When the user deliberately named no axis: "at bench-build's
   discretion".>
 - **Premises**: <the order's load-bearing claims about the base repo,
