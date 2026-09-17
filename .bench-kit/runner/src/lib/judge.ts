@@ -131,7 +131,14 @@ async function callAnthropic(model: string, prompt: string, maxTokens: number): 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+    // temperature: 0 — sędzia to przyrząd pomiarowy, nie uczestnik pomiaru.
+    // Domyślna temperatura providera znaczyła, że ten sam patch przy tej
+    // samej rubryce dostawał różne werdykty (w CI: correctness 0.0 i 1.0
+    // w dwóch biegach z identycznym wejściem). Losowanie nic tu nie wnosi:
+    // odpowiedź to JSON z ocenami wg zakotwiczonych kryteriów.
+    // Uwaga: `thinking` nie jest tu włączane, więc temperatura jest legalna
+    // (Anthropic wymaga temperature = 1 tylko przy włączonym rozumowaniu).
+    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0, messages: [{ role: "user", content: prompt }] }),
   });
   if (!response.ok) throw new Error(`Anthropic API ${response.status}: ${(await response.text()).slice(0, 500)}`);
   const data = (await response.json()) as {
@@ -157,6 +164,11 @@ async function callOpenRouter(model: string, prompt: string, maxTokens: number):
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
+      // temperature: 0 — patrz komentarz w callAnthropic. Zweryfikowane,
+      // że oba domyślne modele sędziego (anthropic/claude-opus-5,
+      // google/gemini-2.5-flash) przyjmują to przez OpenRouter razem
+      // z `reasoning.exclude` i kończą z finish_reason "stop".
+      temperature: 0,
       messages: [{ role: "user", content: prompt }],
       // Reasoning nie wraca w treści (i tak parsujemy tylko JSON),
       // a usage.cost daje koszt sędziego do raportu.
