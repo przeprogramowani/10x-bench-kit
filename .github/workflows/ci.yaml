@@ -103,17 +103,15 @@ jobs:
           ATTEMPT=$(find "$INSTANCE/attempts" -name attempt.json | head -1)
           [ -n "$ATTEMPT" ] || { echo "brak attempt.json — kontrakt zachowanej próby zerwany"; exit 1; }
           [ -d "$(dirname "$ATTEMPT")/workspace" ] || { echo "brak workspace/ w zachowanej próbie"; exit 1; }
-      - name: bench evaluate + bramka (wynik w results/)
+      - name: bench evaluate + bramka kontraktu (wynik w results/)
+        # Bramka NIE gatuje na ocenie sędziego — patrz nagłówek
+        # .github/scripts/e2e-gate.mjs. Gatujemy na kontrakcie potoku
+        # i na deterministycznym guardzie static, żeby czerwień CI
+        # znaczyła "potok się zepsuł", a nie "sędzia miał gorszy dzień".
         run: |
           npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- evaluate \
             --root "$INSTANCE"
-          RESULT=$(find "$INSTANCE/results" -name result.json | head -1)
-          [ -n "$RESULT" ] || { echo "brak result.json w results/ — ocena nie zapisała drzewa wyników"; exit 1; }
-          node -e '
-            const r = require(process.argv[1]);
-            console.log(`total ${r.total} | cost $${r.cost_usd} | ${r.duration_s}s | stamps ${JSON.stringify(r.stamps)}`);
-            if (r.total < 0.7) { console.error("total ponizej progu 0.7 — demo nie przechodzi"); process.exit(1); }
-          ' "$RESULT"
+          node .github/scripts/e2e-gate.mjs "$INSTANCE"
       - name: Artefakt e2e (bez workspace'ów — te żyją tylko na dysku)
         if: always()
         run: |

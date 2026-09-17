@@ -1,0 +1,30 @@
+# Asercja static/demo-readme-section — deterministyczny wynik zadania-demo.
+# Schemat: .bench-kit/runner/src/schemas/check.ts
+# Komendy biegną w /workspace po nałożeniu patch.diff.
+#
+# Po co ta asercja istnieje: zadanie-demo było oceniane WYŁĄCZNIE przez
+# sędziego (weights.judge = 1), więc bramka e2e w CI zależała od opinii
+# modelu o prozie. Ten sam patch dostawał 0.40 i 1.00 w dwóch biegach
+# (correctness 0.0 vs 1.0 — halucynacja sędziego), a próg 0.7 czynił z
+# tego czerwone CI bez żadnej regresji w kodzie.
+#
+# Tu sprawdzamy dokładnie to, o co prosi prompt.md — nie kształt
+# implementacji, tylko jej rezultat: sekcja istnieje i ma treść. Dla
+# zadania-demo to NIE jest zgadywanie kształtu (zakaz z kontraktu puli),
+# bo prompt dosłownie dyktuje nagłówek.
+score: binary
+checks:
+  - name: readme-section
+    # -q: liczy się status, nie wydruk. Nagłówek dokładnie taki, jakiego
+    # żąda prompt; potem co najmniej jedna niepusta linia treści pod nim
+    # (sam nagłówek bez zdania = zadanie niewykonane).
+    run: |
+      [ -f README.md ] || { echo "brak README.md w workspace"; exit 1; }
+      grep -q '^## Benchmark smoke test[[:space:]]*$' README.md || {
+        echo "brak sekcji '## Benchmark smoke test' w README.md"; exit 1; }
+      awk '
+        /^## Benchmark smoke test[[:space:]]*$/ { found = 1; next }
+        found && /^##[[:space:]]/ { exit }
+        found && NF { body = 1; exit }
+        END { exit(body ? 0 : 1) }
+      ' README.md || { echo "sekcja '## Benchmark smoke test' jest pusta"; exit 1; }
