@@ -6,7 +6,7 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
-## Nierelease'owane (neutralny)
+## 0.27.0 — 2026-09-17 (neutralny)
 
 **Nowy skill `bench-summary` — migawka decyzyjna zamiast rankingu.**
 Scoring, schematy i stemple er bez zmian; skill wyłącznie czyta
