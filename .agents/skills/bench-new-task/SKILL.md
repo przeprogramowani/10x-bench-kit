@@ -45,6 +45,12 @@ interview only, no cloning repos, no containers, no runner commands.
    with the SHA. An unprobed claim may be written down only as what it
    is — an assumption, marked as one — never in the grammar of
    established fact.
+7. **An order that changes no decision is not an order.** Every entry
+   names the decision its result would settle — which model gets this
+   class of work, at what cost. "It would be interesting to see how
+   models do" is leaderboard content: a build cycle spent on it buys
+   a number nobody acts on. When the user cannot name the decision,
+   say so and park the idea rather than ordering it.
 
 ## Procedure
 
@@ -79,6 +85,28 @@ two exceptions you always ask about:
   If the user has no opinion, propose an axis derived from the task
   type and get acceptance; record a missing axis explicitly as "at
   bench-build's discretion".
+- **The decision this order informs (rule 7)** — what would you do
+  differently depending on the outcome? The useful shape is a routing
+  question: *"can we stop sending feature work in this repo to a
+  sonnet-class model?"*, *"is the cheap model good enough for
+  bugfixes here?"* Record it verbatim in the entry's **Decision**
+  field. Two things follow from the answer, and both are worth asking
+  for in the same breath:
+  - **Work class** — the kind of work this task stands for
+    (discovery-heavy / bugfix / localized refactor / greenfield
+    component / …). One task is a hypothesis about one class, never a
+    routing rule for a repo: a model that is bad at locating code in
+    an unfamiliar tree may be fine at a scoped bugfix. The class is
+    what lets bench-summary aggregate results into a **class × model**
+    matrix instead of one row, and what shows which classes of your
+    work are still unmeasured.
+  - **What the work costs today** — roughly how often it comes up and
+    what it currently costs (a human's afternoon, or a run of the
+    expensive model). This is the baseline the measurement is read
+    against, and it is what makes an order worth a build cycle:
+    **frequency × current cost**, not how interesting the task is.
+    Work that comes up twice a week earns a build; work that comes up
+    twice a year does not, however elegant the task would be.
 - **Prompt guidance level** — unless the description settles it
   explicitly, with the consequences stated alongside the options:
   - *product-level* — symptom/goal only, no files or symbols; measures
@@ -152,9 +180,16 @@ cycle, and the bill arrives after the work, not before it.
 
 ### 2. Batch acceptance
 
-Present the orders collectively (a table: name, type, repo, guidance,
-timeout, evaluation axis + a one-sentence description) and get the
-user's acceptance. Only then write to the backlog.
+Present the orders collectively (a table: name, **class**, type, repo,
+guidance, timeout, evaluation axis + a one-sentence description) and get
+the user's acceptance. Only then write to the backlog.
+
+**Order the batch by decision value, not by interest** — frequency ×
+current cost of the work each order stands for (rule 7). Say which
+orders you would build first and why, and name the classes the backlog
+does **not** yet cover, because an uncovered class is the cheapest way
+to widen what the instance can answer. A batch of five orders that all
+measure the same class buys one hypothesis five times.
 
 Present the probe's verdict (step 1a) alongside each order, and call
 out every premise that came back **refuted** or **partly true**

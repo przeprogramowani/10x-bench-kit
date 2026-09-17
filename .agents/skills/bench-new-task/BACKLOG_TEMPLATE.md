@@ -28,6 +28,18 @@ Skills only edit this file — git is managed by the user.
 
 - **Status**: pending
 - **Added**: <YYYY-MM-DD>
+- **Decision**: <the routing question this task's result would settle,
+  verbatim from the user — e.g. "can feature work in edu-platform go
+  to a cheap model instead of a sonnet-class one?". An order without
+  one is not built (bench-new-task rule 7).>
+- **Class**: <discovery-heavy / bugfix / localized refactor /
+  greenfield component / … — the kind of work this task stands for.
+  Results aggregate per class: one task is a hypothesis about one
+  class, never a routing rule for the whole repo.>
+- **Work baseline**: <roughly how often this work comes up and what it
+  costs today (a human's afternoon / a run of the expensive model) —
+  what the measurement is read against, and why this order was worth
+  a build cycle.>
 - **Type**: <implementation / bugfix / refactor / documentation>
 - **Base repo**: <name from base_repos in bench.config.yaml>
 - **Guidance level**: <product-level / directional / surgical>

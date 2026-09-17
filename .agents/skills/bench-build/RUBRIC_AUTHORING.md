@@ -134,6 +134,36 @@ valid JSON = 0 for the judge component.
   When the starting state makes an axis vacuous on one surface (there
   is nothing to react to there), say so in the criterion — otherwise
   the judge punishes the solver for not wiring what cannot be wired.
+- **Ask of the heaviest criterion: can this be asserted instead?**
+  Before writing anchors for the criterion that carries the most
+  weight, read them back as a test. If an anchor describes an
+  observable — *dispatch this event, the counter moves; dispatch the
+  rollback, it moves back* — then it is a test specification, and
+  paying a judge to evaluate it by reading buys variance instead of
+  removing it. Hand that part to an execution guard (with its
+  counter-proof, SKILL.md rule 10) and leave the judge what only a
+  judge can score: scope discipline, convention-fit, the quality of the
+  reasoning behind edge cases. A criterion is a judge's job when it
+  requires taste or repo knowledge; it is an assertion's job when it
+  requires only running something. Where the repo's harness genuinely
+  cannot express it, say so in the report — that is a real constraint,
+  not a default.
+- **Every score a judge may return is an anchor.** Judges do not
+  interpolate on request; they interpolate when the anchors leave them
+  no honest option — a defect that is clearly not 1.0 but that 0.5
+  punishes far too hard comes back as 0.8 or 0.9, and the same defect
+  then scores differently across attempts of the same model. Either
+  enumerate the intermediate values (1.0 / 0.8 / 0.5 / 0.2 / 0.0 with
+  an anchor each) or state in the criterion that only the listed values
+  are permitted and the judge must snap to the nearest. Silence is the
+  one option that guarantees drift.
+- **Anchor the misplaced-work case.** Every rubric that prices *where*
+  something lands needs an anchor for work that exists, is competently
+  built, and sits on a surface the criteria do not price. Otherwise the
+  judge invents a value for it mid-run — and a total that rests on an
+  invented value is not comparable to one that does not. Decide up
+  front whether such an attempt is scored on the fragment that exists,
+  discounted, or floored, and write it down.
 
 ## Rules of thumb: junior, senior, lead
 

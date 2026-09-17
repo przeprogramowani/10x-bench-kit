@@ -135,6 +135,15 @@ do not invent tasks yourself.
    this policy in every subagent prompt; a subagent running
    `bench validate --assert` or `bench attempt` on its own is spending
    the batch's container time on something you will prove anyway.
+10. **A guard that cannot go red measures nothing.** Green on the
+    starting state proves the harness works; it does not prove the
+    guard discriminates. A task whose assertions are green before the
+    agent starts and green whatever the agent does contributes **zero
+    information at full weight** — the run pays for it and learns
+    nothing. Every assertion therefore ships with a **counter-proof**:
+    a concrete way it goes red for the right reason (step 5.3a).
+    Where none exists, the honest move is weight 0 with a note, not a
+    guard that always passes.
 
 ## Runner tools
 
@@ -290,8 +299,30 @@ subagents deliberately skipped (rule 9).
    weight 0 with a note, never a charge against models. Without keys:
    note "smoke deferred — no secrets in the session" and hand it to the
    Next step; points 1–2 remain unconditional.
+3a. **Discrimination counter-proof** (rule 10) — the other direction
+   of point 3. Point 3 proves an assertion *can* go green; this proves
+   it can go **red for the right reason**. For every assertion of
+   every task in the batch, record one of:
+   - **red on the starting state** — already proven by point 2 for
+     bugfix-style tasks whose overlay seeds the defect: the assertion
+     is red before, green after. Nothing more to do.
+   - **red on a deliberate break** — for tasks green at the start
+     (feature work: the repo's own lint / types / suite), show the
+     assertion failing on a plausible wrong implementation. One
+     container, one throwaway edit that a solver might realistically
+     produce, the failing output pasted into the report.
+   - **cannot go red** — say so plainly and set the component's weight
+     to **0** with a one-line note. A guard the prompt itself instructs
+     the agent to run, over checks the repo already keeps green, tends
+     to land here: every model complies, every score is 1.00, and the
+     weight silently moves to the judge anyway. Better to move it
+     deliberately.
+
+   A batch where *every* task lands in the third case is a signal about
+   the batch, not about the guards: flag it in the Next step, because
+   those tasks will be decided entirely by the judge.
 4. Append a `## Batch gate` section (REPORT_TEMPLATE.md) with the
-   pasted outputs of 2–3 to **each** task report of the batch — the
+   pasted outputs of 2–3a to **each** task report of the batch — the
    report must carry the proof, not your chat message.
 5. Only now: `built` → `done` for every order that passed.
 

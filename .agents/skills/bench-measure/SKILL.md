@@ -119,6 +119,29 @@ treating the numbers as settled. A disagreement is a rubric edit
 (RUBRIC_AUTHORING.md, version bump if results were written) followed by
 re-evaluation of the preserved attempts, never a re-run.
 
+**Spend trials where they buy information.** `defaults.trials` is a
+floor, not a quota to apply evenly. Trial cost across models of one
+matrix differs by one to two orders of magnitude, and the number the
+decision rests on — the pass rate — needs samples:
+
+- **Cheap models deserve more.** At cents per trial, going from 2 to 5
+  or 8 trials costs less than one trial of the expensive model and
+  turns "it passed twice" into a usable failure rate. `bench attempt`
+  tops up, so this is a second invocation with a higher `--trials`,
+  not a fresh matrix.
+- **Expensive models deserve an existence proof, then an exit.** Once
+  a model has failed every trial it has been given and its per-trial
+  cost dominates the budget, further trials buy precision about a
+  model already out of contention. Stop, and say that it stopped for
+  economic reasons rather than reporting it as fully measured.
+- **Ties are not resolved by more trials of the same two models** when
+  both already pass everything; they are resolved on price
+  (bench-summary). More trials help when a pass rate is uncertain, not
+  when it is 1.0 on both sides.
+
+Say which split you used and why — an even matrix in which no cell has
+enough trials to act on is a worse use of the same ceiling.
+
 ### 4. Evaluate
 
 Evaluate what `bench status` shows as preserved without a fresh
@@ -147,7 +170,15 @@ Close with:
   the user reviews and commits; the leaderboard workflow rebuilds on
   push;
 - actual spend vs budget;
-- next step: bench-explain-results for surprises, bench-rubric if
-  judge verdicts on similar diffs look unstable (it calibrates on the
-  attempts just preserved), or nothing — a clean measurement is a
-  finished job.
+- **which guard components discriminated nothing**, if any — a
+  component scoring identically across every attempt of the run told
+  you nothing at its weight, and that is a finding about the task
+  (bench-build rule 10), not about the models;
+- next step: **bench-summary** when the question behind the run was
+  "which model do we use for this work" — it computes the economics
+  deterministically (cost per acceptable result, ties reported as
+  ties) and renders the one-page verdict; bench-explain-results for
+  surprises; bench-rubric if judge verdicts on similar diffs look
+  unstable (it calibrates on the attempts just preserved); more trials
+  on the cheap models when a pass rate is still thin (step 3); or
+  nothing — a clean measurement is a finished job.

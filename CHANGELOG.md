@@ -35,6 +35,48 @@ Scoring, schematy i stemple er bez zmian; skill wyłącznie czyta
   kupowaniem prób. bench-summary niczego nie diagnozuje i nie mierzy —
   składa to, co już jest, w jedną odpowiedź.
 
+**Cykl przestawiony na decyzję, nie na ranking.** Zmiany w skillach
+upstream — schematy, scoring i stemple er bez zmian.
+
+- **bench-new-task**: nowa reguła 7 — **zlecenie, które nie zmienia
+  żadnej decyzji, nie jest zleceniem**. Wywiad pyta wprost o decyzję
+  („czy możemy przestać wysyłać pracę featurową do modelu klasy
+  sonnet?"), o **klasę pracy** (discovery-heavy / bugfix / refactor
+  lokalny / komponent od zera) i o **koszt tej pracy dziś**. Nowe pola
+  w `BACKLOG_TEMPLATE.md`: `Decision`, `Class`, `Work baseline`.
+  Backlog porządkuje się **wartością decyzyjną** (częstotliwość ×
+  dzisiejszy koszt), a nie atrakcyjnością zadania; akceptacja partii
+  nazywa klasy, których backlog jeszcze nie pokrywa. Klasa jest tym,
+  co pozwala bench-summary złożyć macierz **klasa × model** zamiast
+  jednego wiersza — jedno zadanie to hipoteza o jednej klasie, nigdy
+  reguła routingu dla repo.
+- **bench-build**: nowa reguła 10 — **guard, który nie potrafi być
+  czerwony, niczego nie mierzy**. Bramka partii dostaje krok **3a
+  (kontrdowód dyskryminacji)**: dla każdej asercji zapis „czerwona na
+  stanie startowym" / „czerwona na celowym zepsuciu" (wklejony output)
+  / „nie potrafi być czerwona" → waga **0** z notą. Zielone na starcie
+  dowodzi, że harness działa — nie że guard rozróżnia; guard, który
+  jest zielony przed agentem i zielony po nim, przenosi swoją wagę do
+  sędziego przez przypadek zamiast świadomie.
+- **RUBRIC_AUTHORING.md**: trzy reguły opłacone pierwszym realnym
+  biegiem. (1) Przy najcięższym kryterium pytanie **„czy to da się
+  zaasertować?"** — kotwica opisująca obserwowalne zachowanie jest
+  specyfikacją testu, a płacenie sędziemu za czytanie jej kupuje
+  wariancję. (2) **Każdy wynik, który sędzia może zwrócić, jest
+  kotwicą** — albo wyliczamy wartości pośrednie, albo mówimy wprost,
+  że wolno tylko te z listy; milczenie gwarantuje dryf (sędziowie
+  zwracali 0.8 i 0.9 przy kotwicach 1.0/0.5/0.0). (3) **Kotwica na
+  pracę nie na tej powierzchni** — kompetentnie zrobioną, ale poza
+  tym, co kryteria wyceniają; bez niej sędzia wymyśla wartość w biegu.
+- **REPORT_TEMPLATE.md**: kontrdowód per asercja oraz projekcja
+  kosztu mówiąca, **ile prób budżet naprawdę kupuje per model** —
+  n=2 uzasadnia „model to potrafi", nigdy „robi to niezawodnie".
+- **bench-measure**: próby rozdzielane asymetrycznie (dużo tam, gdzie
+  kosztują grosze; dowód istnienia i wyjście tam, gdzie kosztują
+  dolary), raportowanie komponentów, które niczego nie rozróżniły, i
+  **bench-summary** jako następny krok, gdy pytaniem biegu było „który
+  model do tej pracy".
+
 ## 0.26.0 — 2026-09-17 (neutralny)
 
 **Rubryka powstaje w bench-build; bench-rubric to diagnostyka sędziego

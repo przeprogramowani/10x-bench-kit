@@ -92,7 +92,14 @@ spot-check starts there.>
 actually discriminates. If you deviated from the orchestrator's
 assertion decision (reuse instead of new or vice versa) — say so
 explicitly, so the orchestrator can close out a possible duplicate in
-the pool.>
+the pool.
+
+Per assertion also state its **counter-proof** (SKILL.md rule 10) —
+red on the starting state / red on a deliberate break (paste the
+failing output) / cannot go red → weight 0 with a note. "Green at the
+start" is not a counter-proof: a guard that is green before the agent
+runs and green whatever it does carries no information, and its weight
+belongs to the judge explicitly rather than by accident.>
 
 ## Comparability impact
 
@@ -116,5 +123,15 @@ projection does not fit: say so explicitly and recommend the mitigation
 (single-model smoke dispatch first, or a budget raise — which stays a
 human decision). A truncated matrix wastes the spend and produces a
 partial, misleading leaderboard; this section is what lets the user see
-that before dispatching.>
+that before dispatching.
+
+State per model **how many trials the budget actually buys**, not just
+the matrix total. The decision this task feeds (the order's Decision
+field) rests on a pass rate, and a pass rate needs trials: n=2 supports
+"this model can do the task", never "it does it reliably". Where an
+expensive model's trial cost means the budget buys only two or three,
+say it plainly and recommend the asymmetric split — many trials where
+they cost cents, an existence proof where they cost dollars. That is a
+better use of the same ceiling than an even matrix in which no cell is
+measured well enough to act on.>
 ```
