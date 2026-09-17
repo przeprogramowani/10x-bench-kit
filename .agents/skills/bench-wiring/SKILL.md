@@ -6,8 +6,8 @@ description: >-
   MACHINE. First a check that the instance holds together (filling gaps
   left by init + `bench validate`, within a minute), then the first
   local run: container engine, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate`, committed results; optionally the
-  publication path (instance repo on GitHub, readiness + leaderboard
+  `bench attempt` + `bench evaluate` that cleans up after itself;
+  optionally the publication path (instance repo on GitHub, readiness + leaderboard
   workflows). Use when the user has a fresh benchmark instance to
   configure, wants to hook up a base repo or models, or says "wiring /
   configure the benchmark / hook up the benchmark".
@@ -231,12 +231,46 @@ back to the step the cause belongs to, with `agent.log` /
 `container.log` in hand (diagnosis is `ls` + `cat`, not artifact
 downloads).
 
-**Committing `results/` is part of the smoke** — it proves the results
-path end to end (the user commits; you never commit or push). From here
-the natural cycle is: attempts → rate-attempt/evaluate → commit
-results/ → leaderboard rebuild on push.
+The smoke proves the results path end to end by **producing**
+`result.json` at its canonical path — not by keeping it. Read the
+numbers, then clean up (B5); the cycle those files belong to is
+attempts → rate-attempt/evaluate → commit results/ → leaderboard
+rebuild on push, and it starts with the first REAL task, not with the
+demo.
 
-### B5. Publication path (optional, does not block measuring)
+### B5. Cleanup — the smoke leaves nothing behind
+
+**The smoke's proof is its numbers, not its files.** `demo-hello-bench`
+measures nothing about the company's code, so anything it leaves in the
+tree is debt that outlives the session:
+
+- a committed `results/demo-hello-bench/` becomes a permanent row for a
+  fake task in every future `bench report` / leaderboard rebuild — the
+  dashboard aggregates whatever sits in `results/`, and nothing there
+  marks the demo as not-a-measurement;
+- the preserved attempt under `attempts/demo-hello-bench/` keeps being
+  picked up by a bare `bench evaluate` (no arguments = every preserved
+  attempt), quietly re-creating the result you deleted, and its
+  `workspace/` is GB-scale on disk.
+
+So after reporting total, cost and duration, delete both:
+
+```
+rm -rf results/demo-hello-bench attempts/demo-hello-bench
+```
+
+This is the one deletion wiring performs, and it only removes what
+wiring itself created in this session — say so explicitly in "Done in
+this session". Never delete an attempt or a result belonging to a real
+task: those are paid measurements, and preserved attempts are the
+material for re-evaluation under a new rubric (rule: a paid attempt is
+never thrown away).
+
+Keep the demo task itself (`tasks/demo-hello-bench/`) — it stays as a
+cheap end-to-end probe for the next infrastructure change; it is only
+its RESULTS that must not accumulate.
+
+### B6. Publication path (optional, does not block measuring)
 
 - **Remote instance repo** — needed to share results and publish the
   leaderboard, not to measure. If absent: the user creates it
@@ -250,7 +284,7 @@ results/ → leaderboard rebuild on push.
   GitHub Pages when the plan allows — otherwise the dashboard is
   always available as the `leaderboard-site` artifact).
 
-### B6. The "instance wiring" PR
+### B7. The "instance wiring" PR
 
 For a fresh instance the wiring went to master (rule 1) — there is no
 PR, but leave a summary with the same content in the instance README /
@@ -323,8 +357,10 @@ from this standard set:
 - **Provider credit** — if any evaluated model or the judge is paid
   (e.g. via OpenRouter), remind the user to check/top up the account
   balance. Skip this line only when every configured model is free.
-- **Commit `results/`** — after the smoke: the exact paths to review
-  and commit.
+- **Commit `results/`** — only once a REAL task has been measured: the
+  exact paths to review and commit. After the wiring smoke there is
+  nothing to commit here — the demo's attempt and result were deleted
+  in B5; report its total and cost as text under "Confirmed" instead.
 - **Publication (optional)** — `gh repo create …`, push consent,
   Cloudflare/Pages secrets if a hosted dashboard is wanted.
 - **Decisions awaiting a human** — push consent, budget raise, PR
