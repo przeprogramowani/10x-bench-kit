@@ -6,6 +6,31 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.29.0 — 2026-09-18 (neutralny)
+
+**Próg czasu zadania omawiany i zapisywany w minutach.** Zmiana
+dotyczy wyłącznie warstwy rozmowy ze zlecającym i dokumentacji skilli —
+format na dysku (`task.yaml: timeout_s`, `bench.config.yaml
+defaults.timeout_s`) bez zmian, scoring i porównywalność wyników bez
+zmian.
+
+- **bench-new-task**: pole to teraz **„Difficulty and time limit"**
+  podawane w minutach (typowo 5–15 min, do 30 min dla najszerszych
+  zleceń product-level), z zakresami przypisanymi do poziomu
+  naprowadzenia: product-level 15–30 min, directional 10–15 min,
+  surgical 5–10 min. Sekundy są detalem implementacyjnym — nie trafiają
+  przed oczy użytkownika. Tabela akceptacji partii pokazuje limit w
+  minutach.
+- **BACKLOG_TEMPLATE**: `- **Difficulty / time limit**:
+  <easy|medium|hard> / <N> min`.
+- **bench-build**: zlecenie niesie minuty, builder przelicza je na
+  `timeout_s` w `task.yaml` (min × 60) i w raporcie mówi o limicie w
+  minutach.
+
+Uzasadnienie: decyzja „ile czasu na próbę" jest decyzją produktową, a
+`900 s` to jednostka runnera, nie człowieka. Minuty czyta się bez
+przeliczania i trudniej o nich pomyśleć za wąsko.
+
 ## 0.28.0 — 2026-09-18 (neutralny)
 
 **Klon repo bazowego przy `bench-kit init` jest domyślnie płytki.**

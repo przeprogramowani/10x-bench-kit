@@ -43,7 +43,7 @@ Skills only edit this file — git is managed by the user.
 - **Type**: <implementation / bugfix / refactor / documentation>
 - **Base repo**: <name from base_repos in bench.config.yaml>
 - **Guidance level**: <product-level / directional / surgical>
-- **Difficulty / timeout**: <easy|medium|hard> / <timeout_s> s
+- **Difficulty / time limit**: <easy|medium|hard> / <N> min
 - **Evaluation axis**: <what differentiates scores in this task — the
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
   API must not change"), and for large tasks the milestone/phase map

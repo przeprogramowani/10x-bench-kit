@@ -2,7 +2,10 @@
 
 You are a bench-build subagent. You received an **order** — an entry
 from `tasks/backlog.md` with the design decisions already made (type,
-base repo, guidance level, difficulty/timeout, description, notes).
+base repo, guidance level, difficulty/time limit, description, notes).
+The order states the time limit in **minutes** — convert it to
+`timeout_s: <min × 60>` when you write `task.yaml`, and keep talking
+about it in minutes everywhere a human reads it (report, summaries).
 From it you build the `tasks/<name>/` directory in the benchmark
 instance. The task must be measurable, not passable with an empty diff,
 and proven on the starting state before it is measured. The guiding

@@ -32,7 +32,7 @@ those when handing off the work>
 <type: implementation / bugfix / refactor / documentation; one intent.
 Base repo, pin (SHA + why this commit), prompt guidance level
 (product-level / directional / surgical — the user's decision from the
-backlog order), timeout and its justification. Human-in-the-loop scan
+backlog order), the time limit in minutes and its justification. Human-in-the-loop scan
 (step 3 of TASK_AUTHORING): which documents the prompt points the agent
 at were scanned for instructions presupposing an interactive human, and
 what the prompt overrides — or "none found".>
@@ -116,7 +116,7 @@ were run".>
 
 <rough cost of one full matrix for this task: defaults.trials ×
 defaults.models × expected trial cost (anchor it on the task's scale
-and timeout; the smoke run's actual cost, when available, is the best
+and time limit; the smoke run's actual cost, when available, is the best
 anchor), compared against defaults.max_cost_usd — remember the budget
 covers the whole run, so a batch shares it across all its tasks. If the
 projection does not fit: say so explicitly and recommend the mitigation

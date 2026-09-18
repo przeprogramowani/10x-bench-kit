@@ -32,7 +32,7 @@ interview only, no cloning repos, no containers, no runner commands.
    `tasks/` that are not task directories).
 3. **Decisions belong to the user.** Order fields are settled by the
    interview, not by your guesses — a wrongly chosen guidance level or
-   timeout changes what the task measures. Inferences from the user's
+   time limit changes what the task measures. Inferences from the user's
    description are proposals to be accepted, not decisions.
 4. **One order = one intent.** The idea "fix X and refactor Y while
    you're at it" is two orders.
@@ -110,10 +110,12 @@ two exceptions you always ask about:
 - **Prompt guidance level** — unless the description settles it
   explicitly, with the consequences stated alongside the options:
   - *product-level* — symptom/goal only, no files or symbols; measures
-    locating the code + execution — harder, longer timeout;
-  - *directional* — a named area/module; middle of the scale;
+    locating the code + execution — harder, longer time limit
+    (15–30 min);
+  - *directional* — a named area/module; middle of the scale
+    (10–15 min);
   - *surgical* — specific files/symbols; measures execution alone —
-    easier, shorter timeout.
+    easier, shorter time limit (5–10 min).
 
 Remaining fields (ask only when the description does not settle them):
 
@@ -121,9 +123,13 @@ Remaining fields (ask only when the description does not settle them):
   documentation.
 - **Base repo** — must be in `base_repos` in bench.config.yaml
   (check!); if it is not, bench-wiring comes first, not this order.
-- **Difficulty and `timeout_s`** (typically 300–900 s; consistent with
-  the guidance level — a too-short timeout measures speed, not
-  quality).
+- **Difficulty and time limit** — always discussed and recorded in
+  **minutes** (typically 5–15 min, up to 30 min for the widest
+  product-level orders); consistent with the guidance level — a
+  too-short limit measures speed, not quality. Seconds are an
+  implementation detail: bench-build converts the minutes into
+  `timeout_s` in `task.yaml` (min × 60). Never put a raw second count
+  in front of the user.
 - (Workspace preservation is not a decision anymore: every trial keeps
   its full post-agent workspace on disk — the preserved-attempt
   contract, `.bench-kit/ATTEMPT_FORMAT.md` — so manual launch and the
@@ -181,7 +187,7 @@ cycle, and the bill arrives after the work, not before it.
 ### 2. Batch acceptance
 
 Present the orders collectively (a table: name, **class**, type, repo,
-guidance, timeout, evaluation axis + a one-sentence description) and get
+guidance, time limit in minutes, evaluation axis + a one-sentence description) and get
 the user's acceptance. Only then write to the backlog.
 
 **Order the batch by decision value, not by interest** — frequency ×
