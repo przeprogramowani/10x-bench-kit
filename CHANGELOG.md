@@ -6,6 +6,44 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.30.0 — 2026-09-18 (neutralny)
+
+**Rubryka musi bramkować na własnej osi decydującej.** Zmiana dotyczy
+wyłącznie procedury pisania i sprawdzania rubryk — schematy
+(`task.yaml`, `bench.config.yaml`, format werdyktu sędziego) bez zmian,
+istniejące wyniki bez zmian, era porównywalności nienaruszona.
+
+Znalezione na realnej partii: rubryka wyceniała *gdzie* wylądowała
+praca (kotwica 0.2 w kryterium głównym, poprawnie użyta przez
+sędziego), ale pozostałe kryteria zostały niezależne — diff położony na
+stronie, której URL nie serwuje, zebrał 1.0 za a11y i 0.8 za „stays
+live" (subskrypcja zdarzenia na stronie, gdzie nie ma czego słuchać) i
+wyszedł na 0.664 przy progu 0.7. Kryteria sumują się niezależnie, więc
+0.0 na osi głównej wciąż sięgało 0.745 — praca niewidoczna dla
+użytkownika mogła zostać oceniona jako sukces.
+
+- **RUBRIC_AUTHORING**: nowa reguła **„Say what the OTHER criteria do
+  when the work is misplaced"** — kotwica misplaced-work jest
+  per-kryterium, a wada jest na poziomie rubryki; rubryka wyceniająca
+  *gdzie* niesie odtąd **klauzulę capa** przed kryteriami: które
+  kryteria stają się puste przy źle położonej pracy i na ile są
+  ścinane (0.2 jako rozsądny dyskont, nie zero — zachowuje
+  rozdzielczość), a które są liczone normalnie (zwykle scope
+  discipline). Lustrzane odbicie istniejącej reguły „Price incompletion
+  once".
+- **RUBRIC_AUTHORING**: czwarty punkt listy kontrolnej czytanej —
+  **„The rubric does not gate on its own primary axis"**. Arytmetyka,
+  nie osąd, trzydzieści sekund: oś decydująca na 0.0, reszta na 1.0,
+  zważyć, dołożyć wagi guardów, porównać z `pass_threshold`. Jeśli
+  przechodzi — oś decydująca nie jest decydująca. Łapie wadę przy
+  czytaniu, przed jakimkolwiek kontenerem.
+- **bench-build SKILL, bramka partii pkt 3**: smoke czyta się
+  **per kryterium, nie po totalu**. Wywołanie sędziego i tak jest
+  opłacone, a diff ze smoke'u to jedyny realny „kompetentny, ale zły"
+  diff, jaki partia zobaczy przed macierzą (bench-rubric kalibruje na
+  realnych próbach i nie fabrykuje syntetycznych). Pytanie do zadania:
+  czy diff oblewający oś decydującą ląduje blisko progu.
+
 ## 0.29.0 — 2026-09-18 (neutralny)
 
 **Próg czasu zadania omawiany i zapisywany w minutach.** Zmiana
