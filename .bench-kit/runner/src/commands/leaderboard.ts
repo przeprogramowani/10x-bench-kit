@@ -47,6 +47,10 @@ interface Era {
 
 interface SiteData {
   title: string;
+  // Redakcja nagłówka strony. Publiczny leaderboard jej nie podaje i bierze
+  // domyślki szablonu; bench-summary ustawia ją flagami, bo wewnętrzny raport
+  // mówi do innego czytelnika niż strona publiczna.
+  heading?: { title?: string; lede?: string; eyebrow?: string };
   generated_at: string;
   pass_threshold: number;
   runs: { id: string; generated_at: string; total_cost_usd: number; trials: number }[];

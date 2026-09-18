@@ -468,13 +468,41 @@ function howToRead() {
     '</div></details>';
 }
 
+// NAGŁÓWEK — treść pochodzi z danych (DATA.heading), nie z kodu: ten sam
+// szablon obsługuje publiczny leaderboard i wewnętrzny raport bench-summary,
+// a te dwie strony mówią do innych czytelników. Kod trzyma tylko domyślne
+// teksty — mechanika benchmarku jest opisana niżej, w "jak to czytać",
+// więc nagłówek ma prawo być zwykłym wstępem.
+const HEADING_FALLBACK = {
+  eyebrow: "Benchmark",
+  lede: "Porównanie modeli na zadaniach z prawdziwego repozytorium — " +
+        "jak często każdy z nich kończy pracę na wyniku, który da się przyjąć, i ile to kosztuje.",
+};
+
+function mastheadHtml() {
+  const h = DATA.heading || {};
+  const eyebrow = h.eyebrow === undefined ? HEADING_FALLBACK.eyebrow : h.eyebrow;
+  const lede = h.lede === undefined ? HEADING_FALLBACK.lede : h.lede;
+  const meta = [];
+  meta.push(new Date(DATA.generated_at).toLocaleDateString("pl-PL", {
+    day: "numeric", month: "long", year: "numeric",
+  }));
+  meta.push(DATA.tasks.length + (DATA.tasks.length === 1 ? " zadanie" : " zadania"));
+  meta.push(models.length + (models.length === 1 ? " model" : " modele"));
+  // Pasek jest pełnej szerokości, ale tekst zostaje na tej samej siatce co
+  // tabele niżej — stąd wrapper: tło wychodzi poza kolumnę, treść nie.
+  return '<header class="masthead"><div class="masthead-inner">' +
+    (eyebrow ? '<div class="eyebrow">' + esc(eyebrow) + "</div>" : "") +
+    "<h1>" + esc(h.title || DATA.title) + "</h1>" +
+    (lede ? '<p class="lede">' + esc(lede) + "</p>" : "") +
+    '<div class="masthead-meta">' + meta.map(esc).join('<span class="dot">·</span>') + "</div>" +
+    "</div></header>";
+}
+
 function render() {
   const app = document.getElementById("app");
   const lastRun = DATA.runs[DATA.runs.length - 1];
-  let html = "<h1>" + esc(DATA.title) + "</h1>" +
-    '<p class="sub">Który model nadaje się do tej pracy. Pierwsze kryterium to <b>niezawodność</b> — jak często model kończy zadanie na zaliczeniu. ' +
-    'Cena porównuje się dopiero między modelami o podobnej niezawodności. ' +
-    "Wygenerowano " + new Date(DATA.generated_at).toLocaleString("pl-PL") + ".</p>" +
+  let html = mastheadHtml() +
     howToRead() +
     '<div class="tiles">' +
     '<div class="tile"><div class="v">' + DATA.runs.length + '</div><div class="l">runów benchmarku</div></div>' +

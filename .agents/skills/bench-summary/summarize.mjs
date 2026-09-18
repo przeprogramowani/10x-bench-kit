@@ -10,6 +10,11 @@
  * powtarzalne, a nie wyprowadzane w czacie na nowo przy każdym pytaniu.
  *
  *   node summarize.mjs --root <instancja> [--task <slug>] [--out <plik.json>] [--html <plik.html>]
+ *
+ * Nagłówek strony jest treścią redakcyjną, nie wynikiem — ustawia się go
+ * flagami --title / --lede / --eyebrow. Bez nich strona bierze neutralne
+ * domyślne teksty z szablonu; mechanikę oceniania opisuje sekcja
+ * "jak to czytać", więc nagłówek nie musi jej powtarzać.
  */
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +29,9 @@ const root = arg("--root", process.cwd());
 const onlyTask = arg("--task");
 const outPath = arg("--out");
 const htmlPath = arg("--html");
+const headTitle = arg("--title");
+const headLede = arg("--lede");
+const headEyebrow = arg("--eyebrow");
 
 const dirs = (p) =>
   existsSync(p) ? readdirSync(p).filter((d) => statSync(join(p, d)).isDirectory()) : [];
@@ -267,12 +275,19 @@ if (htmlPath) {
     console.error(`error: brak wspólnego szablonu w ${assets} — uruchom z --root wskazującym instancję benchmarku`);
     process.exit(1);
   }
-  const title = onlyTask ? `bench-summary — ${onlyTask}` : "bench-summary — który model do tej pracy";
+  const title = headTitle ?? (onlyTask ? `bench-summary — ${onlyTask}` : "bench-summary — który model do tej pracy");
   const escHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // Kształt SiteData leaderboardu: jeden run, jedna era per zadanie.
   const site = {
     title,
+    // Redakcja nagłówka: puste stringi celowo kasują element (np. --lede ""),
+    // a brak flagi zostawia domyślkę szablonu — stąd undefined, nie "".
+    heading: {
+      title,
+      ...(headLede === undefined ? {} : { lede: headLede }),
+      ...(headEyebrow === undefined ? {} : { eyebrow: headEyebrow }),
+    },
     generated_at: out.generated_at,
     pass_threshold: threshold,
     runs: [{ id: "summary", generated_at: out.generated_at, total_cost_usd: out.total_spend_usd, trials: 0 }],

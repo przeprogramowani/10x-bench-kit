@@ -73,7 +73,15 @@ From the instance root, with this skill's directory as `<skill>`:
 node <skill>/summarize.mjs --root . --html summary.html   # page
 node <skill>/summarize.mjs --root . --out summary.json    # data
 node <skill>/summarize.mjs --root . --task <slug>         # one task
+
+# header — editorial, asked for, never invented silently
+node <skill>/summarize.mjs --root . --html summary.html \
+  --eyebrow "<kicker>" --title "<title>" --lede "<one or two sentences>"
 ```
+
+`--title`, `--lede` and `--eyebrow` set the masthead. Omit one and the
+page falls back to the template's neutral default; pass `""` to drop
+that element entirely.
 
 It reads only git-tracked trees — `results/**/result.json` for score,
 cost, duration and stamps, `attempts/**/patch.diff` for review burden —
@@ -112,14 +120,42 @@ average diff size. The `recommendation` block already applies rule 3 —
 cheapest expected cost among models that pass, plus everyone whose
 interval overlaps it.
 
-### 3. Render
+### 3. Ask for the header
 
-Produce the page with `--html`. It leads with the verdict — the model,
-the price of one acceptable result, and the tie note if there is one —
-then the table, then the footnotes that define the two non-obvious
-columns.
+Before rendering, ask the user what the page should be called and what
+the opening line should say — one AskUserQuestion with a couple of
+concrete options plus your own recommendation, not a blank prompt. The
+masthead is the only editorial surface on the page: everything below it
+is computed, so this is where the report says who it is for.
 
-### 4. Write the narrative
+Two rules for what you propose:
+
+- **Not the scoring mechanics.** "Reliability first, price second" is
+  already spelled out in the "how to read this" section and in the
+  column footnotes. A header that repeats it reads like an internal
+  memo to the tool's own author.
+- **No vocabulary from the data model.** *era*, *stamps*, *rubric*,
+  *task hash*, *pass rate*, *judge*, *scoring version*, *trial* are
+  field names — they mean something precise inside the kit and nothing
+  to a reader outside it. Write what a person would say out loud: not
+  "wyniki bieżącej ery" but "co te modele zrobiły z tym zadaniem". If a
+  word would need the footnotes to be understood, it belongs in the
+  footnotes.
+- **A subject, not a procedure.** Name the decision or the body of work
+  — the class of task, the shortlist, the period — and let the lede say
+  what a reader gets out of the page in one or two sentences.
+
+If the user does not care, take the template's defaults and move on;
+this is a question, not a gate.
+
+### 4. Render
+
+Produce the page with `--html`, passing the header flags from step 3.
+It leads with the verdict — the model, the price of one acceptable
+result, and the tie note if there is one — then the table, then the
+footnotes that define the two non-obvious columns.
+
+### 5. Write the narrative
 
 The page carries the numbers; your text carries what the numbers do not
 say. Keep it to a few lines and include, when true:
@@ -136,7 +172,7 @@ say. Keep it to a few lines and include, when true:
 - **the expiry**: this holds for these model versions and this task
   definition.
 
-### 5. Hand over
+### 6. Hand over
 
 The page and JSON are artifacts in the working tree, not results.
 They are safe to regenerate at any time and safe to delete —
