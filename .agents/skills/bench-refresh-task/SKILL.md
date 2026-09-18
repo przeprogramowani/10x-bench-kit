@@ -103,7 +103,11 @@ Propose a fresh, stable commit of the base repo (ideally the latest
 green on CI), full SHA. Work in the local clone `.repos/<name>/`
 (the AGENTS.md convention; if missing, clone there) — after
 `git fetch origin`, because the new pin must exist on the remote.
-Review what happened in the task's area:
+The clone from `bench-kit init` is shallow by default, so the old pin
+may simply not be in it (`fatal: bad object <sha>`, an empty
+`git log <old>..<new>`) — deepen it once, before the diff:
+`git fetch --unshallow` (or `git fetch origin <old-pin>` for that one
+commit). Review what happened in the task's area:
 
 ```
 git log --oneline <old-pin>..<new-pin> -- <task paths>

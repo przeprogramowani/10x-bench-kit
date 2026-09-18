@@ -224,11 +224,13 @@ test("init: rejestruje wykryte repo produktowe i pinuje zadanie-demo", () => {
   assert.equal(response.demoTasksPinned, 1);
 
   // Instrukcja klonu dla CLI + gitignore zanim klon wyląduje.
+  // Domyślnie płytko: depth 1.
   assert.deepEqual(response.baseRepoClone, {
     name: "shop-app",
     url: "git@github.com:acme/shop-app.git",
     rootDir: "/somewhere/shop-app",
     dest: ".repos/shop-app",
+    depth: 1,
   });
   assert.ok(readFileSync(join(target, ".gitignore"), "utf8").includes(".repos/"));
   const manifest = JSON.parse(readFileSync(join(target, ".bench-kit", "instance.json"), "utf8"));
@@ -250,6 +252,30 @@ test("init: preferuje https, gdy CLI zgłasza osiągalność", () => {
   assert.match(config, /url: https:\/\/github\.com\/acme\/shop-app\.git/);
   assert.ok(!config.includes("git@github.com"));
   assert.equal(response.baseRepoClone.url, "https://github.com/acme/shop-app.git");
+});
+
+test("init: deepClone zamawia pełną historię w instrukcji klonu", () => {
+  const { response } = initInstance("0.1.0", {
+    deepClone: true,
+    detectedBaseRepo: {
+      rootDir: "/somewhere/shop-app",
+      name: "shop-app",
+      url: "git@github.com:acme/shop-app.git",
+      headCommit: "a".repeat(40),
+      httpsReachable: false,
+    },
+  });
+
+  assert.equal(response.baseRepoClone.depth, null);
+});
+
+test("init: deepClone niebooleanowe to invalid_request", () => {
+  const template = buildTemplateFixture();
+  const target = join(tempDir("bootstrap-target-"), "instance");
+  assert.equal(
+    codeOf(() => runBootstrap(baseRequest(template, target, { deepClone: "yes" }))),
+    "invalid_request",
+  );
 });
 
 test("init: zostawia placeholder, gdy init biegnie wewnątrz samej instancji", () => {

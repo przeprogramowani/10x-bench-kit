@@ -88,10 +88,21 @@ Robocze klony rep bazowych żyją w `.repos/<nazwa>/` w korzeniu instancji
 (katalog jest w `.gitignore` — nigdy nie trafia do repo instancji).
 `10x bench-kit init` zwykle zostawia tam pierwszy klon wykrytego repo.
 
+- **Klon jest domyślnie płytki** (`--depth 1`, sam HEAD): instancja
+  startuje z pinem na HEAD, a skille autorskie czytają drzewo plików,
+  nie historię. `10x bench-kit init --deep` klonuje z pełną historią od
+  razu.
+- **Gdy potrzebujesz historii** (diff między pinami, worktree na starym
+  pinie), dobierz ją na miejscu: `git fetch --unshallow` albo
+  `git fetch --deepen=<n>`, a dla jednego commita
+  `git fetch origin <sha>`. Objaw brakującej historii to
+  `fatal: bad object <sha>` / puste `git log <old>..<new>` — to nie
+  zepsuty klon, tylko płytki.
 - **Zanim sklonujesz repo bazowe gdziekolwiek** (scratchpad, /tmp),
   sprawdź `.repos/<nazwa>` — jeśli jest, użyj go; jeśli nie, sklonuj
-  właśnie tam (URL z `base_repos` w bench.config.yaml). W instancji
-  z czasów przed tą konwencją dopisz najpierw `.repos/` do `.gitignore`.
+  właśnie tam (URL z `base_repos` w bench.config.yaml; `--depth 1`, gdy
+  nie potrzebujesz historii). W instancji z czasów przed tą konwencją
+  dopisz najpierw `.repos/` do `.gitignore`.
 - Klon może być nieświeży — przed decyzjami o pinie zrób
   `git fetch origin` i wybieraj commity **istniejące na remote**
   (runner robi własny płytki fetch z URL-a; lokalny stan nie wystarczy).

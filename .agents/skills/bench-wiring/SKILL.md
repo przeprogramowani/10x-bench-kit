@@ -21,7 +21,8 @@ make. Two divisions of labor shape the entire procedure:
 - **What init already did is not wiring work.** Init launched from
   inside a product repo detects it, registers it in `base_repos`
   (https instead of SSH when it responds), pins the demo tasks to its
-  HEAD, and clones the repo into `.repos/<name>/`. Wiring reads that
+  HEAD, and clones the repo into `.repos/<name>/` (shallow — HEAD only
+  — unless init ran with `--deep`). Wiring reads that
   and fills the gaps — it does not repeat it.
 - **The benchmark runs LOCALLY.** The operator's machine (or a VPS —
   from the kit's perspective the same thing: a long-lived host with a
@@ -138,7 +139,8 @@ ls-remote/fetch, no decisions beyond those init did not make.
 - `.bench-kit/instance.json` — template version and `detectedBaseRepo`:
   init launched from inside a product repo has already registered the
   repo in `base_repos`, pinned the demo tasks to its HEAD, and cloned
-  the working copy into `.repos/<name>/`.
+  the working copy into `.repos/<name>/` (shallow by default; deepen
+  with `git fetch --unshallow` when history is needed).
 - `bench.config.yaml` — does `base_repos` have a real entry or a
   placeholder (`demo-app` / `example-org`)? Leave the defaults (models,
   judge, budget, `resources.memory_mb`) as they are.

@@ -77,6 +77,9 @@ after init):
 
 ```bash
 # 1. Materialize an instance (fresh git repo, manifest, skills, workflows)
+#    Run from inside a product repo: it is registered as the first base
+#    repo and cloned into .repos/<name>/ (shallow, HEAD only; --deep for
+#    full history)
 10x bench-kit init my-bench && cd my-bench
 
 # 2. Wiring (use the bench-wiring skill in your agent tool):

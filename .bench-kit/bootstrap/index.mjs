@@ -124,6 +124,9 @@ function validateRequest(request) {
   if (typeof request.tool?.id !== "string" || typeof request.tool?.skillRoot !== "string") {
     throw new BootstrapError("invalid_request", "Żądanie nie ma pola 'tool' ({ id, skillRoot }).");
   }
+  if (request.deepClone !== undefined && typeof request.deepClone !== "boolean") {
+    throw new BootstrapError("invalid_request", "Pole 'deepClone' musi być boolean.");
+  }
 }
 
 function requireTemplateVersion(templateDir) {
@@ -143,6 +146,8 @@ function requireTemplateVersion(templateDir) {
  * workflowy, npm ci, rejestracja wykrytego repo bazowego, manifest,
  * świeże `git init` + pierwszy commit. Zwraca instrukcję klonu repo
  * bazowego — sam klon wykonuje CLI (sieć zostaje po jego stronie).
+ * Instrukcja niesie `depth`: 1 (płytki klon, domyślnie) albo null
+ * (pełna historia, gdy żądanie ma `deepClone: true`).
  */
 function runInit(request) {
   const { templateDir, targetDir } = request;
@@ -225,11 +230,18 @@ function runInit(request) {
     }
     if (baseRepo !== null) {
       ensureIgnored(targetDir, `${BASE_REPOS_DIR}/`);
+      // Domyślnie klon PŁYTKI (`depth: 1`, sam HEAD): instancja startuje
+      // od pinu na HEAD, a autorskie skille dostają drzewo plików, nie
+      // historię — pełna historia dużego repo to minuty i gigabajty za
+      // dane, których nikt na tym etapie nie czyta. Historia jest do
+      // dobrania na żądanie (`git fetch --unshallow` / `--deepen`);
+      // `--deep` w CLI (request.deepClone) wyłącza płytkość od razu.
       baseRepoClone = {
         name: baseRepo.name,
         url: baseRepo.url,
         rootDir: detected.rootDir,
         dest: `${BASE_REPOS_DIR}/${baseRepo.name}`,
+        depth: request.deepClone === true ? null : 1,
       };
     }
   }

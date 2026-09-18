@@ -78,7 +78,10 @@ do not invent tasks yourself.
 6. **Prepare shared resources once, before the fan-out.** Run
    `git fetch origin` in the `.repos/<name>/` clones of the base repos
    the batch needs (clone missing ones — convention from AGENTS.md) and
-   forbid subagents from fetching: parallel fetches in a single clone
+   forbid subagents from fetching. The clones are shallow by default, so
+   if any order needs a commit outside the fetched tip (an old pin, a
+   diff between pins), deepen the clone HERE — `git fetch --unshallow`
+   or `git fetch origin <sha>` — never inside a subagent: parallel fetches in a single clone
    race for git locks. The same applies to `evaluation-pool/`: **you
    take the pool inventory, before the fan-out** (rule 6a below) — a
    subagent hunting for reuse on its own only sees the state from
