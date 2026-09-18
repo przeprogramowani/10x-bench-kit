@@ -6,6 +6,68 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.31.0 — 2026-09-18 (neutralny)
+
+**Niezawodność jest punktem wyjścia, cena rozstrzyga dopiero przy
+porównywalnej niezawodności.** Zmiana dotyczy rankingu, rekomendacji i
+prezentacji — schematy (`task.yaml`, `bench.config.yaml`, format
+werdyktu), scoring i `SCORING_VERSION` bez zmian, istniejące wyniki bez
+zmian, era porównywalności nienaruszona. Te same `results/` czytają się
+inaczej, bo dotąd czytały się mylnie.
+
+Znalezione na realnym biegu: leaderboard rankował po medianie wyniku, a
+`bench-summary` rekomendował najtańszy koszt na akceptowalny wynik
+spośród modeli z choć jednym zaliczeniem. Model z **1/4** udanych prób
+wyszedł na rekomendowany, bo był 3× tańszy na wynik. Arytmetycznie
+poprawne, praktycznie mylące: `koszt ÷ pass_rate` zakłada, że
+ponowienie kosztuje tylko tokeny. Nie kosztuje, gdy porażka przechodzi
+lint, typy, build i testy — wtedy wyłapuje ją człowiek, a tej pozycji
+nie ma w żadnej kolumnie. Mediana z kolei mówi, jak dobra jest typowa
+praca, a nie jak często jakakolwiek wychodzi.
+
+- **Ranking po dolnej granicy przedziału Wilsona** dla pass rate
+  (leaderboard i `bench-summary`, ta sama stała `RELIABILITY_TIE =
+  0.02`). Mała próba jest niepewnością i liczy się na niekorzyść: 2/2
+  nie udaje pewności, bo lewy koniec jest wtedy w okolicy 0.34, nie
+  1.00. Dzięki temu „domierz prób" i „model jest gorszy" pchają w tę
+  samą stronę rankingu, a tanim modelem nie da się wygrać małą próbką.
+  Cena porównuje się dopiero między modelami o praktycznie równej
+  niezawodności.
+- **Pasmo nierozstrzygnięte zamiast cichej kolejności.** Gdy przedziały
+  się nachodzą, tabela mówi to wprost — i mówi, że właściwą reakcją
+  jest dolanie prób, a nie sięgnięcie po tańszy model.
+- **bench-measure**: niezawodność jako jednostka biegu (reguła 1),
+  komórka poniżej 3 prób nie orzeka o niezawodności (10), wyceniaj
+  porażki, nie próby (11). Usunięty punkt „oba modele zdają wszystko →
+  rozstrzygaj po cenie" — przy n=2 to nie remis, tylko dwie
+  niezmierzone komórki (95% przedział ≈ 0.34–1.00). Dodane ostrzeżenie
+  o asymetrii próby (dogrywanie tylko taniej strony produkuje dobrze
+  zmierzony tani model naprzeciw ledwo zmierzonego drogiego) i
+  handover prowadzony tabelą niezawodności, z opisem, jak wygląda
+  porażka: czy guardy ją łapią, czy ponosi ją recenzent.
+- **Jedna prezentacja w całym kicie.** `bench-summary` nie ma już
+  własnego `template.html` — karmi wspólny szablon leaderboardu
+  (`.bench-kit/runner/assets/leaderboard/`), więc `--html` i
+  `bench leaderboard` dają tę samą stronę i ten sam wniosek. Przy
+  scalaniu wyszło, po co: ta sama kolumna kosztu dostawała średnią z
+  jednej drogi i medianę z drugiej. Wniosek liczy `app.js` z wierszy,
+  żeby dwa wejścia nie mogły pokazać dwóch różnych rekomendacji z tych
+  samych danych.
+- **Zrozumiałość dashboardu.** Tabela zbiorcza liczy **zadania**,
+  tabela zadania **próby**, i obie piszą jednostkę słowem („1 z 1
+  zadań", „2 z 2 prób") — dotąd obie mówiły „Zaliczone" i dawały się
+  pomylić przy jednym zadaniu. Prostsze etykiety („Jak często się
+  udaje" zamiast „pass rate, 95%"), tooltip z wyjaśnieniem przy każdym
+  nagłówku, zwijany panel „Jak czytać ten dashboard", kolumna kosztu
+  jednego dobrego wyniku, baner z wnioskiem i jawnymi zastrzeżeniami
+  (n < 3, pass rate < 0.5, asymetryczne pokrycie). Tooltip dostał
+  `max-width` i clamp w obie strony — długie objaśnienia wyjeżdżały
+  poza ekran.
+
+Migracja: żadna. Dashboard i `summary.html` przebudowują się z
+istniejących `results/`; przy okazji część dotychczasowych rekomendacji
+zmieni model — to jest właśnie zamierzony efekt.
+
 ## 0.30.0 — 2026-09-18 (neutralny)
 
 **Rubryka musi bramkować na własnej osi decydującej.** Zmiana dotyczy
