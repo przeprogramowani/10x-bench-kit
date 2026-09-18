@@ -39,10 +39,15 @@ as a large one.
    tasks, rubrics or `bench.config.yaml`. This skill reads and
    renders. A wrong score is bench-explain-results (one anomaly) or
    bench-rubric (unstable verdicts); a missing cell is bench-measure.
-3. **Ties are reported as ties.** When pass-rate intervals overlap,
-   say the models are indistinguishable and that the choice falls to
-   price — never order them by a median difference the sample cannot
-   support. This is the single most common way a summary misleads.
+3. **Reliability first, price second — and ties are reported as ties.**
+   Ranking runs on the LOWER bound of the pass-rate interval, never on
+   the median score and never on price alone: a small sample is itself
+   uncertainty and has to count against a model, otherwise 2/2 reads
+   as "100% reliable" and the cheapest model wins on two trials.
+   Price decides only between models of practically equal reliability.
+   When intervals overlap, say the difference is unresolved and that
+   the honest response is more trials — not "so take the cheaper one".
+   This is the single most common way a summary misleads.
 4. **Eras are not mixed.** `summarize.mjs` collects the stamps tuple
    (`task_hash`, `judge_model`, `rubric_version`). If more than one
    era appears, say so and do not aggregate across them — the numbers
@@ -75,9 +80,19 @@ cost, duration and stamps, `attempts/**/patch.diff` for review burden —
 so it works on a fresh clone, without `workspace/`. It writes nothing
 except the files you name.
 
-The HTML is self-contained (no bundler, no network, data inlined), the
-same shape as the kit's leaderboard asset. Open it, attach it to a
-decision, or drop it in a channel.
+**There is one presentation in this kit, and it is the leaderboard
+template** (`.bench-kit/runner/assets/leaderboard/`: `template.html` +
+`style.css` + `app.js`). This skill does not ship its own HTML — it
+feeds the shared template, so `--html` here and `bench leaderboard`
+produce the same page, with the same labels, the same tooltips and the
+same verdict banner. Two templates over one `results/` tree always end
+up disagreeing; one template cannot. The output is a single
+self-contained file (no bundler, no network, assets inlined). Changing
+the presentation therefore means editing those three shared files, and
+it changes both surfaces at once — which is the point.
+
+`--html` needs `--root` to point at an instance, because that is where
+the shared template lives.
 
 ## Procedure
 
