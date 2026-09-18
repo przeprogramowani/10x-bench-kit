@@ -302,6 +302,18 @@ subagents deliberately skipped (rule 9).
    weight 0 with a note, never a charge against models. Without keys:
    note "smoke deferred — no secrets in the session" and hand it to the
    Next step; points 1–2 remain unconditional.
+   **Read the smoke's judge verdict per criterion, not just the total.**
+   The judge call is already paid for, and the smoke diff is the only
+   real wrong-but-competent attempt the batch will see before the
+   matrix (bench-rubric calibrates on real attempts and fabricates no
+   synthetic ones, so there is no other source). Open `judge.json`,
+   read each criterion's score and justification against the diff, and
+   ask the one question the total hides: **does a diff that fails the
+   task's decisive axis still land near `pass_threshold`?** If it does,
+   the rubric is not gating — fix it now, while no results exist and
+   the edit is free, rather than after a paid matrix has been scored
+   with it. A rubric fix at this point costs one judge call per
+   preserved attempt and no re-run.
 3a. **Discrimination counter-proof** (rule 10) — the other direction
    of point 3. Point 3 proves an assertion *can* go green; this proves
    it can go **red for the right reason**. For every assertion of

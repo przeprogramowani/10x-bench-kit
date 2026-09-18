@@ -25,26 +25,164 @@ function latestRowsPerModel(era) {
   return [...byModel.values()].map(r => ({ ...r, stale: r.run_id !== newestRun.run_id }));
 }
 
+// NIEZAWODNOŚĆ JEST PUNKTEM WYJŚCIA. Ranking idzie po dolnej granicy
+// przedziału Wilsona (95%) dla pass rate, a nie po medianie wyniku ani po
+// punktowym pass rate. Dwa powody:
+//  1. mediana mówi "jak dobry jest udany wynik", nie "jak często jest udany";
+//     model, który raz trafia perfekcyjnie, a trzy razy pudłuje, ma świetną
+//     najlepszą próbę i nie nadaje się do routowania pracy;
+//  2. punktowy pass rate kłamie na małej próbie — 2/2 to nie jest "100%
+//     niezawodny", to "dwie próby". Dolna granica sama karze za brak prób,
+//     więc "domierz" i "jest gorszy" mają ten sam kierunek w rankingu.
+// Koszt wchodzi DOPIERO przy praktycznie równej niezawodności. Cena nigdy nie
+// kupuje pozycji nad modelem, który po prostu działa częściej.
+function wilson(passed, trials) {
+  if (!trials) return { p: 0, lo: 0, hi: 1 };
+  const z = 1.959963985, p = passed / trials, n = trials;
+  const d = 1 + z * z / n;
+  const c = (p + z * z / (2 * n)) / d;
+  const h = (z / d) * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+  return { p, lo: Math.max(0, c - h), hi: Math.min(1, c + h) };
+}
+
+// próg, poniżej którego różnica dolnych granic jest szumem, nie rankingiem
+const RELIABILITY_TIE = 0.02;
+// poniżej tylu prób nie orzekamy o niezawodności — wiersz dostaje jawny znacznik
+const MIN_TRIALS = 3;
+
+function rankRows(rows) {
+  const out = rows.map(r => ({ ...r, w: wilson(r.passed, r.trials) }));
+  out.sort((a, b) => Math.abs(a.w.lo - b.w.lo) > RELIABILITY_TIE
+    ? b.w.lo - a.w.lo
+    : a.median_cost_usd - b.median_cost_usd);
+  // pasmo = grupa sąsiadów o nachodzących się przedziałach: różnicy między
+  // nimi ta próba NIE rozstrzyga, więc wybór wewnątrz pasma jest cenowy
+  let band = 0;
+  out.forEach((r, i) => {
+    const prev = out[i - 1];
+    if (prev && !(r.w.lo <= prev.w.hi && prev.w.lo <= r.w.hi)) band++;
+    r.band = band;
+  });
+  return out;
+}
+
+// Jednostki są głównym źródłem nieporozumień na tym dashboardzie: tabela
+// zbiorcza liczy ZADANIA, tabela zadania liczy PRÓBY, a oba mogą pokazać
+// "1/1". Dlatego każda taka komórka pisze jednostkę słowem.
+const ofUnit = (k, n, unit) => k + " z " + n + " " + unit;
+
+// Koszt jednego UŻYTECZNEGO wyniku = koszt prób ÷ liczba udanych. Gdy wejście
+// policzyło go dokładnie (suma faktycznych kosztów prób — tak robi
+// bench-summary), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
+// kosztu, więc tam jest to przybliżenie. Przy zerowym pass rate liczba nie
+// istnieje i musi zostać pokazana jako "brak" — to też informacja.
+const costPerPass = r => (r.passed > 0
+  ? (r.cost_per_pass ?? r.median_cost_usd * r.trials / r.passed)
+  : null);
+
+const TIPS = {
+  reliability: "Jak często model kończy zadanie na zaliczeniu. Liczba to udane próby ÷ wszystkie próby. Pasek pokazuje 95% przedział ufności: im mniej prób, tym szerszy. Ranking idzie po LEWYM końcu paska, nie po samej liczbie — dwie próby na dwie udane to jeszcze nie dowód niezawodności.",
+  conservative: "Ostrożna ocena niezawodności: lewy koniec 95% przedziału. Mówi „co najmniej tyle”, więc mała liczba prób sama ją obniża. Dzięki temu „domierz więcej prób” i „model jest gorszy” działają w tym samym kierunku.",
+  trialsPassed: "Ile POJEDYNCZYCH PRÓB tego modelu na tym zadaniu przeszło próg zaliczenia.",
+  tasksPassed: "Ile ZADAŃ (nie prób) model zalicza — zadanie liczy się jako zdane, gdy mediana jego prób sięga progu.",
+  costTrial: "Średni koszt jednej próby: tokeny modelu za jedno podejście, niezależnie od tego, czy się udało.",
+  costPass: "Koszt jednego UŻYTECZNEGO wyniku: koszt próby ÷ pass rate, czyli z doliczonymi nieudanymi podejściami. Uwaga — zakłada, że odrzucenie złej próby nic nie kosztuje. Jeśli porażki przechodzą lint i testy, koszt ich wyłapania ponosi człowiek, a ta liczba jest zaniżona.",
+  score: "Mediana oceny ze wszystkich prób (0–1). Mówi, jak dobra jest typowa praca, NIE jak często się udaje — dlatego nie rankujemy po tej kolumnie.",
+  duration: "Średni czas jednej próby: od startu kontenera do końca pracy agenta.",
+  coverage: "Na ilu zadaniach benchmarku ten model ma w ogóle wynik. Niskie pokrycie znaczy, że średniej nie ma z czego liczyć.",
+  spend: "Suma kosztów prób tego modelu na wszystkich zadaniach bieżących er.",
+};
+const tipAttr = t => 'data-tip="' + esc(t) + '"';
+
+function reliabilityCell(r) {
+  const thin = r.trials < MIN_TRIALS;
+  return '<div class="relcell">' +
+    '<span class="n' + (!thin && r.w.lo >= 0.5 ? " pass" : "") + '">' + fmt.score(r.w.p) + '</span>' +
+    '<div class="relbar" data-tip="' + esc(tipText(short(r.model),
+      "udane " + r.passed + " z " + r.trials + " prób",
+      "95% przedział: " + fmt.score(r.w.lo) + "–" + fmt.score(r.w.hi),
+      "ranking po lewym końcu: " + fmt.score(r.w.lo))) + '">' +
+      '<div class="band" style="left:' + (r.w.lo * 100) + '%;right:' + ((1 - r.w.hi) * 100) + '%"></div>' +
+      '<div class="pt" style="left:calc(' + (r.w.p * 100) + '% - 1px)"></div></div>' +
+    '<span class="thin">' + fmt.score(r.w.lo) + "–" + fmt.score(r.w.hi) + '</span></div>';
+}
+
+// Wniosek liczony TU, z wierszy — zeby leaderboard i bench-summary nie mogly
+// pokazac dwoch roznych rekomendacji z tych samych danych.
+function verdictHtml(rows, taskName) {
+  const ranked = rankRows(rows);
+  const cands = ranked.filter(r => r.passed > 0);
+  const pick = cands[0];
+  if (!pick) {
+    return '<div class="verdict none"><div class="vlabel">Wniosek — ' + esc(taskName) + '</div>' +
+      '<div class="vpick">Żaden model nie przechodzi</div>' +
+      '<div class="vwhy">Ani jedna próba nie sięgnęła progu. To nie ranking do odczytania — to wynik pusty.</div></div>';
+  }
+  const tied = cands.filter(r => r !== pick && r.w.lo <= pick.w.hi && r.w.hi >= pick.w.lo);
+  const caveats = [];
+  if (pick.trials < MIN_TRIALS) {
+    caveats.push("Sam " + short(pick.model) + " ma tylko " + pick.trials + " prób(y) — poniżej " +
+      MIN_TRIALS + " nie ma z czego orzekać o niezawodności. Dolej prób, zanim uznasz to za decyzję.");
+  }
+  if (pick.w.p < 0.5) {
+    caveats.push(short(pick.model) + " zawodzi w " + (pick.trials - pick.passed) + " z " + pick.trials +
+      " prób. Koszt dobrego wyniku zakłada, że odrzucenie złej próby jest darmowe — jeśli porażki " +
+      "przechodzą lint i testy, ten koszt ponosi człowiek.");
+  }
+  const thin = cands.filter(r => r !== pick && r.trials < MIN_TRIALS);
+  if (thin.length) {
+    caveats.push("Porównanie asymetryczne: " + thin.map(r => short(r.model) + " (n=" + r.trials + ")").join(", ") +
+      " zmierzony(e) słabiej niż " + short(pick.model) + " (n=" + pick.trials + ").");
+  }
+  const cpp = costPerPass(pick);
+  return '<div class="verdict' + (caveats.length ? " weak" : "") + '">' +
+    '<div class="vlabel">Wniosek — ' + esc(taskName) + '</div>' +
+    '<div class="vpick">' + esc(short(pick.model)) + '</div>' +
+    '<div class="vprice">udane ' + pick.passed + ' z ' + pick.trials + ' prób · ostrożna ocena ' +
+      fmt.score(pick.w.lo) + ' · ' + (cpp === null ? "brak" : fmt.cost(cpp)) + ' za jeden dobry wynik</div>' +
+    (tied.length ? '<div class="vwhy">Tej próby nie wystarcza, żeby odróżnić go od: ' +
+      tied.map(r => esc(short(r.model))).join(", ") + '.</div>' : "") +
+    (caveats.length ? '<ul class="vcav">' + caveats.map(c => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "") +
+    '</div>';
+}
+
 function tableHtml(rows, threshold) {
-  const sorted = [...rows].sort((a, b) => b.median_total - a.median_total);
-  return '<table><thead><tr><th>Model</th><th>Wynik (mediana)</th>' +
-    '<th class="num">pass@1</th><th class="num">pass@k</th><th class="num">Zaliczone</th>' +
-    '<th class="num">Koszt / próba</th><th class="num">Czas / próba</th></tr></thead><tbody>' +
-    sorted.map(r => {
+  const sorted = rankRows(rows);
+  const bands = new Set(sorted.map(r => r.band));
+  return '<table><thead><tr>' +
+    '<th>Model</th>' +
+    '<th ' + tipAttr(TIPS.reliability) + '>Jak często się udaje <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.trialsPassed) + '>Udane próby <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.costTrial) + '>Koszt próby <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.costPass) + '>Koszt dobrego wyniku <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.score) + '>Ocena (mediana) <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.duration) + '>Czas próby <span class="q">?</span></th>' +
+    '</tr></thead><tbody>' +
+    sorted.map((r, i) => {
       const passed = r.median_total >= threshold;
-      return '<tr>' +
+      const opensBand = bands.size > 1 && (i === 0 || r.band !== sorted[i - 1].band);
+      const bandMates = sorted.filter(x => x.band === r.band).length;
+      // Pasmo NIE znaczy "bierz tanszy" — znaczy, ze tej roznicy ta proba nie
+      // rozstrzyga. Uczciwa reakcja to domierzenie, nie siegniecie po cene.
+      const head = opensBand && bandMates > 1
+        ? '<tr class="bandhead"><td colspan="7">↕ tych modeli ta próba nie rozróżnia — przedziały się nachodzą, więc kolejność między nimi jest niepewna</td></tr>'
+        : "";
+      const cpp = costPerPass(r);
+      return head + '<tr>' +
         '<td class="model"><span class="swatch" style="background:' + colorOf(r.model) + '"></span>' +
           esc(short(r.model)) + '<span class="full">' + esc(r.model) +
           (r.stale ? " · run " + esc(r.run_id) + " (" + fmt.date(r.run_at) + ")" : "") + '</span></td>' +
-        '<td><div class="scorecell"><span class="n' + (passed ? ' pass' : '') + '">' + fmt.score(r.median_total) + '</span>' +
-          '<div class="scorebar"><div class="fill" style="width:' + (r.median_total * 100) + '%"></div>' +
-          '<div class="thresh" style="left:' + (threshold * 100) + '%"></div></div></div></td>' +
-        '<td class="num">' + fmt.score(r.pass_at_1) + '</td>' +
-        '<td class="num">' + fmt.score(r.pass_at_k) + '</td>' +
-        '<td class="num">' + r.passed + "/" + r.trials + '</td>' +
+        '<td>' + reliabilityCell(r) + '</td>' +
+        '<td class="num">' + ofUnit(r.passed, r.trials, "prób") +
+          (r.trials < MIN_TRIALS ? '<span class="warn" data-tip="' + esc("Mniej niż " + MIN_TRIALS + " próby: za mało, żeby cokolwiek orzekać o niezawodności. Dolej prób przez bench attempt --trials.") + '">za mało prób</span>' : "") + '</td>' +
         '<td class="num">' + fmt.cost(r.median_cost_usd) + '</td>' +
+        '<td class="num' + (cpp === null ? " muted" : "") + '"><b>' + (cpp === null ? "brak" : fmt.cost(cpp)) + '</b></td>' +
+        '<td class="num' + (passed ? " pass" : "") + '">' + fmt.score(r.median_total) + '</td>' +
         '<td class="num">' + fmt.time(r.median_duration_s) + '</td></tr>';
-    }).join("") + "</tbody></table>";
+    }).join("") + "</tbody></table>" +
+    '<p class="note">Wiersze są ułożone od najbardziej do najmniej niezawodnego — po lewym końcu przedziału, nie po ocenie. ' +
+    'Koszt decyduje tylko między modelami o praktycznie tej samej niezawodności (różnica < ' + RELIABILITY_TIE.toFixed(2) + '). ' +
+    'Najedź na nagłówek kolumny, żeby zobaczyć, co dokładnie liczy.</p>';
 }
 
 // przybliżona szerokość etykiety w jednostkach viewBoxu (font 11px/600)
@@ -122,9 +260,11 @@ const thresholdLine = (threshold, W, m, y) =>
 // tooltip: pierwszy element pogrubioną nazwą, reszta rozdzielona kropką
 const tipText = (name, ...parts) => "<b>" + esc(name) + "</b>" + parts.join(" · ");
 
-// jakość vs koszt: log-x (koszty rozpięte o rzędy wielkości), punkt per model,
-// identyczność niesiona kolorem ORAZ bezpośrednią etykietą (reguła relief)
-function scatterSvg(rows, threshold) {
+// niezawodność vs koszt: log-x (koszty rozpięte o rzędy wielkości), punkt per
+// model, identyczność niesiona kolorem ORAZ bezpośrednią etykietą (reguła
+// relief). Oś Y to pass rate z wąsem przedziału Wilsona, NIE mediana wyniku:
+// wykres ma odpowiadać na "jak często to działa i ile to kosztuje".
+function scatterSvg(rows) {
   const W = 420, H = 240, m = { t: 18, r: 28, b: 34, l: 40 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const costs = rows.map(r => Math.max(r.median_cost_usd, 1e-5));
@@ -133,13 +273,12 @@ function scatterSvg(rows, threshold) {
   const x = c => m.l + (Math.log10(Math.max(c, 1e-5)) - lo) / (hi - lo) * iw;
   const y = v => m.t + (1 - v) * ih;
   const decades = Array.from({ length: hi - lo + 1 }, (_, k) => lo + k);
-  const points = placePointLabels(rows.map(r => ({
-    r, px: x(r.median_cost_usd), py: y(r.median_total), text: short(r.model),
+  const withW = rows.map(r => ({ ...r, w: wilson(r.passed, r.trials) }));
+  const points = placePointLabels(withW.map(r => ({
+    r, px: x(r.median_cost_usd), py: y(r.w.p), text: short(r.model),
   })), W, H, m);
-  return chart(W, H, "Jakość względem kosztu próby",
+  return chart(W, H, "Niezawodność względem kosztu próby",
     [0, 0.25, 0.5, 0.75, 1].map(v => hGridLine(v, v.toFixed(2), W, m, y)),
-    thresholdLine(threshold, W, m, y),
-    el("text", { x: W - m.r, y: y(threshold) - 4, "text-anchor": "end" }, "próg " + threshold),
     decades.map(e => [
       el("text", { x: x(Math.pow(10, e)), y: H - m.b + 16,
         "text-anchor": e === hi ? "end" : e === lo ? "start" : "middle" }, fmt.cost(Math.pow(10, e))),
@@ -150,9 +289,13 @@ function scatterSvg(rows, threshold) {
     points.map(({ r, px, py, text, anchor, ly, leader }) => [
       leader && el("line", { x1: px, x2: px, y1: py + (ly > py ? 6 : -6), y2: ly > py ? ly - 10 : ly + 3,
         stroke: "var(--axis)", "stroke-width": 1 }),
+      // wąs przedziału: punkt bez niepewności czytałby się jak pomiar, którym nie jest
+      el("line", { x1: px, x2: px, y1: y(r.w.hi), y2: y(r.w.lo),
+        stroke: colorOf(r.model), "stroke-width": 2, opacity: 0.45 }),
       el("circle", { cx: px, cy: py, r: 5, fill: colorOf(r.model), stroke: "var(--surface-1)", "stroke-width": 2,
-        "data-tip": tipText(short(r.model), "mediana " + fmt.score(r.median_total),
-          fmt.cost(r.median_cost_usd), fmt.time(r.median_duration_s)) }),
+        "data-tip": tipText(short(r.model), "pass rate " + fmt.score(r.w.p) + " (" + r.passed + "/" + r.trials + ")",
+          "95%: " + fmt.score(r.w.lo) + "–" + fmt.score(r.w.hi),
+          fmt.cost(r.median_cost_usd), "mediana " + fmt.score(r.median_total)) }),
       el("text", { class: "dl", x: px, y: ly, "text-anchor": anchor }, esc(text)),
     ]),
   );
@@ -219,40 +362,50 @@ function overallRows() {
     const era = t.eras.find(e => e.current);
     if (!era) continue;
     for (const r of latestRowsPerModel(era)) {
-      const acc = perModel.get(r.model) ?? { model: r.model, tasks: 0, sumTotal: 0, sumP1: 0, sumCost: 0, passed: 0 };
+      const acc = perModel.get(r.model) ?? { model: r.model, tasks: 0, sumTotal: 0, sumP1: 0, sumCost: 0, sumLo: 0, trials: 0, passed: 0 };
       acc.tasks++;
       acc.sumTotal += r.median_total;
       acc.sumP1 += r.pass_at_1;
       acc.sumCost += r.median_cost_usd;
+      acc.sumLo += wilson(r.passed, r.trials).lo;
+      acc.trials += r.trials;
       if (r.median_total >= DATA.pass_threshold) acc.passed++;
       perModel.set(r.model, acc);
     }
   }
   return [...perModel.values()]
-    .map(a => ({ ...a, mean: a.sumTotal / a.tasks, meanP1: a.sumP1 / a.tasks }))
-    .sort((a, b) => b.mean - a.mean || b.tasks - a.tasks);
+    .map(a => ({ ...a, mean: a.sumTotal / a.tasks, meanP1: a.sumP1 / a.tasks, meanLo: a.sumLo / a.tasks }))
+    // ta sama zasada co w tabeli zadania: niezawodność pierwsza, koszt przy remisie
+    .sort((a, b) => Math.abs(a.meanLo - b.meanLo) > RELIABILITY_TIE
+      ? b.meanLo - a.meanLo
+      : a.sumCost - b.sumCost || b.tasks - a.tasks);
 }
 
 function overallHtml() {
   const rows = overallRows();
   if (!rows.length) return "";
   const total = DATA.tasks.length;
-  const threshold = DATA.pass_threshold;
-  return '<section class="task"><h2>Ranking modeli — wszystkie zadania</h2>' +
-    '<p class="era-meta">Średnie nieważone z median po bieżących erach zadań; przekrój przez ery, więc traktuj jako orientację, nie pomiar.</p>' +
-    '<div class="card"><table><thead><tr><th>Model</th><th>Średni wynik</th>' +
-    '<th class="num">śr. pass@1</th><th class="num">Zaliczone zadania</th><th class="num">Pokrycie</th>' +
-    '<th class="num">Koszt przebiegu</th></tr></thead><tbody>' +
+  return '<section class="task"><h2>Zbiorczo — średnia ze wszystkich zadań</h2>' +
+    '<p class="era-meta"><b>Ta tabela liczy ZADANIA, nie próby.</b> Niżej, pod nazwą każdego zadania, ' +
+    'znajdziesz tabelę pojedynczych prób — tam te same liczby znaczą coś innego. ' +
+    'Kolejność po ostrożnej ocenie niezawodności; koszt dopiero przy remisie. ' +
+    'Średnie nieważone po bieżących erach zadań, więc to orientacja, nie pomiar.</p>' +
+    '<div class="card"><table><thead><tr>' +
+    '<th>Model</th>' +
+    '<th class="num" ' + tipAttr(TIPS.conservative) + '>Niezawodność — ostrożna ocena <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.tasksPassed) + '>Zdane zadania <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.spend) + '>Koszt prób razem <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.score) + '>Ocena (średnia median) <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.coverage) + '>Pokrycie benchmarku <span class="q">?</span></th>' +
+    '</tr></thead><tbody>' +
     rows.map(r => '<tr>' +
       '<td class="model"><span class="swatch" style="background:' + colorOf(r.model) + '"></span>' +
         esc(short(r.model)) + '<span class="full">' + esc(r.model) + '</span></td>' +
-      '<td><div class="scorecell"><span class="n' + (r.mean >= threshold ? ' pass' : '') + '">' + fmt.score(r.mean) + '</span>' +
-        '<div class="scorebar"><div class="fill" style="width:' + (r.mean * 100) + '%"></div>' +
-        '<div class="thresh" style="left:' + (threshold * 100) + '%"></div></div></div></td>' +
-      '<td class="num">' + fmt.score(r.meanP1) + '</td>' +
-      '<td class="num">' + r.passed + "/" + r.tasks + '</td>' +
-      '<td class="num">' + r.tasks + "/" + total + '</td>' +
-      '<td class="num">' + fmt.cost(r.sumCost) + '</td></tr>').join("") +
+      '<td class="num' + (r.meanLo >= 0.5 ? " pass" : "") + '"><b>' + fmt.score(r.meanLo) + '</b></td>' +
+      '<td class="num">' + ofUnit(r.passed, r.tasks, "zadań") + '</td>' +
+      '<td class="num">' + fmt.cost(r.sumCost) + '</td>' +
+      '<td class="num">' + fmt.score(r.mean) + '</td>' +
+      '<td class="num' + (r.tasks < total ? " muted" : "") + '">' + ofUnit(r.tasks, total, "zadań") + '</td></tr>').join("") +
     "</tbody></table></div></section>";
 }
 
@@ -274,11 +427,12 @@ function eraMeta(stamps, runs) {
     " · " + runs.length + " run(y): " + runs.map(r => esc(r.run_id)).join(", ");
 }
 
-function eraHtml(era, threshold) {
+function eraHtml(era, threshold, taskName) {
   const rows = latestRowsPerModel(era);
   let html = '<p class="era-meta">' + eraMeta(era.stamps, era.runs) + "</p>" +
+    (taskName ? verdictHtml(rows, taskName) : "") +
     '<div class="card">' + tableHtml(rows, threshold) + "</div>" +
-    '<div class="charts"><div class="card"><h3>Jakość vs koszt (najświeższy wynik per model)</h3>' + scatterSvg(rows, threshold) + "</div>";
+    '<div class="charts"><div class="card"><h3>Niezawodność vs koszt (najświeższy wynik per model)</h3>' + scatterSvg(rows) + "</div>";
   if (era.runs.length >= 2) {
     html += '<div class="card"><h3>Trend median między runami</h3>' + trendSvg(era.runs, threshold) +
       '<div class="legend">' + [...new Set(era.runs.flatMap(r => r.rows.map(x => x.model)))].sort()
@@ -287,12 +441,41 @@ function eraHtml(era, threshold) {
   return html + "</div>";
 }
 
+// Panel "jak to czytac" jest domyslnie zwiniety, ale obecny: bez niego liczby
+// na tej stronie daja sie przeczytac na trzy sposoby, z czego dwa sa bledne.
+function howToRead() {
+  return '<details class="howto"><summary>Jak czytać ten dashboard</summary><div class="howto-body">' +
+    '<p><b>Dwa poziomy, dwie jednostki.</b> Sekcja <i>Zbiorczo</i> liczy <b>zadania</b> ' +
+    '(„zdane 1 z 1 zadań"). Sekcje niżej, nazwane jak zadanie, liczą <b>próby</b> ' +
+    '(„udane 2 z 2 prób"). Jedno zadanie może mieć wiele prób, więc „1 z 1" na górze ' +
+    'i „2 z 2" na dole opisują to samo — raz jako zadanie, raz jako próby.</p>' +
+    '<p><b>Dlaczego niezawodność, a nie ocena.</b> Ocena mówi, jak dobra jest typowa praca. ' +
+    'Niezawodność mówi, jak często jakakolwiek praca wychodzi. Model, który raz zrobi rzecz ' +
+    'perfekcyjnie, a trzy razy spudłuje, ma świetną ocenę najlepszej próby i nie nadaje się ' +
+    'do routowania pracy — bo za każdy użyteczny wynik płacisz czterema podejściami.</p>' +
+    '<p><b>Pasek i przedział.</b> Liczba to udane próby ÷ wszystkie próby. Pasek to 95% ' +
+    'przedział ufności — im mniej prób, tym szerszy. Ranking idzie po <b>lewym końcu</b> paska, ' +
+    'czyli po „co najmniej tyle". Dzięki temu dwie próby na dwie udane nie udają pewności: ' +
+    'lewy koniec jest wtedy dopiero w okolicy 0.34, a nie 1.00.</p>' +
+    '<p><b>Kiedy cena decyduje.</b> Tylko między modelami, których przedziały mówią o zbliżonej ' +
+    'niezawodności. Wiersz „↕ tych modeli ta próba nie rozróżnia" znaczy, że różnicy nie da się ' +
+    'jeszcze rozstrzygnąć — właściwą reakcją jest dolanie prób, nie wybór tańszego.</p>' +
+    '<p><b>Czego ta strona nie wie.</b> „Koszt dobrego wyniku" zakłada, że odrzucenie nieudanej ' +
+    'próby jest darmowe. Jeśli porażki modelu przechodzą lint, typy i testy, ich wyłapanie ' +
+    'kosztuje czas człowieka, a tej pozycji nie ma w żadnej kolumnie.</p>' +
+    '<p><b>Ery.</b> Wyniki są porównywalne tylko w obrębie ery (ten sam hash zadania, sędzia, ' +
+    'rubryka, wersja scoringu). Stare ery są zwinięte i nie mieszają się z bieżącą.</p>' +
+    '</div></details>';
+}
+
 function render() {
   const app = document.getElementById("app");
   const lastRun = DATA.runs[DATA.runs.length - 1];
   let html = "<h1>" + esc(DATA.title) + "</h1>" +
-    '<p class="sub">Leaderboard benchmarku — mediany z prób, pass@k jako niezawodność. ' +
+    '<p class="sub">Który model nadaje się do tej pracy. Pierwsze kryterium to <b>niezawodność</b> — jak często model kończy zadanie na zaliczeniu. ' +
+    'Cena porównuje się dopiero między modelami o podobnej niezawodności. ' +
     "Wygenerowano " + new Date(DATA.generated_at).toLocaleString("pl-PL") + ".</p>" +
+    howToRead() +
     '<div class="tiles">' +
     '<div class="tile"><div class="v">' + DATA.runs.length + '</div><div class="l">runów benchmarku</div></div>' +
     '<div class="tile"><div class="v">' + DATA.tasks.length + '</div><div class="l">zadań</div></div>' +
@@ -302,7 +485,8 @@ function render() {
   for (const task of DATA.tasks) {
     const current = task.eras.find(e => e.current);
     const history = task.eras.filter(e => !e.current);
-    html += '<section class="task"><h2>' + esc(task.task) + "</h2>" + eraHtml(current, DATA.pass_threshold);
+    html += '<section class="task"><h2>' + esc(task.task) +
+      ' <span class="h2sub">— pojedyncze próby</span></h2>' + eraHtml(current, DATA.pass_threshold);
     if (history.length) {
       html += "<details><summary>Poprzednie ery (" + history.length + ") — wyniki nieporównywalne z bieżącą</summary>" +
         history.map(e => eraHtml(e, DATA.pass_threshold)).join("") + "</details>";
@@ -319,8 +503,15 @@ function render() {
     if (!t) { tip.style.display = "none"; return; }
     tip.innerHTML = t.dataset.tip;
     tip.style.display = "block";
-    tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
-    tip.style.top = (e.clientY + 14) + "px";
+    // clamp w obie strony: samo dociskanie do prawej krawedzi przy szerokim
+    // tooltipie wypychalo go za lewa. Blisko dolu pokazujemy nad kursorem.
+    const left = Math.max(8, Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8));
+    const below = e.clientY + 14;
+    const top = below + tip.offsetHeight > innerHeight - 8
+      ? Math.max(8, e.clientY - tip.offsetHeight - 12)
+      : below;
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
   });
   app.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }

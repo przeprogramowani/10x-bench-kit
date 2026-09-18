@@ -164,6 +164,21 @@ valid JSON = 0 for the judge component.
   invented value is not comparable to one that does not. Decide up
   front whether such an attempt is scored on the fragment that exists,
   discounted, or floored, and write it down.
+- **Say what the OTHER criteria do when the work is misplaced.** The
+  anchor above is per-criterion, but the defect is rubric-level: scores
+  are summed independently, so a diff on a surface nobody is served
+  still collects near-full marks on every criterion that does not price
+  *location* — the event subscription is real, the ARIA markup is
+  correct, the tokens are the repo's. Each reading is defensible in
+  isolation and the total is nonsense: properties of a page no learner
+  reaches. This is the mirror image of "Price incompletion once" above
+  — there a property criterion wrongly scores 0.0, here it wrongly
+  scores full. So a rubric that prices *where* carries a **cap clause**
+  ahead of its criteria: name the criteria that become vacuous when the
+  work is misplaced and cap them (0.2 is a reasonable discount — it
+  keeps resolution between a competent misplaced attempt and a careless
+  one), and name the ones still scored normally (scope discipline
+  usually is: a misplaced diff can still be tidy or sprawling).
 
 ## Rules of thumb: junior, senior, lead
 
@@ -206,7 +221,7 @@ illustrate them. Keep them specific to *this* task's axes — a generic
 
 ## Read-only failure checklist (before `bench judge`)
 
-Three defects recur regardless of domain and are found by reading the
+Four defects recur regardless of domain and are found by reading the
 rubric once — a minute instead of a wasted measurement:
 
 - [ ] **A criterion with no floor for the degenerate case.** A diff
@@ -221,6 +236,16 @@ rubric once — a minute instead of a wasted measurement:
       criterion: can an honest attempt that finished only the early
       phases score on it at all? If not, re-anchor it to grade the
       fragment that exists, or fold it into the completion anchors.
+- [ ] **The rubric does not gate on its own primary axis.** Arithmetic,
+      not judgment, and it costs thirty seconds: score the decisive
+      criterion at **0.0** and every other criterion at **1.0**, apply
+      the weights, fold in the task's guard weights, and compare against
+      `defaults.pass_threshold`. If that total passes, an attempt that
+      fails the thing the task exists to measure can still be graded a
+      success — the decisive axis needs more weight, or a cap clause
+      (see "Say what the OTHER criteria do when the work is
+      misplaced"), or both. A decisive axis is decisive only if losing
+      it loses the task.
 
 Plus the format checks: weights sum to 1 and match the JSON block;
 anti-nitpicking clause and conciseness contract verbatim; `version`

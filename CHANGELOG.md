@@ -6,6 +6,106 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.31.0 — 2026-09-18 (neutralny)
+
+**Niezawodność jest punktem wyjścia, cena rozstrzyga dopiero przy
+porównywalnej niezawodności.** Zmiana dotyczy rankingu, rekomendacji i
+prezentacji — schematy (`task.yaml`, `bench.config.yaml`, format
+werdyktu), scoring i `SCORING_VERSION` bez zmian, istniejące wyniki bez
+zmian, era porównywalności nienaruszona. Te same `results/` czytają się
+inaczej, bo dotąd czytały się mylnie.
+
+Znalezione na realnym biegu: leaderboard rankował po medianie wyniku, a
+`bench-summary` rekomendował najtańszy koszt na akceptowalny wynik
+spośród modeli z choć jednym zaliczeniem. Model z **1/4** udanych prób
+wyszedł na rekomendowany, bo był 3× tańszy na wynik. Arytmetycznie
+poprawne, praktycznie mylące: `koszt ÷ pass_rate` zakłada, że
+ponowienie kosztuje tylko tokeny. Nie kosztuje, gdy porażka przechodzi
+lint, typy, build i testy — wtedy wyłapuje ją człowiek, a tej pozycji
+nie ma w żadnej kolumnie. Mediana z kolei mówi, jak dobra jest typowa
+praca, a nie jak często jakakolwiek wychodzi.
+
+- **Ranking po dolnej granicy przedziału Wilsona** dla pass rate
+  (leaderboard i `bench-summary`, ta sama stała `RELIABILITY_TIE =
+  0.02`). Mała próba jest niepewnością i liczy się na niekorzyść: 2/2
+  nie udaje pewności, bo lewy koniec jest wtedy w okolicy 0.34, nie
+  1.00. Dzięki temu „domierz prób" i „model jest gorszy" pchają w tę
+  samą stronę rankingu, a tanim modelem nie da się wygrać małą próbką.
+  Cena porównuje się dopiero między modelami o praktycznie równej
+  niezawodności.
+- **Pasmo nierozstrzygnięte zamiast cichej kolejności.** Gdy przedziały
+  się nachodzą, tabela mówi to wprost — i mówi, że właściwą reakcją
+  jest dolanie prób, a nie sięgnięcie po tańszy model.
+- **bench-measure**: niezawodność jako jednostka biegu (reguła 1),
+  komórka poniżej 3 prób nie orzeka o niezawodności (10), wyceniaj
+  porażki, nie próby (11). Usunięty punkt „oba modele zdają wszystko →
+  rozstrzygaj po cenie" — przy n=2 to nie remis, tylko dwie
+  niezmierzone komórki (95% przedział ≈ 0.34–1.00). Dodane ostrzeżenie
+  o asymetrii próby (dogrywanie tylko taniej strony produkuje dobrze
+  zmierzony tani model naprzeciw ledwo zmierzonego drogiego) i
+  handover prowadzony tabelą niezawodności, z opisem, jak wygląda
+  porażka: czy guardy ją łapią, czy ponosi ją recenzent.
+- **Jedna prezentacja w całym kicie.** `bench-summary` nie ma już
+  własnego `template.html` — karmi wspólny szablon leaderboardu
+  (`.bench-kit/runner/assets/leaderboard/`), więc `--html` i
+  `bench leaderboard` dają tę samą stronę i ten sam wniosek. Przy
+  scalaniu wyszło, po co: ta sama kolumna kosztu dostawała średnią z
+  jednej drogi i medianę z drugiej. Wniosek liczy `app.js` z wierszy,
+  żeby dwa wejścia nie mogły pokazać dwóch różnych rekomendacji z tych
+  samych danych.
+- **Zrozumiałość dashboardu.** Tabela zbiorcza liczy **zadania**,
+  tabela zadania **próby**, i obie piszą jednostkę słowem („1 z 1
+  zadań", „2 z 2 prób") — dotąd obie mówiły „Zaliczone" i dawały się
+  pomylić przy jednym zadaniu. Prostsze etykiety („Jak często się
+  udaje" zamiast „pass rate, 95%"), tooltip z wyjaśnieniem przy każdym
+  nagłówku, zwijany panel „Jak czytać ten dashboard", kolumna kosztu
+  jednego dobrego wyniku, baner z wnioskiem i jawnymi zastrzeżeniami
+  (n < 3, pass rate < 0.5, asymetryczne pokrycie). Tooltip dostał
+  `max-width` i clamp w obie strony — długie objaśnienia wyjeżdżały
+  poza ekran.
+
+Migracja: żadna. Dashboard i `summary.html` przebudowują się z
+istniejących `results/`; przy okazji część dotychczasowych rekomendacji
+zmieni model — to jest właśnie zamierzony efekt.
+
+## 0.30.0 — 2026-09-18 (neutralny)
+
+**Rubryka musi bramkować na własnej osi decydującej.** Zmiana dotyczy
+wyłącznie procedury pisania i sprawdzania rubryk — schematy
+(`task.yaml`, `bench.config.yaml`, format werdyktu sędziego) bez zmian,
+istniejące wyniki bez zmian, era porównywalności nienaruszona.
+
+Znalezione na realnej partii: rubryka wyceniała *gdzie* wylądowała
+praca (kotwica 0.2 w kryterium głównym, poprawnie użyta przez
+sędziego), ale pozostałe kryteria zostały niezależne — diff położony na
+stronie, której URL nie serwuje, zebrał 1.0 za a11y i 0.8 za „stays
+live" (subskrypcja zdarzenia na stronie, gdzie nie ma czego słuchać) i
+wyszedł na 0.664 przy progu 0.7. Kryteria sumują się niezależnie, więc
+0.0 na osi głównej wciąż sięgało 0.745 — praca niewidoczna dla
+użytkownika mogła zostać oceniona jako sukces.
+
+- **RUBRIC_AUTHORING**: nowa reguła **„Say what the OTHER criteria do
+  when the work is misplaced"** — kotwica misplaced-work jest
+  per-kryterium, a wada jest na poziomie rubryki; rubryka wyceniająca
+  *gdzie* niesie odtąd **klauzulę capa** przed kryteriami: które
+  kryteria stają się puste przy źle położonej pracy i na ile są
+  ścinane (0.2 jako rozsądny dyskont, nie zero — zachowuje
+  rozdzielczość), a które są liczone normalnie (zwykle scope
+  discipline). Lustrzane odbicie istniejącej reguły „Price incompletion
+  once".
+- **RUBRIC_AUTHORING**: czwarty punkt listy kontrolnej czytanej —
+  **„The rubric does not gate on its own primary axis"**. Arytmetyka,
+  nie osąd, trzydzieści sekund: oś decydująca na 0.0, reszta na 1.0,
+  zważyć, dołożyć wagi guardów, porównać z `pass_threshold`. Jeśli
+  przechodzi — oś decydująca nie jest decydująca. Łapie wadę przy
+  czytaniu, przed jakimkolwiek kontenerem.
+- **bench-build SKILL, bramka partii pkt 3**: smoke czyta się
+  **per kryterium, nie po totalu**. Wywołanie sędziego i tak jest
+  opłacone, a diff ze smoke'u to jedyny realny „kompetentny, ale zły"
+  diff, jaki partia zobaczy przed macierzą (bench-rubric kalibruje na
+  realnych próbach i nie fabrykuje syntetycznych). Pytanie do zadania:
+  czy diff oblewający oś decydującą ląduje blisko progu.
+
 ## 0.29.0 — 2026-09-18 (neutralny)
 
 **Próg czasu zadania omawiany i zapisywany w minutach.** Zmiana

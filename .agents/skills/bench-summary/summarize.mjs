@@ -77,6 +77,7 @@ const eras = new Set();
 for (const task of dirs(resultsRoot)) {
   if (onlyTask && task !== onlyTask) continue;
   const models = [];
+  let rawStamps = null;
 
   for (const modelDir of dirs(join(resultsRoot, task))) {
     const trials = [];
@@ -86,6 +87,7 @@ for (const task of dirs(resultsRoot)) {
       if (!existsSync(f)) continue;
       const r = JSON.parse(readFileSync(f, "utf8"));
       if (r.model) modelId = r.model;
+      if (r.stamps && !rawStamps) rawStamps = r.stamps;
       if (r.stamps) {
         eras.add(
           [r.stamps.task_hash?.slice(0, 12), r.stamps.judge_model, r.stamps.rubric_version].join(" / "),
@@ -135,27 +137,97 @@ for (const task of dirs(resultsRoot)) {
   }
   if (!models.length) continue;
 
-  // Rekomendacja: wśród modeli, które w ogóle przechodzą, najtańszy oczekiwany koszt.
-  const passing = models.filter((m) => m.passes > 0);
-  passing.sort((a, b) => a.expected_cost_per_pass - b.expected_cost_per_pass);
-  const pick = passing[0] ?? null;
+  // REKOMENDACJA — niezawodność najpierw, cena jako rozstrzygnięcie remisu.
+  //
+  // Historycznie ta funkcja brała po prostu najtańszy expected_cost_per_pass
+  // spośród modeli z choć jednym zaliczeniem. To produkowało rekomendacje w
+  // rodzaju "model z 1/4 prób, bo 3× tańszy na wynik": arytmetycznie poprawne,
+  // praktycznie mylące, bo cost ÷ pass_rate zakłada, że ponowienie kosztuje
+  // tylko tokeny. Nie kosztuje — ktoś musi każdą porażkę otworzyć i odrzucić,
+  // a gdy guardy są na niej zielone, robi to człowiek.
+  //
+  // Dlatego ranking idzie po DOLNEJ granicy przedziału Wilsona: mała próba jest
+  // niepewnością i liczy się na niekorzyść, więc "domierz" i "jest gorszy"
+  // pchają w tę samą stronę. Cena wchodzi dopiero między modelami o praktycznie
+  // równej niezawodności.
+  const RELIABILITY_TIE = 0.02;
+  const candidates = models.filter((m) => m.passes > 0);
+  const ranked = [...candidates].sort((a, b) =>
+    Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE
+      ? b.interval.lo - a.interval.lo
+      : a.expected_cost_per_pass - b.expected_cost_per_pass,
+  );
+  const pick = ranked[0] ?? null;
 
-  // Remis: przedziały pass-rate nachodzą na siebie → nie wolno ich ustawiać w kolejności.
+  // Remis: przedziały pass-rate nachodzą na siebie → tej różnicy próba NIE
+  // rozstrzyga. Nie wolno jej podawać jako ustalonej kolejności ani zamieniać
+  // na "więc bierz tańszy" — uczciwą reakcją jest domierzenie.
   const tied = pick
-    ? passing.filter(
+    ? ranked.filter(
         (m) => m !== pick && m.interval.lo <= pick.interval.hi && m.interval.hi >= pick.interval.lo,
       )
     : [];
 
+  // Ostrzeżenia, które muszą jechać razem z liczbą, bo inaczej nagłówek kłamie.
+  const caveats = [];
+  if (pick) {
+    if (pick.trials < 3) {
+      caveats.push(
+        `${pick.model_id}: ${pick.trials} prób(y) — poniżej 3 nie ma podstawy do orzekania o niezawodności`,
+      );
+    }
+    if (pick.pass_rate < 0.5) {
+      caveats.push(
+        `${pick.model_id} zawodzi w ${pick.trials - pick.passes} z ${pick.trials} prób — koszt na akceptowalny wynik zakłada, że ponowienie jest darmowe poza tokenami`,
+      );
+    }
+    const thin = candidates.filter((m) => m.trials < 3 && m !== pick);
+    if (thin.length) {
+      caveats.push(
+        `porównanie asymetryczne: ${thin.map((m) => `${m.model_id} (n=${m.trials})`).join(", ")} zmierzone słabiej niż ${pick.model_id} (n=${pick.trials})`,
+      );
+    }
+  }
+
+  // Prezentacja jest jedna: wspólny szablon leaderboardu
+  // (.bench-kit/runner/assets/leaderboard/). Tutaj tylko przekładamy wyniki na
+  // jego kształt wiersza, żeby obie drogi pokazywały te same liczby i ten sam
+  // wniosek — dwa osobne szablony rozjeżdżały się na tych samych danych.
+  const siteRows = models.map((m) => ({
+    model: m.model_id,
+    task,
+    trials: m.trials,
+    median_total: m.median_total ?? 0,
+    // mediana, żeby kolumna "Koszt próby" znaczyła na obu stronach to samo
+    median_cost_usd: median(m.trials_detail.map((t) => t.cost_usd)),
+    // dokładny koszt użytecznego wyniku z faktycznych kosztów, nie z mediany
+    cost_per_pass: m.expected_cost_per_pass,
+    median_judge_cost_usd: null,
+    median_duration_s: m.mean_duration_s ?? 0,
+    passed: m.passes,
+    pass_at_1: m.pass_rate,
+    pass_at_k: m.passes > 0 ? 1 : 0,
+  }));
+
   tasks.push({
     task,
+    site_rows: siteRows,
+    site_stamps: rawStamps,
     pass_threshold: threshold,
-    models: models.sort((a, b) => (b.median_total ?? 0) - (a.median_total ?? 0)),
+    // kolejność prezentacji = kolejność rankingu (niezawodność, potem cena),
+    // nie mediana: mediana mówi jak dobra była udana próba, nie jak często
+    models: [...models].sort((a, b) =>
+      Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE
+        ? b.interval.lo - a.interval.lo
+        : (a.expected_cost_per_pass ?? Infinity) - (b.expected_cost_per_pass ?? Infinity),
+    ),
     recommendation: pick
       ? {
           model_id: pick.model_id,
           expected_cost_per_pass: pick.expected_cost_per_pass,
           basis: `${pick.passes}/${pick.trials}`,
+          reliability_lo: pick.interval.lo,
+          caveats,
           tied_with: tied.map((m) => m.model_id),
           // Remis rozstrzyga cena — nie ułamek mediany, którego nie da się odróżnić.
           tie_note: tied.length
@@ -186,11 +258,44 @@ if (outPath) {
 
 // Jedna samowystarczalna strona — bez bundlera, bez sieci, jak leaderboard kitu.
 if (htmlPath) {
-  const tpl = readFileSync(new URL("./template.html", import.meta.url), "utf8");
+  // JEDEN szablon prezentacji dla całego kitu: ten sam, z którego korzysta
+  // `bench leaderboard`. Skill nie trzyma już własnego HTML-a — dwie strony
+  // o tych samych danych zawsze w końcu zaczynały mówić dwie różne rzeczy.
+  const assets = join(root, ".bench-kit", "runner", "assets", "leaderboard");
+  const asset = (n) => readFileSync(join(assets, n), "utf8");
+  if (!existsSync(join(assets, "template.html"))) {
+    console.error(`error: brak wspólnego szablonu w ${assets} — uruchom z --root wskazującym instancję benchmarku`);
+    process.exit(1);
+  }
   const title = onlyTask ? `bench-summary — ${onlyTask}` : "bench-summary — który model do tej pracy";
+  const escHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  // Kształt SiteData leaderboardu: jeden run, jedna era per zadanie.
+  const site = {
+    title,
+    generated_at: out.generated_at,
+    pass_threshold: threshold,
+    runs: [{ id: "summary", generated_at: out.generated_at, total_cost_usd: out.total_spend_usd, trials: 0 }],
+    tasks: out.tasks.map((t) => ({
+      task: t.task,
+      eras: [{
+        stamps: t.site_stamps ?? {
+          template_version: "?", scoring_version: undefined, task_hash: "",
+          judge_model: "?", rubric_version: "none",
+        },
+        current: true,
+        runs: [{ run_id: "summary", generated_at: out.generated_at, rows: t.site_rows }],
+      }],
+    })),
+  };
+
   writeFileSync(
     htmlPath,
-    tpl.replaceAll("__TITLE__", title).replace("__DATA__", json),
+    asset("template.html")
+      .split("__TITLE__").join(escHtml(title))
+      .split("/*__STYLE__*/").join(asset("style.css").trimEnd())
+      .split("__DATA__").join(JSON.stringify(site).replace(/</g, "\\u003c"))
+      .split("/*__APP__*/").join(asset("app.js").trimEnd()),
   );
   console.error(`bench-summary: → ${htmlPath}`);
 }
