@@ -6,6 +6,36 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.28.0 — 2026-09-18 (neutralny)
+
+**Klon repo bazowego przy `bench-kit init` jest domyślnie płytki.**
+Zmiana dotyczy wyłącznie bootstrapu i dokumentacji — schematy
+`task.yaml`/`bench.config.yaml`, scoring i stemple er bez zmian, wyniki
+pozostają porównywalne.
+
+- **`baseRepoClone.depth`** w instrukcji klonu: `1` (sam HEAD,
+  domyślnie) albo `null` (pełna historia, gdy żądanie niesie
+  `deepClone: true` — flaga `--deep` w CLI). Decyzję podejmuje kit, klon
+  wykonuje CLI — podział jak dotąd. Uzasadnienie: instancja startuje z
+  pinem na HEAD, a skille autorskie czytają **drzewo plików, nie
+  historię**; pełny klon dużego repo produktowego to minuty i gigabajty
+  za dane, których nikt na tym etapie nie otwiera.
+- **Historia jest do dobrania na miejscu**, nie do odklonowania na nowo:
+  `git fetch --unshallow`, `git fetch --deepen=<n>`, a dla jednego
+  commita `git fetch origin <sha>`. Objaw jej braku (`fatal: bad object
+  <sha>`, puste `git log <old>..<new>`) jest udokumentowany jako płytki
+  klon, nie jako zepsuty.
+- **Dokumentacja tam, gdzie płytkość boli**: AGENTS.md (konwencja
+  `.repos/<nazwa>/`), **bench-refresh-task** (deepen *przed* diffem
+  pinów — stary pin zwykle jest poza klonem), **bench-build** reguła 6
+  (deepen robi orkiestrator przed fan-outem, nigdy subagent — równoległe
+  fetche biją się o locki), bench-wiring, README.
+- **Migracja: żadna.** Kontrakt bootstrapu zostaje na wersji 1 —
+  starsze CLI ignoruje `depth`, nowsze CLI ze starszym kitem `depth` nie
+  dostaje; w obie strony fallbackiem jest dotychczasowe zachowanie (klon
+  pełny). Płytkość wchodzi, gdy obie strony są nowe (10x-cli z flagą
+  `--deep`). Istniejące klony w `.repos/` zostają, jakie są.
+
 ## 0.27.0 — 2026-09-17 (neutralny)
 
 **Nowy skill `bench-summary` — migawka decyzyjna zamiast rankingu.**
