@@ -2,148 +2,133 @@
 
 # 10x-bench-kit
 
-Template repo for an internal AI agent benchmark. This repo is the basis
-for a company's **benchmark instance**, created with [10xCLI](https://github.com/przeprogramowani/10x-cli)
-(`10x bench-kit init`) — a separate repo that holds the tasks, the
-evaluation pool, the configuration, and the results, and runs agent
-trials against the company's product repositories in full isolation.
+A template for your company's AI agent benchmark. Create an instance
+with [10xCLI](https://github.com/przeprogramowani/10x-cli), then work
+through **skills in your AI coding tool**: define representative tasks,
+build them, measure models, and decide which model to use for each
+class of work.
 
-**The benchmark is local-first.** Attempts and evaluations run on the
-operator's machine (or a VPS — same thing: a long-lived host with a
-container engine). GitHub Actions is plain CI/CD: readiness checks and
-leaderboard publication — never paid execution.
+**The benchmark is local-first.** Attempts and evaluations run on your
+machine or a VPS with a container engine. GitHub Actions handles
+readiness checks and optional leaderboard publication. Paid execution
+stays on the measurement host.
 
-Initial harness: **OpenCode** (exclusively). Measured: quality
-(execution guards + LLM-as-judge-with-tools), cost, and execution time.
+Trials currently use **OpenCode** as the execution harness. The benchmark
+measures quality, cost, and execution time.
 
-## Prerequisites
+## Get started
 
-- [10xCLI](https://github.com/przeprogramowani/10x-cli) — no global
-  install needed (`npx @przeprogramowani/10x-cli bench-kit init <dir>`).
-- A container engine: Docker Desktop or Podman.
-- Node.js >= 20.
-- Provider API keys in the shell environment (e.g. `OPENROUTER_API_KEY`).
+You need [10xCLI](https://github.com/przeprogramowani/10x-cli), an AI coding
+tool that supports the installed skills, Docker or Podman, Node.js, and
+provider API keys in your shell environment. The **bench-wiring** skill
+checks machine readiness and sets up runner dependencies.
 
-## Three zones
-
-The repo structure is split into zones with different owners and different
-behavior during `10x bench-kit update`:
-
-| Zone | Owner | On `update` |
-|---|---|---|
-| `.bench-kit/` | kit (us) | replaced wholesale (atomic) |
-| `.agents/skills/` | shared | proposed diff — the company decides |
-| `tasks/`, `evaluation-pool/`, `bench.config.yaml`, `results/`, `attempts/` | company | untouchable |
-
-Details of each zone's contract live in that zone's README.
-
-## Execution and evaluation are two independent processes
-
-The core design decision (see `.bench-kit/ATTEMPT_FORMAT.md` for the
-full contract):
-
-1. **`bench attempt`** executes trials in throwaway containers and
-   produces **preserved attempts** — `attempts/<task>/<model>/trial-N/`
-   with `attempt.json`, `patch.diff`, `agent.log`, `metrics.json` (cost
-   and tokens read from the trial's local OpenCode storage — a
-   trustworthy source), and the full post-agent `workspace/` on disk.
-   A paid attempt is never thrown away; re-runs set the old directory
-   aside instead of deleting it.
-2. **Evaluation** consumes preserved attempts and produces
-   `results/<task>/<model>/trial-N/result.json` (+ the judge's verdict
-   with justifications) — committed to the repo by the operator.
-   - Execution guards (static/tests/e2e assertions) run hermetically in
-     an evaluation container; their exit codes are **facts**.
-   - The judge is an **agent with tools** (the `rate-attempt` skill):
-     it reads the rubric, takes the guards as ground truth, and may
-     build, test, and run the app in a disposable container over a copy of the preserved
-     workspace before scoring. Its verdict is folded in
-     deterministically by `bench evaluate --verdict`. (A built-in
-     API-judge path exists for automation/smoke.)
-3. Changing a rubric or the judge **re-versions evaluations, not
-   attempts**: a new rubric means re-evaluating preserved attempts
-   (~judge cost per attempt), not paying for a new matrix run. Results
-   compare only within an era (version stamps in every result.json).
-
-## Walkthrough: from zero to a leaderboard
-
-Day to day this whole loop is driven through skills in your agent tool
-— **bench-wiring** (steps 1–2), **bench-measure** (steps 3–4: it runs
-the attempts, drives rate-attempt judging, and hands you the results to
-commit) — you talk to the agent, not to npm. There is no `bench`
-executable; the raw runner invocation the skills use under the hood is
-npm from the instance root (`npm ci --prefix .bench-kit/runner` once,
-after init):
+From your product repository, create a benchmark instance:
 
 ```bash
-# 1. Materialize an instance (fresh git repo, manifest, skills, workflows)
-#    Run from inside a product repo: it is registered as the first base
-#    repo and cloned into .repos/<name>/ (shallow, HEAD only; --deep for
-#    full history)
-10x bench-kit init my-bench && cd my-bench
-
-# 2. Wiring (use the bench-wiring skill in your agent tool):
-#    base repo + models + judge in bench.config.yaml, keys in env.
-#    Gate: validate — green before anything runs.
-npm run bench --prefix .bench-kit/runner --silent -- validate
-
-# 3. Execute attempts (local; projection + budget ceiling up front;
-#    top-up semantics: existing preserved attempts count). Detach it —
-#    several processes (per model, another machine) can top up the same
-#    matrix without colliding; `bench status` is the tracker.
-npm run bench --prefix .bench-kit/runner --silent -- attempt \
-  --tasks my-task --models openrouter/... --trials 3
-npm run bench --prefix .bench-kit/runner --silent -- status
-
-# 4. Evaluate what is done: guards + judge-with-tools
-#    (rate-attempt skill per attempt — its sandbox is `bench shell`,
-#    a container over a copy of the preserved workspace; or the API
-#    judge for automation)
-npm run bench --prefix .bench-kit/runner --silent -- evaluate
-
-# 5. Review and commit results/ — the leaderboard workflow rebuilds the
-#    dashboard on push (Cloudflare Pages / GH Pages / artifact).
-git add results && git commit -m "results: my-task × sonnet"
+10x bench-kit init my-bench
 ```
 
-Elsewhere in this repo `bench <command>` is shorthand for exactly that
-npm invocation (equivalently: `node --experimental-strip-types
-.bench-kit/runner/src/index.ts <command>`).
+Init registers the product repository as the first base repo and leaves
+its working clone in `.repos/`. Open the generated `my-bench` directory
+in the AI coding tool you selected during init, then ask:
 
-Everyday DX principles:
+> Use bench-wiring to check this instance and run the first local smoke measurement.
 
-- **One command from zero to an attempt** (`bench attempt <task>
-  <model>`), one to an evaluation (`bench evaluate`).
-- **Cheap resumability**: an interrupted attempt leaves its workspace on
-  disk; diagnosis is `ls` + `cat agent.log`, not artifact downloads.
-- **Parallelism without a CI runner ceiling** (`--parallel`).
-- **Cost projection before start and a budget ceiling for the whole
-  matrix run** (`defaults.max_cost_usd`), not per invocation.
+The skill checks configuration, container access, and credentials, then
+proves that execution and evaluation work locally. Publication is optional.
 
-## Trial lifecycle
+**Init and update are the user-facing CLI operations.** All benchmark
+work goes through skills. The agent invokes the internal runner and
+checks its output as part of each skill's procedure.
 
-One trial = one **model × task × trial** in a throwaway container:
+## Everyday workflow
 
-1. **Workspace** — a fresh copy of the base repo at the pinned commit +
-   the task overlay; empty `XDG_DATA_HOME`; zero evaluation materials.
-2. **Execution** — `opencode run` non-interactively with `prompt.md`,
-   under a hard timeout.
-3. **Preservation** — workspace diff → `patch.diff`; the adapter reads
-   OpenCode storage → `metrics.json`; the full workspace is kept on
-   disk. The attempt directory is now self-sufficient.
-4. **Evaluation** (independent, repeatable) — assertions from the pool
-   are mounted only now: static → tests → e2e guards, then the judge
-   with tools; the score is a weighted sum per `task.yaml`.
-5. **Result** — `result.json` with version stamps (comparability era)
-   in `results/`, committed by the operator.
+Name the skill in your message to the agent. Follow this sequence after
+wiring; repeat it as your work and model choices change.
 
-## Versioning and "eras"
+| Step | Skill | Example prompt | What you get |
+|---|---|---|---|
+| 1. Define tasks | [bench-new-task](.agents/skills/bench-new-task/SKILL.md) | “Use bench-new-task to turn our recurring bug-fix work into benchmark task orders.” | A short interview and orders in `tasks/backlog.md`, tied to a decision, a class of work, and its current cost. |
+| 2. Build tasks | [bench-build](.agents/skills/bench-build/SKILL.md) | “Use bench-build to build the pending backlog.” | Pinned tasks, isolated evaluation materials, and evidence in `reports/<task>-build.md`, ready for your review. |
+| 3. Measure models | [bench-measure](.agents/skills/bench-measure/SKILL.md) | “Use bench-measure to compare our configured models on these tasks within the current budget.” | Preserved attempts, evaluated results, actual spend, and the `results/` paths to review. |
+| 4. Make a decision | [bench-summary](.agents/skills/bench-summary/SKILL.md) | “Use bench-summary to show which model we should use for this work and what it costs.” | A self-contained HTML summary and recommendation based on pass rate, uncertainty, cost per acceptable result, and review burden. |
 
-Every result is stamped with the scoring version, the task directory
-hash, the judge model, and the rubric versions. Results are comparable
-only within an era; releases marked `scoring-breaking` in
-[CHANGELOG.md](CHANGELOG.md) close an era. Because attempts are
-preserved, closing an evaluation era is cheap — re-evaluate; only
-changes to the task itself require new attempts.
+**You review and commit the files.** Skills leave task files, reports, and
+results in the working tree; they do not commit or push them. If you
+configure leaderboard publication, pushing committed results triggers
+its rebuild.
 
-Full concept document: the benchmark DESIGN (internal repo).
+The configured `defaults.max_cost_usd` limits the measurement run.
+Skills project cost before execution and report actual spend afterwards.
+Raising the budget requires your approval.
+
+## Setup, diagnosis, and maintenance
+
+Use these skills when you need them; they are not extra mandatory steps
+in every measurement.
+
+| Skill | When to use it | Example prompt |
+|---|---|---|
+| [bench-wiring](.agents/skills/bench-wiring/SKILL.md) | Initial setup or changes to instance wiring. | “Use bench-wiring to check this instance's local setup.” |
+| [rate-attempt](.agents/skills/rate-attempt/SKILL.md) | Judge a preserved attempt with tools, or re-evaluate it after a rubric change. Also used by bench-measure. | “Use rate-attempt to evaluate the completed attempts for this task.” |
+| [bench-explain-results](.agents/skills/bench-explain-results/SKILL.md) | A result is surprising, a trial failed, or a model regressed. | “Use bench-explain-results to explain this model's failures from the preserved evidence.” |
+| [bench-rubric](.agents/skills/bench-rubric/SKILL.md) | Check API-judge consistency or compare judges using real preserved attempts. | “Use bench-rubric to check whether these verdicts are stable.” |
+| [bench-refresh-task](.agents/skills/bench-refresh-task/SKILL.md) | A task has expired or its base repository has moved on. | “Use bench-refresh-task to refresh this expired task and document the new comparison era.” |
+
+Skill links point to this template's `.agents/skills/` directory. Init
+installs them in the directory appropriate for your selected tool; the
+selection is recorded in `.bench-kit/instance.json`.
+
+## What an instance keeps
+
+| Location | Contents |
+|---|---|
+| `tasks/` | Backlog and tasks: pinned starting points, prompts, and overlays. |
+| `evaluation-pool/` | Rubrics and execution guards, isolated from the agent solving the task. |
+| `bench.config.yaml` | Base repositories, models, judge, budgets, and run defaults. |
+| `attempts/` | Preserved trials: workspace, patch, agent log, and execution metrics. |
+| `results/` | Evaluated results and verdicts, versioned by you in git. |
+| `reports/` | Task-build evidence for review. |
+| `.repos/` | Local base-repository clones, excluded from git. |
+| `.bench-kit/` | Internal runner and contracts, maintained by the kit. |
+
+## Attempts, evaluation, and comparability
+
+Execution and evaluation are independent. Each trial runs a model against
+a task in an isolated container, with no evaluation materials in its
+workspace. The attempt preserves the resulting workspace, patch, logs,
+and cost metrics on the measurement host.
+
+Evaluation uses a disposable copy of that workspace in a container.
+Repository-native execution guards supply facts; the judge assesses the
+implementation against the task rubric and can build, test, and inspect
+it with tools. Results are written separately to `results/`.
+
+**Preserved attempts can be evaluated again.** A rubric or judge change
+uses the existing attempts, avoiding another model execution. Changing
+the task itself requires new attempts. Results carry task, rubric, and
+judge version information and are comparable only within the same era.
+Scoring changes require evidence and a PR that explains their impact on
+comparability.
+
+For artifact details, see the [attempt format](.bench-kit/ATTEMPT_FORMAT.md).
+
+## Update an instance
+
+From the benchmark instance directory:
+
+```bash
+10x bench-kit update
+```
+
+| Zone | Owner | Update behavior |
+|---|---|---|
+| `.bench-kit/` | Kit | Replaced atomically. |
+| Installed skills and `AGENTS.md` | Shared | Proposed diff for your review. |
+| Tasks, evaluation materials, configuration, attempts, and results | You | Left untouched. |
+
+Review the proposed shared-file changes and the [changelog](CHANGELOG.md).
+Use **bench-wiring** if the update requires a wiring check, and
+**rate-attempt** when a scoring change calls for re-evaluation of
+preserved attempts.
