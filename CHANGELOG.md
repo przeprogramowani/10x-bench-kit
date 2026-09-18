@@ -6,6 +6,46 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.32.0 — 2026-09-18 (neutralny)
+
+**Nagłówek strony jest treścią redakcyjną, nie kodem.** Zmiana wyłącznie
+prezentacyjna: schematy, scoring, `SCORING_VERSION`, ranking i
+rekomendacja bez zmian, istniejące wyniki ważne, era porównywalności
+nienaruszona.
+
+Znalezione na realnym raporcie: strona otwierała się zdaniem „Pierwsze
+kryterium to niezawodność — jak często model kończy zadanie na
+zaliczeniu. Cena porównuje się dopiero między modelami o podobnej
+niezawodności". To dosłowny opis mechaniki rankingu, wbity na stałe w
+`app.js` — powtórzony słowo w słowo niżej, w sekcji „jak to czytać" i w
+przypisach kolumn. Nagłówek jest jedyną powierzchnią strony, która nie
+jest policzona, i marnował się na notatkę narzędzia do samego siebie.
+Do tego jeden szablon obsługuje dwie strony mówiące do dwóch różnych
+czytelników — publiczny leaderboard i wewnętrzny raport decyzyjny — a
+oba dostawały ten sam wstęp.
+
+- **`DATA.heading = { eyebrow, title, lede }`** w kontrakcie szablonu
+  (`SiteData.heading`, opcjonalne). `bench leaderboard` go nie podaje i
+  bierze neutralne domyślki z `HEADING_FALLBACK` — zachowanie bez
+  zmian. `summarize.mjs` ustawia go flagami `--title` / `--lede` /
+  `--eyebrow`; brak flagi to domyślka, `""` kasuje element.
+- **Masthead pełnej szerokości** zamiast nagłówka i linijki szarego
+  tekstu: pasek wychodzi poza kolumnę treści (`calc(50% - 50vw)`, tekst
+  zostaje na siatce dzięki `.masthead-inner`), eyebrow, tytuł
+  `clamp(28→40px)` z `text-wrap: balance`, lede 16px na mierze 62 znaków,
+  a data i liczniki zeszły do cichej linii meta — przestały być
+  końcówką zdania. `overflow-x: clip` na `body`, bo `100vw` liczy pasek
+  przewijania.
+- **`bench-summary` pyta o nagłówek** przed renderem (krok 3 w SKILL.md)
+  — jedno pytanie z konkretnymi propozycjami, nie pustym promptem — i ma
+  dwie reguły na to, co wolno zaproponować: nie mechanika oceniania, i
+  **żadnego słownictwa z modelu danych** (*era*, *stemple*, *rubryka*,
+  *hash zadania*, *pass rate*, *sędzia*, *wersja scoringu*, *próba*).
+  To nazwy pól: znaczą coś dokładnego wewnątrz kitu i nic dla czytelnika
+  spoza niego. Test: jeśli słowo wymaga przypisu, żeby je zrozumieć, to
+  jego miejsce jest w przypisie. Pytanie nie jest bramką — brak
+  odpowiedzi to domyślki.
+
 ## 0.31.0 — 2026-09-18 (neutralny)
 
 **Niezawodność jest punktem wyjścia, cena rozstrzyga dopiero przy
