@@ -12,23 +12,33 @@
 
 FROM node:22-bookworm-slim
 
+# Harnessy prób — pinowane wersje (pliki <harness>.version obok; runner
+# podaje je jako build-argi i wpisuje do tagu obrazu). Osobna warstwa per
+# CLI: bump jednego pinu przebudowuje tylko jego warstwę.
 ARG OPENCODE_VERSION
-RUN test -n "$OPENCODE_VERSION" || (echo "OPENCODE_VERSION build-arg is required (see opencode.version)" && exit 1)
+ARG CLAUDE_CODE_VERSION
+ARG CODEX_VERSION
+RUN test -n "$OPENCODE_VERSION" && test -n "$CLAUDE_CODE_VERSION" && test -n "$CODEX_VERSION" \
+    || (echo "OPENCODE_VERSION, CLAUDE_CODE_VERSION, CODEX_VERSION build-args are required (see *.version)" && exit 1)
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g opencode-ai@${OPENCODE_VERSION}
+RUN npm install -g opencode-ai@${OPENCODE_VERSION} && npm cache clean --force
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && npm cache clean --force
+RUN npm install -g @openai/codex@${CODEX_VERSION} && npm cache clean --force
 
-# Izolacja historyczna: świeży, pusty XDG_DATA_HOME per próba — OpenCode
-# startuje bez śladu jakiejkolwiek wcześniejszej sesji.
+# Izolacja historyczna: świeże, puste katalogi stanu per próba — każdy
+# harness startuje bez śladu jakiejkolwiek wcześniejszej sesji, a adapter
+# metryk czyta wyłącznie stan tej jednej (OpenCode: XDG_DATA_HOME;
+# Claude Code: CLAUDE_CONFIG_DIR; Codex: CODEX_HOME — trial.sh).
 ENV XDG_DATA_HOME=/bench/xdg-data
-RUN mkdir -p /bench/xdg-data /bench/out /workspace
+RUN mkdir -p /bench/xdg-data /bench/claude-home /bench/codex-home /bench/out /workspace
 
-# Cykl próby + adapter metryk (jedyny szew harness ↔ kit) + ocena nie-LLM.
+# Cykl próby + adaptery metryk (szew harness ↔ kit) + ocena nie-LLM.
 COPY trial.sh /bench/trial.sh
-COPY metrics-adapter/adapter.mjs /bench/metrics-adapter.mjs
+COPY metrics-adapter/ /bench/metrics-adapter/
 COPY evaluate.mjs /bench/evaluate.mjs
 RUN chmod +x /bench/trial.sh
 

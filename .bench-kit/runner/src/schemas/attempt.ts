@@ -28,8 +28,19 @@ export const AttemptSchema = z.object({
   /** Wersja formatu zachowanej próby (ATTEMPT_FORMAT.md). */
   format: z.number().int().positive(),
   task: z.string().min(1),
-  /** Identyfikator modelu (jak podany do opencode). */
+  /** Identyfikator modelu z prefiksem harnessu (lib/harness.ts); bez prefiksu = OpenCode. */
   model: z.string().min(1),
+  /**
+   * Harness próby: CLI, jego pinowana wersja i routing dostawcy. Brak
+   * pola = próba sprzed wprowadzenia harnessów (OpenCode).
+   */
+  harness: z
+    .object({
+      name: z.enum(["opencode", "claude-code", "codex"]),
+      version: z.string().min(1),
+      route: z.enum(["native", "openrouter"]),
+    })
+    .optional(),
   /** Numer próby, licząc od 1. */
   trial: z.number().int().positive(),
   /** Obraz zadania użyty w próbie (odtwarzalny z task.yaml). */

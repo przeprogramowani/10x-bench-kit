@@ -37,6 +37,7 @@ import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.t
 import { CheckFileSchema } from "../schemas/check.ts";
 import { parseRubric } from "../lib/judge.ts";
 import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
+import { HARNESSES, parseModelId, unknownHarnessPrefix } from "../lib/harness.ts";
 import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 
@@ -192,6 +193,24 @@ export async function validateCommand(args: string[]): Promise<number> {
       level: "error",
       where: "bench.config.yaml",
       message: `model sędziego (${config.judge.model}) jest na liście modeli ocenianych — sędzia musi być innym modelem`,
+    });
+  }
+
+  for (const model of config?.defaults.models ?? []) {
+    const prefix = unknownHarnessPrefix(model);
+    if (prefix) {
+      report({
+        level: "error",
+        where: "bench.config.yaml",
+        message: `defaults.models: "${model}" — nieznany harness "${prefix}:" (znane: ${HARNESSES.join(", ")}; bez prefiksu = opencode)`,
+      });
+    }
+  }
+  if (config && parseModelId(config.judge.model).harness !== "opencode") {
+    report({
+      level: "error",
+      where: "bench.config.yaml",
+      message: `judge.model "${config.judge.model}" — sędzia woła API bezpośrednio (anthropic/… albo openrouter/…), bez harnessu`,
     });
   }
 

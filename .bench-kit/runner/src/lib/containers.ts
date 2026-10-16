@@ -3,8 +3,9 @@
  * Używane przez run / evaluate / assert / validate --assert.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { HARNESSES, harnessVersion, type HarnessName } from "./harness.ts";
 
 export function sh(cmd: string, args: string[], opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {}) {
   return spawnSync(cmd, args, { encoding: "utf8" as const, maxBuffer: 64 * 1024 * 1024, ...opts });
@@ -142,13 +143,30 @@ export function engineMemoryBytes(engine: string): number | null {
   return result.status === 0 && Number.isFinite(bytes) && bytes > 0 ? bytes : null;
 }
 
-/** Buduje (lub odświeża z cache) obraz bazowy `bench-base:<opencode>` i zwraca jego tag. */
+/**
+ * Buduje (lub odświeża z cache) obraz bazowy z wszystkimi harnessami
+ * (OpenCode, Claude Code, Codex CLI) w pinowanych wersjach i zwraca jego
+ * tag. Wersje są w tagu, więc bump pinu jednego CLI daje nowy obraz,
+ * a nie cichą podmianę narzędzia pod istniejącymi próbami.
+ */
 export function ensureBaseImage(engine: string, root: string): string {
-  const opencodeVersion = readFileSync(join(root, ".bench-kit", "docker", "opencode.version"), "utf8").trim();
-  const image = `bench-base:${opencodeVersion}`;
+  const versions = Object.fromEntries(HARNESSES.map((h) => [h, harnessVersion(root, h)])) as Record<HarnessName, string>;
+  const image = `bench-base:oc${versions.opencode}-cc${versions["claude-code"]}-cx${versions.codex}`;
   must(
     engine,
-    ["build", "-q", "--build-arg", `OPENCODE_VERSION=${opencodeVersion}`, "-t", image, join(root, ".bench-kit", "docker")],
+    [
+      "build",
+      "-q",
+      "--build-arg",
+      `OPENCODE_VERSION=${versions.opencode}`,
+      "--build-arg",
+      `CLAUDE_CODE_VERSION=${versions["claude-code"]}`,
+      "--build-arg",
+      `CODEX_VERSION=${versions.codex}`,
+      "-t",
+      image,
+      join(root, ".bench-kit", "docker"),
+    ],
     "budowa obrazu bazowego",
     { timeout: 900_000 },
   );

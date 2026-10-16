@@ -203,9 +203,20 @@ the first attempt in a way no validate catches.
 
 Otherwise note "template defaults" and move on:
 
-- **Evaluated models** (`defaults.models`): OpenCode format
-  `<provider>/<model>`; steer toward a single aggregator provider
-  (e.g. `openrouter/…`) = one key per machine.
+- **Evaluated models** (`defaults.models`): the id's prefix picks the
+  harness that runs the trial. No prefix = OpenCode, `<provider>/<model>`.
+  `claude-code:<model>` = Claude Code, `codex:<model>` = Codex CLI.
+  Insert `openrouter/` after the prefix to route through OpenRouter
+  (`claude-code:openrouter/anthropic/…`, `codex:openrouter/openai/…`).
+  Steer toward one aggregator (`openrouter/…`) = one key per machine.
+  Ask which question the user is answering:
+  - *Which model?* Keep the harness fixed.
+  - *Which tool?* Keep the model fixed and vary the prefix.
+
+  Mixing both axes in one matrix makes neither readable. Codex and
+  OpenRouter-routed Claude Code are priced from tokens; when a model is
+  not in OpenRouter's catalog, `bench attempt` refuses it until the user
+  adds `pricing["<id>"]` (USD per 1M tokens) to the config.
 - **Judge** (`judge.model`): host-side support for `anthropic/…` and
   `openrouter/…`; strong, stable, DIFFERENT from the evaluated models
   (rule 5).
@@ -322,7 +333,7 @@ drive changes via PR like any config change:
   with the same DX — defer until nightly matrix runs are actually
   wanted.
 - **Toolchain in the agent's trial**: the base image is node + git +
-  pinned OpenCode; any toolchain the assertions need is installed by
+  the three pinned harnesses (OpenCode, Claude Code, Codex CLI); any toolchain the assertions need is installed by
   the `check.yaml` commands themselves (the evaluation stage may use
   the network; only agent trials are offline). If the stack requires a
   toolchain already in the **agent's trial**, that is currently a

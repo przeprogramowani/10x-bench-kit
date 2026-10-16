@@ -6,6 +6,92 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.34.0 — 2026-10-16 (neutralny)
+
+**Claude Code i Codex CLI jako harnessy prób obok OpenCode.** Bez
+`[scoring-breaking]`: dotychczasowe id modeli (bez prefiksu) dalej
+wykonuje OpenCode tą samą ścieżką. Wyniki, katalogi prób i era
+porównywalności nie zmieniają się. Nowe harnessy to nowi zawodnicy,
+nie nowa definicja starych.
+
+- **Harness w id modelu.** `claude-code:<model>` / `codex:<model>`,
+  z `openrouter/` po prefiksie dla routingu przez OpenRouter (jeden
+  klucz dla całej macierzy). Ten sam model w innym CLI to osobny
+  wiersz wyników, bo mierzymy parę model × narzędzie. Parser i mapa
+  kluczy żyją w `runner/src/lib/harness.ts`. `bench validate` łapie
+  literówkę w prefiksie (`claude:…`) i harness w `judge.model`;
+  `bench doctor` zna klucze per harness (Codex: `OPENAI_API_KEY` albo
+  `CODEX_API_KEY`).
+- **Obraz bazowy z trzema CLI** w pinowanych wersjach
+  (`docker/opencode.version`, `claude-code.version` = 2.1.302,
+  `codex.version` = 0.163.0), osobna warstwa per CLI. Wersje są w tagu
+  (`bench-base:oc…-cc…-cx…`), a `attempt.json.harness` zapisuje
+  `{name, version, route}` (pole addytywne, `format` bez zmian). Obraz
+  rośnie o ~700 MB (Claude Code ~270 MB, Codex ~410 MB), raz na
+  maszynę: warstwy są współdzielone przez wszystkie obrazy zadań.
+- **`trial.sh` per harness** (`trial.sh <timeout_s> <harness> <route>
+  <model>`):
+  - **Claude Code:** `claude -p --permission-mode bypassPermissions
+    --output-format stream-json --verbose`. Tryb uprawnień podany
+    jawnie, bo domyślny tryb `-p` zależy od pobrania feature flag.
+    `IS_SANDBOX=1` pozwala na bypass jako root, więc wszystkie harnessy
+    mają te same uprawnienia. Telemetria i aktualizacje wyłączone.
+    Przez OpenRouter: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`
+    oraz jawnie pusty `ANTHROPIC_API_KEY`. Wszystkie aliasy (haiku do
+    zadań w tle, subagenci) wskazują oceniany model.
+  - **Codex:** `codex exec --json --dangerously-bypass-approvals-and-sandbox`
+    (kontener jest granicą izolacji). Przez OpenRouter: provider w
+    `CODEX_HOME/config.toml`, `wire_api` = responses, auth komendą.
+    `OPENAI_API_KEY` jest mapowany na `CODEX_API_KEY`, bo `exec`
+    czyta tylko ten drugi.
+  - **Prompt** idzie przez stdin. Treść zaczynająca się od `-` nie
+    zostanie wzięta za flagę, a otwarty stdin nie zawiesi Codexa.
+  - **Timeout** wysyła SIGINT zamiast SIGTERM. SIGTERM gubił bufor
+    stdout Claude Code, a po SIGINT zostają zdarzenia i transkrypt.
+    Exit 137 po upływie limitu to timeout, nie kill zasobowy.
+- **Adaptery metryk per harness** (`metrics-adapter/{opencode,claude-code,codex}.mjs`,
+  wspólny kontrakt + `cost_source`):
+  - **Claude Code:** koszt i tokeny z linii `result` (z subagentami).
+    Po timeoucie tokeny z transkryptu sesji: finalne `usage`, bo
+    zdarzenia stream-json niosą usage z początku wiadomości.
+  - **Codex:** skumulowane `turn.completed.usage`. Po timeoucie ostatni
+    `token_count` z rolloutu sesji, dlatego bez `--ephemeral`.
+- **Wycena z tokenów** (`runner/src/lib/pricing.ts`) tam, gdzie harness
+  nie daje wiarygodnego kosztu.
+  - **Codex:** zawsze, bo nie raportuje USD.
+  - **Claude Code przez OpenRouter:** zawsze. Sprawdzone: Claude Code
+    wycenia slug `anthropic/claude-sonnet-4.5` jako `claude-sonnet-4-0`,
+    zgadując po nazwie. Jego kwota zostaje jako `harness_cost_usd`.
+  - **Claude Code natywnie:** tylko po timeoucie.
+  - **Źródła ceny:** `pricing` w `bench.config.yaml` (USD / 1M
+    tokenów, nowe opcjonalne pole), potem publiczny katalog OpenRouter.
+  - **Przed startem:** cena jest ustalana przed biegiem. Model bez
+    ceny nie startuje, bo koszt nieznany oznacza budżet, który nie
+    działa, i $0 w ekonomii bench-summary.
+- **Wykrywanie awarii providera** dla harnessów JSONL patrzy tylko w pola
+  błędów (`result.is_error`, `turn.failed`, `error`) i stderr, nie w całą
+  treść. Agent czytający kod o rate limitach to nie awaria.
+- **Bramka/proxy firmy:** `BENCH_OPENROUTER_BASE_URL` jest przekazywane
+  do próby i podmienia endpoint OpenRouter dla Claude Code i Codexa.
+  Celowo NIE są przekazywane `ANTHROPIC_*` / `CLAUDE_*` hosta: operator
+  pracujący w Claude Code ma je w env, a routing próby ustala trial.sh.
+
+Sprawdzone offline, bez kluczy i bez kosztów. Mock API Anthropic
+(Messages) i OpenAI (Responses) dał prawdziwe wywołania narzędzi i
+zmiany w workspace:
+
+- obraz zbudowany z prawdziwymi CLI, `trial.sh` uruchomiony w
+  kontenerze dla Claude Code (natywnie i przez OpenRouter) i Codexa;
+- obie ścieżki timeoutu z odzyskaniem tokenów;
+- pełne `bench attempt` → koszt wyceniony z katalogu, `harness` w
+  `attempt.json`;
+- odmowa modelu bez ceny przed startem;
+- `bench evaluate` z kosztem w `result.json`;
+- regresja ścieżki OpenCode.
+
+Nie zrobione: e2e w CI dalej mierzy tylko OpenCode. Płatna próba Claude
+Code / Codexa w CI to decyzja o koszcie, nie o kodzie.
+
 ## 0.33.0 — 2026-10-16 (neutralny)
 
 **Stan się wyprowadza, a przegląd dotyczy intencji, nie linii.** Zmiana

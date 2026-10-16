@@ -12,10 +12,13 @@
  *    albo --max-cost).
  * 2. Przygotowanie (jedyny etap z siecią): obraz bazowy + obraz zadania
  *    (repo@pin + overlay + commit startowy, lib/prepare.ts).
- * 3. Próby: każda w jednorazowym kontenerze ze świeżym XDG_DATA_HOME;
+ * 3. Próby: każda w jednorazowym kontenerze z pustym stanem harnessu
+ *    (OpenCode / Claude Code / Codex — prefiks id modelu, lib/harness.ts);
  *    /bench/trial.sh → agent.log, patch.diff, metrics.json (koszt/tokeny
- *    z lokalnego opencode.db — jedyne wiarygodne źródło), execution.json,
- *    workspace/ (stan po pracy agenta — ZAWSZE zachowywany, poza gitem).
+ *    ze stanu harnessu tej próby), execution.json, workspace/ (stan po
+ *    pracy agenta — ZAWSZE zachowywany, poza gitem). Koszt harnessów bez
+ *    wiarygodnego własnego kosztu runner wycenia z tokenów
+ *    (lib/pricing.ts) — cena ustalona PRZED startem, inaczej odmowa.
  * 4. Runner dokłada attempt.json (format 1) — metadane próby.
  *
  * Próba raz opłacona nigdy nie jest wyrzucana: `--force` (re-run mimo
@@ -52,6 +55,16 @@ import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/in
 import { detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, shAsync, signalFromExit } from "../lib/containers.ts";
 import { hashTaskDir } from "../lib/era.ts";
 import { prepareTaskImage, sanitize, type PreparedTask } from "../lib/prepare.ts";
+import { harnessVersion, parseModelId, type HarnessModel } from "../lib/harness.ts";
+import {
+  catalogSlugFor,
+  costPolicy,
+  fetchOpenRouterCatalog,
+  finalizeCost,
+  resolvePrice,
+  type Catalog,
+  type ResolvedPrice,
+} from "../lib/pricing.ts";
 import { ATTEMPT_FORMAT_VERSION } from "../schemas/attempt.ts";
 import type { Task } from "../schemas/task.ts";
 
@@ -125,17 +138,47 @@ function parseArgs(args: string[]): Options | null {
 const PROVIDER_ERROR_PATTERN =
   /rate.?limit|overloaded|internal server error|bad gateway|service unavailable|(?:status(?: code)?|HTTP)[ :]*(?:429|5\d\d)\b/i;
 
-function detectProviderError(trialDir: string, execution: { agent_exit: number; timed_out: boolean } | null): boolean {
+function detectProviderError(
+  trialDir: string,
+  execution: { agent_exit: number; timed_out: boolean } | null,
+  spec: HarnessModel,
+): boolean {
   if (!execution || execution.timed_out || execution.agent_exit === 0) return false;
   const logPath = join(trialDir, "agent.log");
   if (!existsSync(logPath)) return false;
   const log = readFileSync(logPath, "utf8");
-  return PROVIDER_ERROR_PATTERN.test(log.slice(-8000));
+  if (spec.harness === "opencode") return PROVIDER_ERROR_PATTERN.test(log.slice(-8000));
+  // Harnessy JSONL: tylko pola błędów (wynik is_error, turn.failed, error),
+  // nie cała treść — agent czytający kod o rate limitach to nie awaria.
+  const errors: string[] = [];
+  for (const line of log.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === "result" && event.is_error === true) errors.push(`${String(event.api_error_status ?? "")} ${String(event.result ?? "")}`);
+      if (event.type === "turn.failed") errors.push(String((event.error as { message?: unknown } | undefined)?.message ?? ""));
+      if (event.type === "error") errors.push(String(event.message ?? ""));
+    } catch {
+      // linia nie-JSON — pomijamy
+    }
+  }
+  const stderrPath = join(trialDir, "agent.stderr.log");
+  if (existsSync(stderrPath)) errors.push(readFileSync(stderrPath, "utf8").slice(-4000));
+  return PROVIDER_ERROR_PATTERN.test(errors.join("\n").slice(-8000));
 }
 
-/** Env przekazywany do kontenera próby: sekrety modeli + konfiguracja OpenCode. */
+/**
+ * Env przekazywany do kontenera próby: sekrety modeli + konfiguracja
+ * OpenCode. Celowo NIE ANTHROPIC_* / CLAUDE_* / OPENAI_BASE_URL hosta —
+ * operator, który sam pracuje w Claude Code, ma ich pełne env, a routing
+ * próby ustala trial.sh z id modelu.
+ */
 function trialEnvNames(): string[] {
-  return Object.keys(process.env).filter((name) => /_API_KEY$/.test(name) || /^OPENCODE_/.test(name));
+  return Object.keys(process.env).filter(
+    // BENCH_OPENROUTER_BASE_URL: bramka/proxy firmy przed OpenRouter dla
+    // Claude Code i Codexa (trial.sh); domyślnie https://openrouter.ai/api.
+    (name) => /_API_KEY$/.test(name) || /^OPENCODE_/.test(name) || name === "BENCH_OPENROUTER_BASE_URL",
+  );
 }
 
 /**
@@ -339,6 +382,50 @@ export async function attemptCommand(args: string[]): Promise<number> {
       );
     }
 
+    // --- harnessy i ceny: ustalone PRZED wydaniem pieniędzy ---
+    // Model, którego kosztu nie da się policzyć, nie startuje: koszt
+    // nieznany to budżet, który nie działa, i $0 w ekonomii bench-summary.
+    const harnessSpecs = new Map<string, HarnessModel>();
+    for (const model of new Set(plan.filter((c) => c.numbers.length > 0).map((c) => c.model))) {
+      harnessSpecs.set(model, parseModelId(model));
+    }
+    const needsCatalog = [...harnessSpecs.values()].some((s) => costPolicy(s) !== "harness" && !config.pricing?.[s.id]);
+    let catalog: Catalog | null = null;
+    let catalogError: string | null = null;
+    if (needsCatalog) {
+      try {
+        catalog = await fetchOpenRouterCatalog();
+      } catch (err) {
+        catalogError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    const prices = new Map<string, ResolvedPrice | null>();
+    for (const spec of harnessSpecs.values()) {
+      const policy = costPolicy(spec);
+      if (policy === "harness") continue;
+      const price = resolvePrice(spec, config, catalog);
+      prices.set(spec.id, price);
+      const why = catalogError
+        ? `katalog cen OpenRouter niedostępny (${catalogError})`
+        : `brak "${catalogSlugFor(spec) ?? spec.cliModel}" w katalogu OpenRouter`;
+      if (price) {
+        console.log(
+          `price:  ${spec.id} → ${price.source} ($${price.input}/$${price.output} za 1M in/out)` +
+            (policy === "harness-or-priced" ? " — tylko gdy harness nie poda kosztu (timeout)" : ""),
+        );
+      } else if (policy === "priced") {
+        throw new Error(
+          `${spec.id}: ${spec.harness} nie raportuje wiarygodnego kosztu, a cena modelu jest nieznana — ${why}; ` +
+            `dodaj pricing["${spec.id}"] (USD za 1M tokenów: input, output, cache_read) w bench.config.yaml`,
+        );
+      } else {
+        console.error(
+          `warn:   ${spec.id}: brak ceny zapasowej (${why}) — próba przerwana timeoutem nie dostanie kosztu; ` +
+            `rozważ pricing["${spec.id}"] w bench.config.yaml`,
+        );
+      }
+    }
+
     const engine = detectEngine(opts.engine);
     console.log(`bench attempt: macierz ${models.length} model(i) × ${taskNames.length} zadań → ${outDir} (engine: ${engine})`);
 
@@ -370,6 +457,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       image: string;
       startSha: string;
       model: string;
+      harness: HarnessModel;
       trial: number;
       memoryMb: number | null;
       limitArgs: string[];
@@ -383,7 +471,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
       const limitArgs = resourceLimitArgs(memoryMb, config.resources.pids_limit ?? null);
       for (const trial of cell.numbers) {
-        specs.push({ name: cell.task, task, image, startSha, model: cell.model, trial, memoryMb, limitArgs });
+        specs.push({ name: cell.task, task, image, startSha, model: cell.model, harness: harnessSpecs.get(cell.model) as HarnessModel, trial, memoryMb, limitArgs });
       }
     }
 
@@ -403,7 +491,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       }
     }
 
-    const runTrial = async ({ name, task, image, startSha, model, trial, memoryMb, limitArgs }: TrialSpec) => {
+    const runTrial = async ({ name, task, image, startSha, model, harness, trial, memoryMb, limitArgs }: TrialSpec) => {
       const trialDir = join(outDir, name, sanitize(model), `trial-${trial}`);
       const label = `${name} × ${model} × próba ${trial}`;
       // Zachowane próby są nienaruszalne: re-run (--force / --trial-index)
@@ -458,14 +546,27 @@ export async function attemptCommand(args: string[]): Promise<number> {
         console.log(`trial:  ${label} …`);
         const result = await shAsync(
           engine,
-          ["run", "--rm", "-v", `${trialDir}:/bench/out`, ...limitArgs, ...envArgs, image, "/bench/trial.sh", model, String(task.timeout_s)],
+          [
+            "run",
+            "--rm",
+            "-v",
+            `${trialDir}:/bench/out`,
+            ...limitArgs,
+            ...envArgs,
+            image,
+            "/bench/trial.sh",
+            String(task.timeout_s),
+            harness.harness,
+            harness.route,
+            harness.cliModel,
+          ],
           { timeout: (task.timeout_s + 300) * 1000 },
         );
 
         const executionPath = join(trialDir, "execution.json");
         execution = existsSync(executionPath) ? JSON.parse(readFileSync(executionPath, "utf8")) : null;
         infraFailure = result.status !== 0 || !execution;
-        providerError = !infraFailure && detectProviderError(trialDir, execution);
+        providerError = !infraFailure && detectProviderError(trialDir, execution, harness);
         const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
         if ((providerError || signal) && attempts === 1) {
           const kind = providerError ? "provider-error" : "signal-kill";
@@ -526,6 +627,18 @@ export async function attemptCommand(args: string[]): Promise<number> {
         break;
       }
 
+      // Koszt wg polityki harnessu (lib/pricing.ts): wycena z tokenów tam,
+      // gdzie harness nie daje wiarygodnego kosztu — ze źródłem w metrics.json.
+      const metricsFile = join(trialDir, "metrics.json");
+      if (existsSync(metricsFile)) {
+        const metrics = JSON.parse(readFileSync(metricsFile, "utf8")) as Record<string, unknown>;
+        const note = finalizeCost(metrics, harness, prices.get(model) ?? null);
+        if (note) {
+          writeFileSync(metricsFile, JSON.stringify(metrics, null, 2) + "\n");
+          console.log(`cost:   ${label} — ${note}`);
+        }
+      }
+
       writeFileSync(
         join(trialDir, "attempt.json"),
         JSON.stringify(
@@ -533,6 +646,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
             format: ATTEMPT_FORMAT_VERSION,
             task: name,
             model,
+            harness: { name: harness.harness, version: harnessVersion(root, harness.harness), route: harness.route },
             trial,
             image,
             start_sha: startSha,

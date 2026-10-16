@@ -117,7 +117,10 @@ evaluated.
 ### 1. Scope
 
 Establish the matrix from the request and the instance state: which
-models (`defaults.models` unless the user names others), which tasks
+models (`defaults.models` unless the user names others; the id's
+prefix is the harness, so `claude-code:X` and `codex:X` are separate
+contestants from `X` in OpenCode, and a comparison across prefixes
+measures the tool, not just the model), which tasks
 (all of `tasks/` unless narrowed), how many trials
 (`defaults.trials`) — and treat that trial count as a **floor set by
 the reliability you need to claim**, not as the scope. If the run is
@@ -234,7 +237,12 @@ Close with:
   rebuilds on push. A blocked group (for example a rubric edited
   without a version bump while results carry that version) is yours to
   resolve before handing over, never the user's to discover;
-- actual spend vs budget;
+- actual spend vs budget, and how each harness's cost was produced. OpenCode
+  and Claude Code (native) report their own cost. Codex and Claude Code
+  through OpenRouter are priced from tokens at list rates
+  (`metrics.json` → `cost_source`). Comparing those two kinds of cost is
+  close but not exact; say so whenever a recommendation rests on a price
+  gap across harnesses;
 - **which guard components discriminated nothing**, if any — a
   component scoring identically across every attempt of the run told
   you nothing at its weight, and that is a finding about the task

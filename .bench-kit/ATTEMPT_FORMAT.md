@@ -17,8 +17,11 @@ układ katalogu = bump `format` + nota migracyjna w CHANGELOG.
 attempts/<zadanie>/<model-sanitized>/trial-<n>/
 ├── attempt.json        # metadane próby (schemat: runner/src/schemas/attempt.ts)
 ├── patch.diff          # workspace vs commit startowy (git diff --binary)
-├── agent.log           # pełne wyjście `opencode run` (na dysku; *.log poza gitem)
-├── metrics.json        # koszt/tokeny/czas z LOKALNEGO opencode.db próby
+├── agent.log           # wyjście agenta: `opencode run` (tekst) / zdarzenia JSONL
+│                       #   Claude Code i Codexa (na dysku; *.log poza gitem)
+├── agent.stderr.log    # stderr harnessu JSONL (Claude Code, Codex; poza gitem)
+├── metrics.json        # koszt/tokeny/czas ze stanu harnessu tej próby
+│                       #   (+ wycena runnera ze źródłem — metrics-adapter/README.md)
 ├── execution.json      # surowy status wykonania (agent_exit, timed_out, wall)
 ├── workspace/          # stan /workspace po pracy agenta — POZA gitem (GB)
 ├── signal.json         # tylko przy killu sygnałowym po retry (diagnostyka)
@@ -81,10 +84,20 @@ zachowane / w toku / przeterminowane / ocenione — pokazuje
   Re-run (`bench attempt --force` / `--trial-index n --force`) przenosi
   stary katalog do `trial-<n>.superseded-<stempel>/` (pomijany przez
   ocenę i agregację), nowa próba wchodzi na jego miejsce.
-- **Wiarygodność metryk**: `metrics.json` pochodzi z lokalnego storage
-  OpenCode próby (`opencode.db` w świeżym XDG_DATA_HOME), nie z łańcucha
-  adapter↔provider. `"incomplete": true` = adapter nie znalazł danych —
-  wartości nigdy nie są wymyślane.
+- **Wiarygodność metryk**: `metrics.json` pochodzi ze stanu harnessu
+  tej próby (OpenCode: `opencode.db`; Claude Code: linia `result` albo
+  transkrypt; Codex: `turn.completed` albo rollout — zawsze z pustego na
+  starcie katalogu stanu), nie z łańcucha adapter↔provider. Gdy harness
+  nie daje wiarygodnego kosztu, runner wycenia tokeny i zapisuje źródło
+  (`cost_source`, `pricing_usd_per_mtok`). `"incomplete": true` =
+  brak danych — wartości nigdy nie są wymyślane.
+- **Harness**: `attempt.json.harness` = `{name, version, route}` — CLI
+  agenta, jego pinowana wersja (`docker/<harness>.version`) i routing
+  dostawcy (`native` / `openrouter`). Id modelu niesie harness jako
+  prefiks (`claude-code:…`, `codex:…`; bez prefiksu = OpenCode), więc
+  ten sam model w innym CLI to osobna komórka macierzy. Brak pola =
+  próba sprzed harnessów (OpenCode). Pole jest addytywne — `format`
+  pozostaje `1`.
 - **Atrybucja awarii**: `infra_failure`/`resource_kill`/`provider_error`
   w `attempt.json` wyłączają próbę z oceny zamiast wliczać zero do
   median; `bench evaluate` pomija je z warningiem.

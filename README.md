@@ -13,8 +13,25 @@ machine or a VPS with a container engine. GitHub Actions handles
 readiness checks and optional leaderboard publication. Paid execution
 stays on the measurement host.
 
-Trials currently use **OpenCode** as the execution harness. The benchmark
-measures quality, cost, and execution time.
+Trials run in one of three agent CLIs ("harnesses"), all preinstalled in
+the trial image at pinned versions: **OpenCode**, **Claude Code**, and
+**OpenAI Codex CLI**. The harness is part of the model id, so the same
+model in two CLIs shows up as two contestants:
+
+| Model id in `defaults.models` | Runs in | Key |
+|---|---|---|
+| `openrouter/anthropic/claude-sonnet-5` | OpenCode (no prefix, as before) | `OPENROUTER_API_KEY` |
+| `claude-code:claude-sonnet-5` | Claude Code, Anthropic API | `ANTHROPIC_API_KEY` |
+| `claude-code:openrouter/anthropic/claude-sonnet-5` | Claude Code via OpenRouter | `OPENROUTER_API_KEY` |
+| `codex:gpt-5.1-codex` | Codex CLI, OpenAI API | `OPENAI_API_KEY` |
+| `codex:openrouter/openai/gpt-5.1-codex` | Codex CLI via OpenRouter | `OPENROUTER_API_KEY` |
+
+The benchmark measures quality, cost, and execution time. Where a CLI
+does not report a trustworthy cost (Codex, or Claude Code routed through
+OpenRouter), the runner prices the trial's tokens. Prices come from the
+`pricing` map in `bench.config.yaml` or from OpenRouter's public model
+catalog, and the source is recorded with the cost. A model that cannot
+be priced is refused before any money is spent.
 
 ## Get started
 

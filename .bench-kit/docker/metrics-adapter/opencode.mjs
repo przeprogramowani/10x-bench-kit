@@ -10,14 +10,14 @@
  * osobne sesje). Brak danych → metryki częściowe z "incomplete": true,
  * nigdy nie wymyślamy wartości.
  *
- * Użycie: node --experimental-sqlite adapter.mjs <xdg-data-dir> <out-metrics.json> [wall_duration_s]
+ * Użycie: node --experimental-sqlite opencode.mjs <xdg-data-dir> <out-metrics.json> [wall_duration_s]
  */
 import { writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const [xdgDataDir, outPath, wallDurationArg] = process.argv.slice(2);
 if (!xdgDataDir || !outPath) {
-  console.error("usage: adapter.mjs <xdg-data-dir> <out-metrics.json> [wall_duration_s]");
+  console.error("usage: opencode.mjs <xdg-data-dir> <out-metrics.json> [wall_duration_s]");
   process.exit(2);
 }
 const wallDuration = wallDurationArg ? Number(wallDurationArg) : null;
@@ -70,6 +70,7 @@ const finished = Math.max(...rows.map((r) => Number(r.time_updated)));
 
 const metrics = {
   cost_usd: sum("cost"),
+  cost_source: "harness",
   tokens: {
     input: sum("tokens_input"),
     output: sum("tokens_output"),

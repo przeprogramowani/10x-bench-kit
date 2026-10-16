@@ -71,11 +71,13 @@ Everything is local — no artifact downloads, no retention windows:
   `trial-N.superseded-<stamp>/`.
 - **Attempt files**: `attempt.json` (metadata, format version),
   `execution.json` (agent exit code; 124 = timeout), `agent.log`
-  (full OpenCode output; on disk, gitignored), `patch.diff` (the
+  (full harness output: OpenCode text, or Claude Code / Codex JSONL
+  events with `agent.stderr.log` beside them; on disk, gitignored), `patch.diff` (the
   agent's work vs the starting commit), `workspace/` (the agent's
   final workspace state — on disk, gitignored), `metrics.json`
-  (cost/tokens/time from the trial's local opencode.db;
-  `"incomplete": true` = the adapter found no data), `container.log`
+  (cost/tokens/time from the trial's own harness state; `cost_source`
+  says whether the harness or the runner's token pricing produced the
+  cost; `"incomplete": true` = the adapter found no data), `container.log`
   (exists only on infrastructure failure), `signal.json` (exists only
   when the agent was killed by a signal even after retry — signal
   name, hint, memory limit, log tail; such an attempt has
@@ -142,7 +144,7 @@ difference usually points to one component, not all of them.
 | `execution.json` exit 137 (or another 128+N) without a timeout | `signal.json`, tail of `agent.log` | agent killed by a signal — SIGKILL during install/build = resource exhaustion → infrastructure fault (since 0.11.0 the runner classifies this itself: retry, `resource_kill`, exclusion from evaluation; no `signal.json` = run predates that version, classify manually) |
 | `container.log` exists | `container.log`, `execution.json` | container died before the agent → infrastructure fault |
 | `attempt.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
-| `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
+| `metrics.json` incomplete | `agent.log`, `attempt.json.harness`, `incomplete_reason` | adapter / harness version → infrastructure fault; "brak ceny modelu" → missing `pricing` entry, wiring fault |
 | assertion 0 in `checks.json` | assertion log + read the assertion + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (broken env, repo command drift — and a shape-neutrality violation: the script assuming an implementation shape, the retired convention), task fault; green for some attempts → model fault |
 | judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |
 | judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread with a sane ranking → judge instability (bench-rubric on the preserved attempts); wrong ranking against a manual read → rubric fault (edit per bench-build's RUBRIC_AUTHORING.md), task fault |
