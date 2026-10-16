@@ -15,7 +15,8 @@ Zawartość:
 - `ATTEMPT_FORMAT.md` — kontrakt ZACHOWANEJ PRÓBY (format katalogu
   `attempts/<zadanie>/<model>/trial-N/`): jedyny punkt styku między
   wykonaniem a oceną, wersjonowany.
-- `runner/` — CLI `bench` (`attempt` / `evaluate` / `status` / `shell` /
+- `runner/` — CLI `bench` (`attempt` / `evaluate` / `status` /
+  `backlog` / `changes` / `shell` /
   `validate` / `report` / `leaderboard` / `assert` / `judge` /
   `calibrate` / `doctor`); schematy kontraktów w `runner/src/schemas/`.
 - `docker/` — bazowy Dockerfile obrazu próby, pinowana wersja OpenCode

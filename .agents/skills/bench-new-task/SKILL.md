@@ -207,7 +207,9 @@ presented for acceptance at all; it goes back into the interview.
 
 If `tasks/backlog.md` does not exist, create it per
 [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md). Append each order as an
-entry with status `pending` and a date. An order's name must not
+entry with status `pending` and a date. `pending` is the only status
+you write; how far an order has got is derived from disk later
+(`bench backlog`), so nobody ever edits it. An order's name must not
 collide with an existing `tasks/<name>/` directory or another backlog
 entry. Nothing in git (rule 2) — the file stays in the working tree.
 

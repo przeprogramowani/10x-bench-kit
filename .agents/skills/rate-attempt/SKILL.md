@@ -178,8 +178,10 @@ user's move — you never commit or push.
 
 The unit above is one attempt; a batch is a thin loop over attempt
 directories — `bench status` lists, per cell, how many preserved
-attempts lack a fresh evaluation (result stamped with the current
-task definition) and which are still running (skip those; `bench
+attempts lack a fresh evaluation (a result stamped with the current
+evaluation era: task definition, judge model, rubric versions, scoring
+version; it names the reason for every stale one, so a rubric bump
+lists exactly the attempts to re-judge) and which are still running (skip those; `bench
 attempt` may still be working in the background). For each attempt run the single-attempt procedure; with
 subagent support, one subagent per attempt keeps verdicts independent
 (they must not see each other — cross-attempt anchoring biases scores).
@@ -188,8 +190,11 @@ reasons, guard failures worth escalating to bench-explain-results.
 
 ## Closing message
 
-End with: a results table (attempt, guards, judge, total), where the
-results landed (`results/…` paths, uncommitted), the evaluation-era
-note (judge model + rubric versions this verdict is stamped with), and
-one call to action — normally "review and commit results/, then the
-leaderboard workflow picks them up on push".
+End with: a results table (attempt, guards, judge, total), the
+evaluation-era note (judge model + rubric versions this verdict is
+stamped with), and the commit plan from `bench changes`, which groups
+where the results landed (`results/…`, uncommitted) by intent. A
+re-evaluation after a rubric bump lands in the same group as the bump
+because they belong in one PR. Close with one call to action, normally
+"review and commit the groups, then the leaderboard workflow picks them
+up on push".

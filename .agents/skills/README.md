@@ -71,6 +71,12 @@ Target set (concept: SKILLS_DESIGN in the project repo):
   settled on price; unmeasured cells are reported as unmeasured, never
   as zero; it never changes scoring.
 
+Two read-only runner views tie the cycle together. `bench backlog`
+derives each order's stage from disk (the backlog stores decisions
+only), and `bench changes` turns the uncommitted working tree into a
+commit plan grouped by scoring impact. Skills end their handover with
+that plan instead of a list of paths.
+
 In the template, skills live under the tool-agnostic `.agents/skills/`;
 `10x bench-kit init` materializes them in the instance under the path of
 the chosen agent tool (`.claude/skills/` for Claude Code, `.agents/skills/`

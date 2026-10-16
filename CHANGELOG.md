@@ -6,6 +6,86 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.33.0 — 2026-10-16 (neutralny)
+
+**Stan się wyprowadza, a przegląd dotyczy intencji, nie linii.** Zmiana
+procedur i dwie nowe komendy tylko do odczytu. Schematy (`task.yaml`,
+`bench.config.yaml`, `result.json`, format próby), scoring i
+`SCORING_VERSION` są bez zmian. Istniejące wyniki pozostają ważne, a era
+porównywalności nienaruszona. Git zostaje: komendy go czytają, nigdy nie
+commitują.
+
+Inspiracja: projekt Scion (Anthropic, „Redesigning source control"),
+wzięty selektywnie. Pochodne indeksy liczone z niezmiennych faktów
+zamiast globalnego stanu, który wszyscy muszą ręcznie uzgadniać.
+Przegląd intencji zmiany i semantyczne reguły akceptacji (inna ścieżka
+dla zmiany neutralnej, inna dla zmiany ruszającej logikę) zamiast
+przeglądu każdej linii. Stąd trzy problemy znalezione w tym repo:
+
+- **Statusy backlogu dryfowały.** `in-progress → built → done`
+  przepisywał ręcznie orkiestrator bench-build, choć każdy z tych stanów
+  już leżał na dysku jako fakt: todo.md subagenta, task.yaml, raport z
+  sekcją „Batch gate". Martwa sesja zostawiała zlecenie na zawsze
+  `in-progress`, a partia N zleceń przepisywała N linii pliku, który
+  równolegle edytował ktoś inny.
+- **`bench status` uznawał re-ocenę za zbędną.** Świeżość oceny
+  porównywała tylko `task_hash`. Po bumpie rubryki albo zmianie sędziego
+  status meldował „wszystkie zachowane próby ocenione”, a tryb wsadowy
+  rate-attempt nie widział, co ocenić ponownie. Tymczasem AGENTS.md
+  mówi, że zmiana rubryki to RE-OCENA.
+- **Użytkownik commitował listę ścieżek.** Skille zostawiały zadania,
+  rubryki, raporty, wyniki i backlog w jednym drzewie roboczym. Co z
+  tego zamyka erę, a co jest neutralne, trzeba było wyczytać samemu.
+  Edycji rubryki bez bumpu `version` nic nie łapało, więc stare i nowe
+  oceny nosiłyby ten sam stempel.
+
+Zmiany:
+
+- **`bench backlog`** wylicza etap każdego zlecenia z dysku: `ordered` →
+  `building` → `built` → `ready` → `measuring` → `measured` (+
+  `dropped`). Dorzuca pokrycie klas pracy („klasa jeszcze bez
+  odpowiedzi”), uwagi o rozjazdach (osierocone `in-progress`, `done` bez
+  bramki w raporcie, todo.md nieruszany od godzin, brak Decision,
+  zdublowana lub zgubiona linia Status) i stan w gicie. Ma też `--json`.
+- **Backlog trzyma decyzje, nie postęp.** Status to już tylko `pending`
+  albo `dropped`. bench-build niczego nie przełącza, a porażki dopisuje
+  jako datowane linie pola **Build log**. Statusy legacy są nadal
+  czytane, rozjazd z dyskiem trafia do uwag. Odmowa subagenta kasuje
+  wszystkie jego pliki (TASK_AUTHORING.md krok 0), więc zlecenie wraca
+  do `ordered`.
+- **`bench status`: świeżość = cała era oceny.** Liczy się `task_hash`,
+  sędzia, wersje rubryk i scoring, czyli ten sam klucz, którym
+  report i leaderboard grupują wyniki. Ocena z innej ery jest „stara”
+  z powodem (np. `rubryka default-rubric@4→default-rubric@5`), a
+  status wypisuje listę prób do re-oceny. Odczyt komórek przeniesiono
+  do `lib/matrix.ts`, wspólnego dla `status` i `backlog`.
+- **`bench changes [--base <ref>]`** dzieli zmiany drzewa roboczego
+  względem HEAD (lub refa) wg intencji i wpływu na scoring. `neutral`
+  to koordynacja, nowe zadanie z rubryką, nowymi guardami i raportem
+  albo ustawienia biegu. `data` to nowe oceny, re-oceny i metadane
+  prób. `era` (przez PR) to zmienione zadanie, bump rubryki razem z
+  re-ocenami lub pole configu ze stempli. `blocked` (exit 1) to rubryka
+  zmieniona bez bumpu przy istniejących wynikach z jej wersją, todo.md
+  w katalogu zadania, workspace próby w gicie albo ręczna edycja
+  `.bench-kit/`. Każda grupa dostaje gotowe `git add` i `git commit`.
+- **Skille kończą przekazanie planem z `bench changes`**, a nie listą
+  ścieżek: bench-build (Next step), bench-measure (handover),
+  rate-attempt (closing). bench-build zaczyna od `bench backlog`
+  (zakres = etap `ordered`). RUBRIC_AUTHORING.md wskazuje blokadę
+  braku bumpu.
+
+Odrzucone po teście: `merge=union` dla `tasks/backlog.md`. Przy dwóch
+gałęziach dopisujących zlecenia union scalił wspólne linie kontekstu i
+zgubił linię Status jednego z wpisów. Cichy błąd jest gorszy od
+konfliktu, który trzeba rozwiązać ręcznie (zostaw oba bloki).
+
+Znalezisko na później, celowo bez zmiany w tym release (byłaby
+`[scoring-breaking]`): asercje puli (`static/`, `tests/`, `e2e/`) nie
+wchodzą do stempli ery, więc zmiana guarda zmienia wyniki bez zmiany
+ery. `bench changes` oznacza taką zmianę jako `era` i wymaga re-oceny
+oraz noty w PR. Docelowo hash guardów zadania powinien wejść do
+stempli.
+
 ## 0.32.0 — 2026-09-18 (neutralny)
 
 **Nagłówek strony jest treścią redakcyjną, nie kodem.** Zmiana wyłącznie

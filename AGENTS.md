@@ -69,6 +69,21 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
   nie deklaracja.
+- **Stan się wyprowadza, nie zapisuje** — postęp zlecenia (ordered →
+  building → built → ready → measuring → measured) czyta
+  `bench backlog` z faktów na dysku (todo.md, task.yaml, bramka partii
+  w raporcie, próby, oceny w bieżącej erze). W backlogu żyją wyłącznie
+  decyzje (`pending` / `dropped`) i dziennik budowy, więc żaden skill
+  nie przepisuje linii statusu. Świeżość oceny to cała era oceny
+  (zadanie + sędzia + wersje rubryk + scoring), nie sam `task_hash`:
+  bump rubryki `bench status` pokazuje jako pracę do re-oceny.
+- **Przegląd intencji, nie linii** — zanim użytkownik dostanie pliki do
+  commita, skill uruchamia `bench changes` i przekazuje jego plan. Plan
+  dzieli drzewo robocze wg wpływu na scoring: koordynacja / nowe zadanie
+  / dane / zamknięcie ery (PR) / zablokowane. Do każdej grupy daje
+  gotowe `git add` + `git commit`. Edycja rubryki bez bumpu `version`
+  przy istniejących wynikach i plik roboczy w katalogu zadania blokują
+  plan, a ich naprawa należy do skilla, nie do użytkownika.
 - **Zmiana w skillach = release** — każda pushowana zmiana w skillach
   (lub innej strefie współdzielonej template'u) dostaje bump wersji
   wg SemVer stosownie do wpływu (patch: doprecyzowanie w obrębie

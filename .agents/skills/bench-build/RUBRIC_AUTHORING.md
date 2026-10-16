@@ -77,6 +77,9 @@ valid JSON = 0 for the judge component.
 - `version: "1"` for a new rubric. A bump is due only when the rubric
   changes **after** results were computed with it (a new era for the
   tasks using it; preserved attempts are re-evaluated, not re-run).
+  `bench changes` enforces it: a rubric whose text changed while
+  results carry its current version is a blocked group until the
+  version moves.
 - The anti-nitpicking clause and the conciseness contract appear
   **verbatim** — they are pool contracts, not style.
 

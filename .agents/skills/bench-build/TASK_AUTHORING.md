@@ -48,8 +48,9 @@ task built on guesses.
    user's decision. The task's own rubric
    (`evaluation-pool/judge/<name>-rubric.md`) IS your scope; other
    rubrics and `bench.config.yaml` are not (bench-wiring). You do not
-   touch the backlog (`tasks/backlog.md`) at all — the orchestrator
-   manages statuses.
+   touch the backlog (`tasks/backlog.md`) at all. Your progress is
+   read from your own files (`todo.md`, then `task.yaml` and the
+   report) by `bench backlog`; nobody records it by hand.
 2. **Isolation of evaluation materials.** Nothing from
    `evaluation-pool/` may be copied or referenced in `tasks/<name>/`
    (the only exception: `evaluation: [...]` entries in task.yaml).
@@ -177,10 +178,13 @@ orchestrator and the user read this file live — it must describe the
 actual state, not a plan; a backfilled entry written just before the
 report defeats its purpose.
 
-When handing off the work (step 7), **delete** todo.md — also on
-refusal (in that case also delete the task directory if nothing besides
-todo.md was created in it). Everything meant to survive belongs in the
-final report.
+When handing off the work (step 7), **delete** todo.md. On refusal,
+delete everything you created: the task directory and any pool entries
+of your own. A refusal leaves no files behind, only its reason, which
+the orchestrator logs on the order. Partial files would show the order
+in the wrong stage in `bench backlog`, and if they were picked up later
+they would enter the next build's `task_hash`. Everything meant to
+survive belongs in the final report.
 
 ### 1. Pin
 

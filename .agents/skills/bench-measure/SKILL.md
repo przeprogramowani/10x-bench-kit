@@ -83,6 +83,10 @@ evaluated.
    between trials of the same run. Config changes go through
    bench-wiring, rubric edits through bench-build's RUBRIC_AUTHORING.md
    (version bump + re-evaluation) — before or after a measurement.
+   `bench status` treats an evaluation from another era (a changed
+   task, rubric version, judge or scoring version) as not evaluated and
+   prints the reason, so a rubric bump shows up as re-evaluation work
+   instead of passing silently as "all evaluated".
 8. **Long runs are detached, never awaited in the foreground.** A
    matrix run is hours of mostly waiting on provider APIs; start it
    detached (a `tmux` session or `nohup … > <log> &`) and come back
@@ -221,9 +225,15 @@ Close with:
   (rule 11). A failure mode that passes lint, types, build and the
   suite is a review cost, and it belongs next to the price, not in a
   footnote;
-- the exact `results/…` paths that are new/changed, **uncommitted** —
-  the user reviews and commits; the leaderboard workflow rebuilds on
-  push;
+- **the commit plan from `bench changes`**, not a flat list of
+  `results/…` paths. It splits the uncommitted tree by intent: new
+  evaluations and re-evaluations per task, attempt metadata with them,
+  and anything that closes an era (a rubric bump with its re-evaluated
+  results, a config change to the judge or limits) marked for a PR. The
+  user reviews and commits each group; the leaderboard workflow
+  rebuilds on push. A blocked group (for example a rubric edited
+  without a version bump while results carry that version) is yours to
+  resolve before handing over, never the user's to discover;
 - actual spend vs budget;
 - **which guard components discriminated nothing**, if any — a
   component scoring identically across every attempt of the run told

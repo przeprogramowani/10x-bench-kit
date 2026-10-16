@@ -55,7 +55,14 @@ wiring; repeat it as your work and model choices change.
 | 4. Make a decision | [bench-summary](.agents/skills/bench-summary/SKILL.md) | “Use bench-summary to show which model we should use for this work and what it costs.” | A self-contained HTML summary and recommendation based on pass rate, uncertainty, cost per acceptable result, and review burden. |
 
 **You review and commit the files.** Skills leave task files, reports, and
-results in the working tree; they do not commit or push them. If you
+results in the working tree; they do not commit or push them. Each skill
+ends its handover with a **commit plan**: changes grouped by intent (new
+task with its rubric and report, new evaluations, a rubric bump with its
+re-evaluations, backlog). Each group is marked neutral, data, or
+era-closing (needs a PR) and comes with ready `git add` / `git commit`
+lines. You review what each group does to comparability rather than a
+flat list of paths. To see where every order stands, built, measured,
+or waiting, ask the agent for the backlog status. If you
 configure leaderboard publication, pushing committed results triggers
 its rebuild.
 

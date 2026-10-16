@@ -6,14 +6,40 @@ The runner ignores it (in `tasks/` it reads only task directories), so
 it does not affect scoring. Skills only edit this file in the working
 tree — git (commit, push) is managed by the user.
 
-Entry status lifecycle:
+**The backlog records decisions; the disk records progress.** The
+**Status** field carries only the two states a person decides:
 
-`pending` → `in-progress` (bench-build launched a subagent) →
-`built` (files + report in the working tree, batch gate pending) →
-`done` (the batch gate — `bench validate --assert` + smoke — passed)
-or back to `pending` with a note when the build or the gate failed. Mark abandoned
-orders as `dropped` with a one-sentence reason — do not delete entries,
-the decision history stays.
+- `pending` — the order stands (set by bench-new-task);
+- `dropped` — the order was abandoned, with a one-sentence reason. Do
+  not delete entries; the decision history stays.
+
+How far an order has got is **derived, never written**:
+`bench backlog` reads the facts the workflow already leaves on disk
+and reports each order's stage:
+
+| Stage | The fact it is derived from |
+|---|---|
+| `ordered` | no `tasks/<name>/task.yaml` yet |
+| `building` | `tasks/<name>/todo.md` exists (a bench-build subagent is working; a todo.md untouched for hours is flagged) |
+| `built` | `task.yaml` exists, the report `reports/<name>-build.md` has no filled `## Batch gate` section yet |
+| `ready` | the report carries the batch gate; no attempts yet |
+| `measuring` | attempts exist, but not every model in `defaults.models` has `defaults.trials` attempts evaluated in the current era |
+| `measured` | every cell has its target of current-era evaluations, so bench-summary can use it |
+
+A status nobody has to update cannot drift. When a session dies in the
+middle of a build, `bench backlog` shows the order as building (todo.md
+still there) or ordered again. It never stays stuck on a stale
+`in-progress`. And because no skill rewrites status lines, a build
+batch no longer creates edits that conflict with whoever else changed
+the backlog meanwhile. Two branches that each append an order still
+meet at the end of the file. Resolve that conflict by keeping both
+blocks; `bench backlog` flags an entry that lost its Status line or
+gained a second one.
+
+Legacy values (`in-progress`, `built`, `done`) in existing backlogs are
+still read. `bench backlog` reports when one contradicts the disk, for
+example an orphaned `in-progress`, or a `done` whose report has no gate
+evidence. Do not write them in new entries.
 
 Document template:
 
@@ -21,8 +47,10 @@ Document template:
 # Task order backlog
 
 Orders are created by the **bench-new-task** skill and built by the
-**bench-build** skill. Statuses: pending / in-progress / built / done / dropped.
-Skills only edit this file — git is managed by the user.
+**bench-build** skill. Status: pending / dropped — progress (ordered →
+building → built → ready → measuring → measured) is derived from disk
+by `bench backlog`, never written here. Skills only edit this file —
+git is managed by the user.
 
 ## <task-name>
 
@@ -65,6 +93,10 @@ Skills only edit this file — git is managed by the user.
 - **Notes**: <optional: ideas for assertions/evaluation components,
   whether a judge component is expected, the verification expectation
   for the prompt, other decisions from the interview>
+- **Build log**: <optional, appended by bench-build only — one dated
+  line per failed build or failed batch gate: "<YYYY-MM-DD> refused —
+  <reason>" / "<YYYY-MM-DD> gate red — <assertion, one line>". This is
+  the order's history; its stage stays derived (`bench backlog`).>
 ```
 
 Entry rules:

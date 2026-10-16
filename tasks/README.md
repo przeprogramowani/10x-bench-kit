@@ -15,12 +15,16 @@ wszystkich pól: `demo-hello-bench/task.yaml`.
 
 ## Backlog zleceń — `tasks/backlog.md`
 
-Stanowy dokument koordynacji: skill **bench-new-task** dopisuje do
-niego zlecenia zadań po krótkim wywiadzie, skill **bench-build**
-zamienia oczekujące zlecenia w prawdziwe zadania (subagent per
-zlecenie). Runner ignoruje pliki w `tasks/` niebędące katalogami,
-więc backlog nie wpływa na scoring. Skille wyłącznie edytują ten
-plik — gitem zarządza użytkownik.
+Dokument decyzji: skill **bench-new-task** dopisuje do niego
+zlecenia zadań po krótkim wywiadzie, skill **bench-build** zamienia
+oczekujące zlecenia w prawdziwe zadania (subagent per zlecenie).
+Status zlecenia to wyłącznie decyzja (`pending` / `dropped`). Etap
+(ordered → building → built → ready → measuring → measured) wylicza
+`bench backlog` z dysku, więc nikt go nie przepisuje, a budowa partii
+nie produkuje edycji konfliktujących z równoległymi zmianami backlogu.
+Runner ignoruje pliki w `tasks/` niebędące katalogami, więc backlog
+nie wpływa na scoring. Skille wyłącznie edytują ten plik — gitem
+zarządza użytkownik.
 
 ## Zasady
 
