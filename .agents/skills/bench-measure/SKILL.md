@@ -87,18 +87,19 @@ evaluated.
    built-in retry) is a diagnosis first (`agent.log`,
    `container.log`, `signal.json`), a re-run second — a blind re-run
    repeats the same failure and the same invoice. Surprising *scores*
-   go to bench-decide (explain), not to another run.
+   go to bench-decide's EXPLAIN.md, not to another run.
 6. **You never commit or push.** Results land in
    `results/<task>/<model>/trial-N/` — reviewing and committing them
    is the user's move, and only committed results feed the leaderboard.
 7. **Do not touch scoring while measuring.** No edits to tasks,
    rubrics, weights, or the config mid-run — that would fork the era
    between trials of the same run. Config changes go through
-   bench-measure (preflight), rubric edits through bench-define's RUBRIC_AUTHORING.md
+   WIRING.md, rubric edits through bench-define's RUBRIC_AUTHORING.md
    (version bump + re-evaluation) — before or after a measurement.
    `bench status` treats an evaluation from another era (a changed
-   task, rubric version, judge or scoring version) as not evaluated and
-   prints the reason, so a rubric bump shows up as re-evaluation work
+   task, rubric version, judge, judge path (`judge.mode`), pass
+   threshold or scoring version) as not evaluated and prints the
+   reason, so a rubric bump shows up as re-evaluation work
    instead of passing silently as "all evaluated".
 8. **Long runs are detached, never awaited in the foreground.** A
    matrix run is hours of mostly waiting on provider APIs; start it
@@ -149,7 +150,7 @@ meant to answer "which model do we route this to", a matrix of n=2
 cells cannot answer it at any budget; say that at scoping time rather
 than at handover. Check what already exists — `bench attempt` will
 top up, so tell the user upfront which cells are already covered.
-Gate: `bench validate` (rule 1); doctor first if the environment looks
+Gate: `bench validate` (rule 2); doctor first if the environment looks
 cold (engine down, keys missing).
 
 ### 2. Projection and consent
@@ -159,14 +160,14 @@ another process is still running, and how many trials each cell is
 missing — that is the scope you will actually pay for. Then run
 `bench attempt` — it prints the projection before executing. If
 the projection exceeds the budget, stop at the printed warning and put
-the decision to the user (rule 2). Cells without cost history (first
+the decision to the user (rule 3). Cells without cost history (first
 measurement of a pair) are flagged in the projection as unknown — say
 so rather than pretending precision.
 
 ### 3. Execute
 
 `bench attempt --tasks … --models … [--trials n] [--parallel n]`,
-detached (rule 7); a matrix can be split into several processes
+detached (rule 8); a matrix can be split into several processes
 (e.g. one per model) — they will not collide. Progress: `bench
 status` (running cells with elapsed time, preserved counts) plus the
 runner log of each process; after the run summarize per cell:
@@ -221,14 +222,25 @@ enough trials to act on is a worse use of the same ceiling.
 Evaluate what `bench status` shows as preserved without a fresh
 evaluation — this can start while other cells are still running.
 
-- **Default (real tasks): rate-attempt per attempt.** This is the
-  judge with tools. Launch one subagent per attempt with
+The instance's evaluation path is `judge.mode` in `bench.config.yaml`:
+`agent` (the default) or `api`. It is part of the current era —
+results judged on the other path show in `bench status` as stale
+("ścieżka oceny X→Y").
+
+- **Default (real tasks, `judge.mode: agent`): rate-attempt per
+  attempt.** This is the judge with tools. Launch one subagent per attempt with
   RATE_ATTEMPT.md as its procedure; verdicts stay independent. It runs
   the guards (`bench evaluate --skip-judge`), investigates the preserved
   workspace in a container (`bench shell`), and folds its verdict via
   `bench evaluate --verdict <file> --judge-mode agent --judge-model <id>`.
-- **Smoke / demo / explicitly cheap runs:** plain `bench evaluate` (the
-  API judge on the diff) is acceptable.
+- **Smoke / demo / explicitly cheap runs, or an instance on
+  `judge.mode: api`:** plain `bench evaluate` (the API judge on the
+  diff). A bulk `bench evaluate` skips results already judged by an
+  agent or a human — it never overwrites them unless given
+  `--overwrite-judged`, which is a deliberate era change, not a
+  shortcut. An invalid API-judge verdict is an evaluation error (no
+  result written, the raw response in the attempt's `judge.json`), not
+  a model failure — fix the cause and re-evaluate.
 
 The two paths are separate eras by construction (`judge_mode` is part of
 the stamps), so they never mix in a table. Still say which one produced
@@ -236,7 +248,7 @@ the numbers you hand over. Pass is a gate: every guard with weight > 0
 green **and** the judge ≥ `pass_threshold`. A red guard is a fail
 however good the verdict.
 
-Skipped attempts (infra flags) are listed with their reason — rule 4.
+Skipped attempts (infra flags) are listed with their reason — rule 5.
 
 ### A new model came out
 
@@ -298,8 +310,8 @@ Close with:
 - next step: **bench-decide** when the question behind the run was
   "which model do we use for this work" — it computes the economics
   deterministically (cost per acceptable result, ties reported as
-  ties) and renders the one-page verdict; bench-decide (explain) for
-  surprises; judge diagnostics (bench-measure) if judge verdicts on similar diffs look
+  ties) and renders the one-page verdict; bench-decide's EXPLAIN.md for
+  surprises; JUDGE_DIAGNOSTICS.md if judge verdicts on similar diffs look
   unstable (it calibrates on the attempts just preserved); more trials
   on the cheap models when a pass rate is still thin (step 3); or
   nothing — a clean measurement is a finished job.

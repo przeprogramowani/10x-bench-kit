@@ -3,7 +3,8 @@
 # Build — tasks from the backlog's orders
 
 You orchestrate task construction: you read `pending` orders from
-`tasks/backlog.md`, fan them out to subagents, keep statuses accurate,
+`tasks/backlog.md`, fan them out to subagents, watch their stages
+through `bench backlog` (derived from disk, never written — rule 4),
 and run the **batch gate** at the end. The actual task authoring —
 pin, overlay, prompt, assertions, the rubric, weights, self-check — is
 done by a **subagent** following the procedure in
@@ -29,7 +30,7 @@ do not invent tasks yourself.
 1. **The orchestrator does not author.** You do not pick pins, write
    prompts, or write assertions — subagents do that per
    TASK_AUTHORING.md. Your job: scoping, preparing shared resources,
-   fan-out, statuses, the aggregate report.
+   fan-out, watching stages (`bench backlog`), the aggregate report.
 2. **The order is a contract.** A subagent builds what the backlog
    entry says — the design decisions were made when the order was written (INTERVIEW.md / MINING.md). Do
    not patch gaps in an entry with guesses: an incomplete order goes
@@ -162,9 +163,9 @@ the operator machine) — phrased that way, not as runner commands.
 Run `bench backlog` and take the orders at stage `ordered` (name + one
 sentence from the entry). By default you build all of them; if the user
 named a subset in the invocation, build those. Read its notes before
-fanning out: an order flagged without a Decision is not built (rule 7
-of bench-define), and a `building` order whose todo.md has gone stale
-is a dead session. Tell the user about it; do not overwrite it with a
+fanning out: an order flagged without a Decision is not built
+(bench-define SKILL.md rule 1 / INTERVIEW.md rule 7), and a `building`
+order whose todo.md has gone stale is a dead session. Tell the user about it; do not overwrite it with a
 second subagent. Orders incomplete against the entry
 schema (BACKLOG_TEMPLATE.md in bench-define) get set aside with a
 list of gaps — for completion, not for building.
@@ -190,10 +191,11 @@ list of gaps — for completion, not for building.
   default case), build the whole batch in parallel (rule 5). An order
   waiting on a shared assertion starts after its owner finishes.
 - Container readiness (engine up, `bench-base` image, runner
-  dependencies) is needed by bugfix orders (overlay proofs) and by
-  the gate — check `bench doctor` now if the batch has bugfix orders,
-  otherwise before step 5. Infrastructure is fixed once, by you —
-  never by a subagent mid-task.
+  dependencies) is needed by bugfix orders (overlay proofs), by mined
+  orders (`Source: pr` — the two-direction proof of `tests/<task>-pr`)
+  and by the gate — check `bench doctor` now if the batch has bugfix
+  or mined orders, otherwise before step 5. Infrastructure is fixed
+  once, by you — never by a subagent mid-task.
 
 ### 3. Fan-out
 
@@ -252,10 +254,7 @@ matters in every profile. Implementation orders get full power.
 
 A subagent may end with a refusal plus a reason (e.g. the order is
 infeasible on the current repo, the bug is unobservable) — that is a
-valid outcome, not an orchestration failure. A deferred smoke test (no
-secrets in the session, step 6.4 of TASK_AUTHORING) is not a failure
-either — noted in the report, it moves to the batch gate (the "Next
-step" section).
+valid outcome, not an orchestration failure.
 
 ### 4. Collecting results and statuses
 
@@ -302,17 +301,25 @@ subagents deliberately skipped (rule 9).
    on the order), the rest of the batch proceeds.
 3. Smoke, **provided the session has provider API keys**:
    `bench attempt --smoke --tasks <all batch tasks> --models
-   <cheap-model>` then `bench evaluate --no-write-results` on the
-   produced attempts. This is the **solvability probe** (there is no
-   reference implementation): an assertion that no smoke attempt
-   greens is suspect-harness — back to the subagent for diagnosis, or
-   weight 0 with a note, never a charge against models. Without keys:
-   note "smoke deferred — no secrets in the session" and hand it to the
-   Next step; points 1–2 remain unconditional.
+   <cheap-model>`, then for each smoke attempt it produced
+   `bench evaluate --attempt <attempts/<task>/<model>/trial-N>
+   --no-write-results` (one `--attempt` per smoke attempt; a bare
+   `bench evaluate` would take every preserved attempt). This is the
+   **solvability probe** (no reference implementation is written; only
+   a mined order brings one, from history): an assertion that no smoke
+   attempt greens is suspect-harness — back to the subagent for
+   diagnosis, or weight 0 with a note, never a charge against models.
+   **Exception:** a mined order's `tests/<task>-pr` is not
+   suspect-harness when the smoke attempt fails it — its solvability
+   proof is the reference diff green in the build report
+   (TASK_AUTHORING.md, "Mined orders"), so a failed smoke there is a
+   model result. Without keys: note "smoke deferred — no secrets in the
+   session" and hand it to the Next step; points 1–2 remain
+   unconditional.
    **Read the smoke's judge verdict per criterion, not just the total.**
    The judge call is already paid for, and the smoke diff is the only
    real wrong-but-competent attempt the batch will see before the
-   matrix (judge diagnostics (bench-measure) calibrates on real attempts and fabricates no
+   matrix (bench-measure's JUDGE_DIAGNOSTICS.md calibrates on real attempts and fabricates no
    synthetic ones, so there is no other source). Open `judge.json`,
    read each criterion's score and justification against the diff, and
    ask the one question the total hides: **does a diff that fails the
@@ -327,7 +334,10 @@ subagents deliberately skipped (rule 9).
    every task in the batch, record one of:
    - **red on the starting state** — already proven by point 2 for
      bugfix-style tasks whose overlay seeds the defect: the assertion
-     is red before, green after. Nothing more to do.
+     is red before, green after. The same holds for a mined order's
+     `tests/<task>-pr`: declared `fail` at the pin and proven red there
+     (and green with the reference diff) in the build report. Nothing
+     more to do.
    - **red on a deliberate break** — for tasks green at the start
      (feature work: the repo's own lint / types / suite), show the
      assertion failing on a plausible wrong implementation. One
@@ -385,19 +395,22 @@ use it) is yours to fix before handing over. Typical transitions:
 - **A task with a judge component** → straight to **bench-measure**;
   the rubric is calibrated by the first real attempts (the report names
   the criterion to spot-check first). A rubric fix after that run
-  re-evaluates preserved attempts, never re-runs them. judge diagnostics (bench-measure) is
-  not a step here — it is a diagnostic for judge stability / judge
+  re-evaluates preserved attempts, never re-runs them. bench-measure's
+  JUDGE_DIAGNOSTICS.md is not a step here — it is a diagnostic for judge stability / judge
   comparison once attempts exist.
-- **Orders are back at `ordered`** (refused, gate red) → complete the entries
-  (bench-define) or re-run bench-define on the subset.
+- **Orders are back at `ordered`** (refused, gate red) → complete the
+  entries (MINING.md / INTERVIEW.md) or re-run BUILD.md on the subset.
 - **The batch gate deferred its smoke (no secrets in the session)** →
   after the user accepts the files, one `bench attempt --smoke` on all
   of the batch's new tasks at once, in a session with keys — you run
   it once the user provides them (never ask the user to run `bench`
-  themselves) — before the full run. The smoke run doubles as the
-  **solvability probe**: an assertion that no smoke attempt greens is
-  suspect-harness — flag it for diagnosis instead of letting it count
-  against models.
+  themselves) — before the full run, evaluated per smoke attempt with
+  `bench evaluate --attempt <dir> --no-write-results` as in step 5.3.
+  The smoke run doubles as the **solvability probe**: an assertion
+  that no smoke attempt greens is suspect-harness — flag it for
+  diagnosis instead of letting it count against models — except a
+  mined order's `tests/<task>-pr`, whose solvability the reference
+  diff already proved (a failed smoke there is a model result).
 - **A report's full-run cost projection exceeds `max_cost_usd`** →
   surface it here, before anything runs: the recommendation is
   a single-model run (or the smoke gate alone) first, with the

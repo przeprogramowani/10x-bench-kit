@@ -9,7 +9,8 @@ deterministyczny runner (`.bench-kit/` — strefa narzędzia, nie
 edytuj); wszystkim, co wymaga osądu, zajmują się trzy skille:
 define → measure → decide. Zanim
 zrobisz cokolwiek wpływającego na scoring, użyj właściwego skilla —
-każdy ma procedurę, twarde zasady i szablon PR-a.
+każdy ma procedurę i twarde zasady, a tam, gdzie jego wynik ma
+utrwaloną formę, także jej szablon (raport budowy, opis PR-a, diagnoza).
 
 ## Trzy koncepty, trzy skille
 
@@ -44,8 +45,10 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
   Wyjątek bez kosztu utrzymania: zadanie wykopane z historii
   (MINING.md) ma referencję z gita, czyli samą zmianę. Jej testy
   dowodzi się w obie strony (czerwone na pinie, zielone z
-  `--patch reference.diff`); referencja zostaje w historii i raporcie,
-  nigdy w zadaniu.
+  `--patch reference.diff`). Referencją jest zmergowany commit (SHA
+  w zleceniu i w raporcie budowy); jego diff odtwarza się w razie
+  potrzeby przez `mine-prs.mjs emit` i nigdy nie jest przechowywany
+  w instancji.
 - **Zaliczenie to bramka, nie próg sumy** — próba zalicza, gdy każdy
   guard z wagą > 0 jest na 1 ORAZ sędzia sam przekracza
   `pass_threshold`. Czerwonego guarda nie da się nadrobić hojnym
@@ -55,9 +58,15 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
   (`--judge-mode agent --judge-model <id>` albo `--judge-mode human`).
   Ścieżka oceny (`judge_mode`: api / agent / human) jest częścią ery,
   więc werdykty sędziego API, sędziego z narzędziami i człowieka nigdy
-  nie mieszają się w jednej tabeli.
-- **Świadomość er** — zmiany `task_hash`, rubryki lub sędziego zamykają
-  erę porównywalności; raport/PR mówi to wprost.
+  nie mieszają się w jednej tabeli. Ścieżkę instancji wybiera
+  `judge.mode` w `bench.config.yaml` (`agent` domyślnie, albo `api`);
+  wynik oceniony inną ścieżką `bench status` pokazuje jako nieświeży
+  ("ścieżka oceny X→Y"), a masowe `bench evaluate` (sędzia API) pomija
+  wyniki ocenione przez agenta albo człowieka, chyba że dostanie
+  `--overwrite-judged`.
+- **Świadomość er** — zmiany `task_hash`, rubryki, sędziego, ścieżki
+  oceny (`judge.mode`) lub progu zaliczenia (`defaults.pass_threshold`)
+  zamykają erę porównywalności; raport/PR mówi to wprost.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje
@@ -86,7 +95,8 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
   w raporcie, próby, oceny w bieżącej erze). W backlogu żyją wyłącznie
   decyzje (`pending` / `dropped`) i dziennik budowy, więc żaden skill
   nie przepisuje linii statusu. Świeżość oceny to cała era oceny
-  (zadanie + sędzia + wersje rubryk + scoring), nie sam `task_hash`:
+  (zadanie + sędzia + ścieżka oceny + wersje rubryk + scoring z progiem
+  zaliczenia), nie sam `task_hash`:
   bump rubryki `bench status` pokazuje jako pracę do re-oceny.
 - **Przegląd intencji, nie linii** — zanim użytkownik dostanie pliki do
   commita, skill uruchamia `bench changes` i przekazuje jego plan. Plan

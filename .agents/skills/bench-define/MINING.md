@@ -8,7 +8,7 @@ A merged change that came with its own tests is a ready-made task:
 |---|---|
 | its parent commit | the **pin** (the state before the work) |
 | its tests (post-merge version) | the **hidden fail-to-pass guard** |
-| its code diff | the **reference**: proof the task is solvable at the pin, kept in the build report and never shown to the agent |
+| its code diff | the **reference**: proof the task is solvable at the pin. The merged commit is named by SHA in the order and the build report; its diff is regenerated with `mine-prs.mjs emit` when needed, never stored in the instance and never shown to the agent |
 | its intent (PR description, linked issue, commit message) | the **prompt**, rewritten as a request at the order's guidance level |
 
 You reverse-engineer the work order a developer received, from the
@@ -17,21 +17,29 @@ work they delivered.
 ## 0. Prerequisites (orchestrator, once)
 
 - The base repo clone in `.repos/<name>` (AGENTS.md convention). It is
-  shallow by default and mining needs history. Deepen it **here, once**
-  (`git -C .repos/<name> fetch --deepen=500`, or `--unshallow`), never
-  in a subagent. `mine-prs.mjs` refuses to run on a shallow clone and
-  says so.
-- `git fetch origin` first, so the history is current. Pins must be
-  commits that exist on the remote; first-parent history of the default
-  branch guarantees that.
+  shallow by default and mining needs history covering the scan window.
+  Deepen it **here, once**, never in a subagent:
+  `git -C .repos/<name> fetch --shallow-since="<N> days ago" origin`
+  (N = the scan's `--since`), or `--unshallow` for everything. The scan
+  runs on a shallow clone too, but warns when the clone's history ends
+  before the `--since` window and prints that command: changes older
+  than the clone's history are simply missing from the list, so deepen
+  and re-scan rather than mine a truncated window.
+- `git fetch origin` first, so the history is current. The scan reads
+  `origin/HEAD` by default (falling back to `HEAD` when the clone has
+  no `origin/HEAD`), so a fetched-but-not-pulled clone is scanned at the
+  remote's tip. Pins must be commits that exist on the remote; taking
+  them from the remote's first-parent history guarantees that.
 
 ## 1. Scan
 
 ```
-node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> [--since 365] [--limit 30] [--json]
+node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> [--ref origin/HEAD] [--since 365] [--limit 30] [--json]
 ```
 
-The scan reads only local git: no network, nothing written. It lists
+The scan reads only local git: no network, nothing written. `--ref`
+defaults to `origin/HEAD` (see §0); pass another ref only on purpose.
+It lists
 first-parent changes that touched both code and tests, within size
 limits (`--max-files`, `--max-lines`). It excludes release commits,
 reverts, bots, and docs- or lockfile-only changes (`--all` shows the
@@ -65,8 +73,9 @@ decision they inform.
   equally. Coupled candidates go through step 3.
 - **Prefer S/M.** L changes are often several intents in one PR (the
   "one order = one intent" rule) and rarely fit a time limit.
-- **Recent pins.** A pin from last month stays valid longer before
-  REFRESH.md is needed.
+- **Recent pins.** A mined task's pin can never move past its change
+  (REFRESH.md, "Mined task"), so a pin from last month stays buildable
+  on today's toolchain longer than an old one.
 - **Runnable tests.** Drop changes whose tests need services the
   evaluation container cannot provide (databases, external APIs),
   unless the repo's own test setup provides them.
@@ -103,12 +112,39 @@ is worse than none.
 ## 5. Write the orders
 
 Write one entry per candidate per BACKLOG_TEMPLATE.md, with
-`Source: pr`. Mined orders already carry facts, not premises: pin,
-reference and tests come from history, so the premise probe of
-INTERVIEW.md shrinks to "does the intent hold at the pin". The
-reference diff proves that at build time. The **Decision**, **Class**
-and **Work baseline** fields are still the user's. Present the batch
-for acceptance before writing, as INTERVIEW.md step 2 does.
+`Source: pr`. Who fills which field:
+
+- **Facts from history** — Source, Pin, Reference, Hidden tests,
+  Coupled names, and the basis of Human time (§4): you fill them from
+  the scan and from §3–4.
+- **Proposed by you, per candidate** — the fields an interview would
+  settle, derived here from the change:
+  - **Type** — from what the change does (bugfix / implementation /
+    refactor / documentation);
+  - **Guidance level** — from how specific the intent is (an issue
+    describing a symptom reads as product-level; a PR naming the
+    module, as directional);
+  - **Difficulty / time limit** in minutes — consistent with the
+    guidance level (INTERVIEW.md), and sanity-checked against Human
+    time: a limit the work plausibly cannot fit in, or one many times
+    the human estimate, means the size or the estimate is off;
+  - **Evaluation axis** — from the PR description and its review
+    comments: what reviewers asked for, pushed back on or rejected is
+    the task's do's and don'ts;
+  - **Description** — the intent in 2–6 sentences, with nothing from
+    the diff beyond the Coupled names.
+- **The user's** — **Decision**, **Class** and **Work baseline**.
+
+Present the batch for acceptance before writing, as INTERVIEW.md step
+2 does: one table (name, class, type, guidance, time limit, Human time,
+evaluation axis, one-sentence description), your proposals marked as
+proposals, accepted or corrected by the user — never written as
+decisions on your own.
+
+**Premises.** Mined orders carry facts, not premises: pin, reference
+and tests come from history, so the premise probe of INTERVIEW.md step
+1a shrinks to one line in the **Premises** field:
+`intent holds at pin @<sha> — proven at build by reference.diff`.
 
 ## 6. Build hand-off
 
@@ -116,11 +152,18 @@ BUILD.md builds mined orders like any other, and TASK_AUTHORING.md has
 the **mined order** path:
 
 - `mine-prs.mjs emit <sha> --out <scratch>` extracts the reference
-  diff, the post-merge test files and the metadata;
+  diff (code changes only: docs, lockfiles and other noise, and
+  AGENTS.md / CLAUDE.md are left out), the post-merge test files
+  (snapshots under `__snapshots__/` and `*.snap` count as test files)
+  and the metadata;
 - the hidden guard `tests/<task>-pr` copies those test files over the
-  workspace and runs the repo's own test command for them;
+  workspace, runs the repo's own test command for them, and restores
+  the workspace as it found it;
 - the guard is proven red at the pin and green with `--patch
-  reference.diff`;
+  reference.diff`; the diff is proof material, deleted at handoff and
+  regenerated with `emit` whenever it is needed again;
+- the task gets `expires` like any other; its refresh keeps the pin
+  (REFRESH.md, "Mined task");
 - the prompt is reverse-engineered from the intent, with the coupled
   names verbatim and nothing else from the diff.
 

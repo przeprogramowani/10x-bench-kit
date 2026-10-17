@@ -62,9 +62,10 @@ as a large one.
    the honest response is more trials — not "so take the cheaper one".
    This is the single most common way a summary misleads.
 4. **Eras are not mixed.** `summarize.mjs` keeps only each task's
-   current era (highest scoring version) and counts the rest per cell
-   as `other_era_trials`. Those are results from an older rubric, judge,
-   judge path or scoring rule. Say how many were left out; re-evaluating
+   current era (highest scoring version, preferring the era judged on
+   the configured `judge.mode` path) and counts the rest per cell as
+   `other_era_trials`. Those are results from an older rubric, judge,
+   judge path, pass threshold or scoring rule. Say how many were left out; re-evaluating
    the preserved attempts brings them back.
 5. **An unmeasured cell is not a zero.** A model absent from
    `results/`, or present only through `infra_failure` /
@@ -95,7 +96,10 @@ as a large one.
    that goes into the narrative.
 10. **Anchors are not decisions.** Tasks in class `anchor` (mined from
     public repos, MINING.md) check the setup against published numbers.
-    Report them apart; never route work on them.
+    `summarize.mjs` keeps them out of `paired`, `horizons` and `power`
+    and reports them in a separate `anchors` block (`classes` still
+    lists the anchor class). Report them apart; never route work on
+    them.
 
 ## Tools
 
@@ -165,6 +169,11 @@ already applies rule 3.
 - `horizons`: per model, the human-minutes length of task it passes
   50% / 80% of the time. It is fitted from each order's **Human time**,
   needs ≥5 tasks spanning ≥4×, and is otherwise null with a reason.
+  `horizons[model].estimated_share` is the share of those tasks whose
+  Human time is estimated rather than confirmed;
+- `anchors`: the `anchor`-class tasks (rule 10), reported per model on
+  their own — excluded from `paired`, `horizons` and `power`, so a
+  public-repo task never moves a routing comparison.
 
 Class and Human time come from `tasks/backlog.md`.
 
@@ -176,7 +185,7 @@ concrete options plus your own recommendation, not a blank prompt. The
 masthead is the only editorial surface on the page: everything below it
 is computed, so this is where the report says who it is for.
 
-Two rules for what you propose:
+Three rules for what you propose:
 
 - **Not the scoring mechanics.** "Reliability first, price second" is
   already spelled out in the "how to read this" section and in the
@@ -214,12 +223,17 @@ say. Keep it to a few lines and include, when true:
   per-task observation, and you say so;
 - **the horizon**, when computed: "X reliably (80%) handles tasks of
   about N developer-minutes here". This is the sentence an engineering
-  leader repeats upward, so give it only when it was computed;
+  leader repeats upward, so give it only when it was computed — and
+  when Human time is mostly estimated (`estimated_share`), say so in
+  the same sentence: the horizon is then measured in estimated minutes;
+- **the anchors**, when any exist: whether the instance's numbers on
+  them sit near the published ones. A wild divergence points at the
+  setup (harness, judge) before the models;
 - **the resolution**: what difference these tasks can tell apart, and
   how many more tasks a closer call would need;
 - **what the failures were**, if any model failed — one sentence of
-  cause from the preserved attempts (bench-decide (explain) does the
-  deep version; do not duplicate it here);
+  cause from the preserved attempts (EXPLAIN.md does the deep version;
+  do not duplicate it here);
 - **the confidence**: trial counts, and which comparisons the sample
   cannot support;
 - **the gaps**: unmeasured cells with reasons, more than one era,
@@ -236,10 +250,10 @@ the user's choice.
 
 ## What this skill is not
 
-- Not a diagnosis. A surprising score goes to **bench-decide** (explain)
+- Not a diagnosis. A surprising score goes to [EXPLAIN.md](EXPLAIN.md)
   (one chain, one fault class, evidence from the attempt).
 - Not judge calibration. Unstable verdicts on similar diffs go to
-  **bench-measure** (judge diagnostics).
+  **bench-measure**'s JUDGE_DIAGNOSTICS.md.
 - Not a measurement. Missing cells and thin trial counts go back to
   **bench-measure** — and "buy more trials on the cheap models" is
   frequently the right recommendation to end on, because pass rate is

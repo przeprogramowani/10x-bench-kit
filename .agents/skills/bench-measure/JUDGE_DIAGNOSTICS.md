@@ -2,7 +2,7 @@
 
 # judge diagnostics (bench-measure) — judge calibration on real attempts
 
-This skill answers one question: **is the measuring instrument stable?**
+This procedure answers one question: **is the measuring instrument stable?**
 Not "is the rubric right" — the rubric is written by bench-define
 (RUBRIC_AUTHORING.md) and corrected by reading real attempts against
 it — but "given this rubric, does the judge return the same verdict on
@@ -75,7 +75,7 @@ present a calibration number as a property of the leaderboard's judge.
 Two shapes, and you ask which if the invocation does not say:
 
 - **Stability of one judge** on the task's rubric (the default when
-  bench-measure or bench-decide (explain) sent you here because
+  bench-measure or bench-decide's EXPLAIN.md sent you here because
   verdicts on similar diffs diverged).
 - **Comparison of judge models** — the user names two (or more)
   `provider/model` ids, or asks you to propose a cheaper candidate
@@ -152,5 +152,5 @@ decision. Typical transitions:
   `version` if results exist, re-evaluate preserved attempts via
   rate-attempt — list the tasks whose era closes.
 - **judge comparison favours a switch** → `judge.model` change through
-  the config PR (bench-measure (preflight)'s era rules), then re-evaluation of
+  the config PR (WIRING.md's era rules), then re-evaluation of
   preserved attempts under the new judge — a human decision.

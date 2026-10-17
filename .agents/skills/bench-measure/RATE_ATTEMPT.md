@@ -70,7 +70,10 @@ judge session, not a matrix run.
    model is not the instance's judge. It stamps `judge_mode: agent`
    into the result, so agent verdicts never share an era with API-judge
    or human verdicts. A human writing a verdict uses
-   `--judge-mode human` (stamped as judge `human`).
+   `--judge-mode human`: the result is stamped `judge_mode: human` with
+   `judge_model` = the instance's judge model, so human verdicts are
+   their own era. A bulk API-judge `bench evaluate` never overwrites
+   agent or human verdicts unless given `--overwrite-judged`.
 6. **Uninterpretable attempts are skipped, not scored.**
    `infra_failure` / `resource_kill` in attempt.json = nothing to
    judge; report and move on. A timeout (`timed_out: true`) IS

@@ -84,23 +84,31 @@ git is managed by the user.
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
   API must not change"), and for large tasks the milestone/phase map
   for partial credit. This is the primary grading source: there is no
-  reference implementation — the rubric is derived from these criteria
-  (written by bench-define, calibrated by the first real attempts).
-  When the user deliberately named no axis: "at bench-define's
-  discretion".>
+  reference implementation (a `pr` order's merged change proves
+  solvability, but grades nothing) — the rubric is derived from these
+  criteria (written by the build subagent, calibrated by the first real
+  attempts). For a `pr` order the axis is proposed from the PR
+  description and review comments (MINING.md §5). When the user
+  deliberately named no axis: "at the builder's discretion".>
 - **Premises**: <the order's load-bearing claims about the base repo,
   one line each, carrying the probe's verdict and the SHA it read:
   "confirmed @<sha> — <evidence>" / "partly true @<sha> — <what holds,
   what does not>". A refuted premise never appears here as a claim —
   the order was reshaped around it before being written. A claim that
   was not probed is marked "assumed, unverified" in plain words, so the
-  builder can see what is load-bearing and unchecked.>
+  builder can see what is load-bearing and unchecked. A `pr` order
+  carries one line instead: "intent holds at pin @<sha> — proven at
+  build by reference.diff" (MINING.md §5).>
 - **Description**: <2–6 sentences: what is to be done, the symptom/goal,
-  boundaries ("change nothing beyond…"). For bugfix-type tasks: what
-  bug is to be seeded via the overlay and how to tell it is fixed.>
+  boundaries ("change nothing beyond…"). For bugfix-type tasks (not
+  `pr` orders — a mined task has no overlay, the change's absence at
+  the pin is the task): what bug is to be seeded via the overlay and
+  how to tell it is fixed.>
 - **Pin** (`pr` only): <full SHA — the mined change's parent>
 - **Reference** (`pr` only): <full SHA of the mined change — the
-  solution, never shown to the agent; proof of solvability at build>
+  solution, never shown to the agent; proof of solvability at build.
+  Its diff is regenerated with `mine-prs.mjs emit` when needed and
+  never stored in the instance>
 - **Hidden tests** (`pr` only): <the change's test files used as the
   `tests/<task>-pr` guard, and any dropped, with why>
 - **Coupled names** (`pr` only): <names the hidden tests assert that
@@ -121,14 +129,16 @@ Entry rules:
 - The entry name = the target `tasks/<name>/` directory name
   (kebab-case, says WHAT is to be done). No collisions with existing
   tasks or other entries.
-- The entry must be self-sufficient: the bench-define subagent has no
-  access to the conversation in which the order was created.
+- The entry must be self-sufficient: the build subagent
+  (TASK_AUTHORING.md) has no access to the conversation in which the
+  order was created.
 - The **Description** and **Notes** fields are design decisions, not
-  the content of `prompt.md` — bench-define will write the prompt at the
-  declared guidance level.
+  the content of `prompt.md` — the build subagent (TASK_AUTHORING.md)
+  will write the prompt at the declared guidance level.
 - **Premises** are probed, never assumed (INTERVIEW.md step 1a). The
   field exists because a false premise survives the interview intact
-  and only breaks in bench-define, after a whole authoring cycle has
+  and only breaks in the build subagent (TASK_AUTHORING.md), after a
+  whole authoring cycle has
   been spent on it — and a "partly true" one can survive even that,
   into a rubric that grades solvers against a half of the repo that
   does not exist.

@@ -58,7 +58,8 @@ from the runner (`bench` output) — never eyeball it.
    `bench evaluate` with a result in `results/`. Never eyeball that
    something will work.
 5. **Judge ≠ evaluated models.** A hard rule (validate enforces it);
-   the judge is a fixed, strong model — changing the judge or the
+   the judge is a fixed, strong model — changing the judge, the
+   evaluation path (`judge.mode`), `defaults.pass_threshold` or the
    rubric version (frontmatter `version` in the rubric) closes the
    comparability era of the tasks that use it. Preserved attempts
    survive such a change — only evaluations are redone.
@@ -69,8 +70,8 @@ from the runner (`bench` output) — never eyeball it.
    needed to **raise** the budget. After each run report the actual
    cost (`metrics.json` / the evaluate summary); do not negotiate
    estimates.
-7. **Era awareness.** Wiring defines the instance's first era (judge +
-   rubric versions). The PR says so explicitly; later changes to those
+7. **Era awareness.** Wiring defines the instance's first era (judge,
+   evaluation path, pass threshold, rubric versions). The PR says so explicitly; later changes to those
    fields re-version the evaluations (cheap: re-evaluate preserved
    attempts), not the attempts themselves.
 8. **Say what is happening to the instance — not what the step is
@@ -207,6 +208,11 @@ Otherwise note "template defaults" and move on:
 - **Judge** (`judge.model`): host-side support for `anthropic/…` and
   `openrouter/…`; strong, stable, DIFFERENT from the evaluated models
   (rule 5).
+- **Evaluation path** (`judge.mode`): `agent` (default — the judge with
+  tools, rate-attempt per attempt) or `api` (the API judge on the
+  diff: cheaper, reads text only). It is part of the era: results
+  judged on the other path show in `bench status` as stale. Keep the
+  default unless the user deliberately wants the cheaper path.
 - **`judge.max_tokens`** (8192), **`defaults.trials`** (3),
   **`defaults.timeout_s`**, **`defaults.max_cost_usd`** — do not touch
   without a reason; too low a token limit truncates the judge's JSON
@@ -220,8 +226,14 @@ smoke and telling the user what is happening:
 
 ```
 bench attempt --smoke --tasks demo-hello-bench --models <cheapest>
-bench evaluate
+bench evaluate --attempt attempts/demo-hello-bench/<model>/trial-1
 ```
+
+Evaluate exactly the smoke attempt (`--attempt <dir>`), never a bare
+`bench evaluate`: that takes every preserved attempt in the instance.
+The smoke goes through the API judge, which on an instance with the
+default `judge.mode: agent` is another evaluation path — fine for a
+proof of the results path, and the result is deleted in B5 anyway.
 
 The attempt lands in `attempts/demo-hello-bench/<model>/trial-1/`
 (attempt.json + patch.diff + workspace/ on disk), the evaluation writes
@@ -375,7 +387,8 @@ let alternatives dilute the final ask.
 
 Name everything by what it delivers (rule 8): after a green `validate`
 the natural recommendation is "the first measurement on this machine";
-after a committed smoke result — **bench-define** (interview) (commissions for
-the backlog), then **bench-define** (build), because an instance without tasks
-measures nothing; once tasks exist, every measurement runs through
+after a successful smoke — **bench-define**: orders for the backlog
+from PR mining by default (MINING.md), from an interview for work
+without history (INTERVIEW.md), then its build step (BUILD.md),
+because an instance without tasks measures nothing; once tasks exist, every measurement runs through
 **bench-measure**.

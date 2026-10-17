@@ -99,6 +99,62 @@ pliku nie miał autora.
 - **CI:** e2e-gate sprawdza kontrakt `passed` / `pass_reason` /
   `judge_mode`.
 
+### Poprawki z niezależnego przeglądu (przed wydaniem)
+
+Trzech recenzentów ze świeżym kontekstem: kod runnera, spójność
+procedur skilli, statystyka i kopanie na prawdziwych repo (JS, Python,
+Go). Każde znalezisko odtworzone przed poprawką.
+
+- **Era jest jedna wszędzie.**
+  - Próg bramki jest stemplowany (`pass_threshold`) i należy do klucza
+    ery.
+  - `judge.mode` (agent | api, domyślnie agent) to ścieżka oceny
+    bieżącej ery w `bench status`, `bench backlog`, raporcie i
+    bench-decide.
+  - bench-decide pyta runner (`bench status --json`), co jest bieżące,
+    zamiast zgadywać po liczności. Wcześniej po edycji zadania stara,
+    liczniejsza era wygrywała jako „bieżąca”.
+  - `bench changes` traktuje `pass_threshold`, `judge.mode` i
+    `context_files` jako pola ery i honoruje zapasową wersję rubryki.
+- **Werdykty są bezpieczne.**
+  - Masowe `bench evaluate` nie nadpisuje werdyktów agenta ani
+    człowieka (wymuszenie: `--overwrite-judged`).
+  - `--verdict` wskazujący katalog z kilkoma próbami jest odrzucany.
+  - Niepoprawny werdykt sędziego API to błąd oceny, nie porażka
+    modelu.
+  - Bramka ma tolerancję 1e-9.
+- **Koszt nieznany wszędzie jako nieznany:** w raporcie, leaderboardzie
+  i projekcji budżetu. W bench-decide nie wygrywa remisu ceną.
+- **Model bez bieżących wyników nie znika.** Jest raportowany jako
+  NIEZMIERZONY, z powodem (inna era, same awarie).
+- **Statystyka:**
+  - rozdzielczość `null` poniżej 6 zadań, bo test znaków nie osiąga
+    p < 0.05;
+  - horyzont bez ekstrapolacji poza obserwowany zakres;
+  - stałe k = 3 dla pass^k;
+  - parser backlogu z tą samą gramatyką co runner (pierwsze
+    wystąpienie, kontynuacje, zakresy, przecinek dziesiętny,
+    „unconfirmed” = szacunek);
+  - kotwice wyłączone z porównań, horyzontu i rozdzielczości;
+  - udział szacowanych czasów człowieka raportowany przy horyzoncie.
+- **Kopanie:**
+  - działa na płytkim klonie (z ostrzeżeniem i `fetch
+    --shallow-since`);
+  - domyślny `--ref` to `origin/HEAD`;
+  - `reference.diff` zawiera tylko kod z manifestami i lockfile'ami;
+  - snapshoty liczą się jako testy;
+  - poprawki dla binariów, ścieżek nie-ASCII, konfiguracji gita
+    użytkownika, formatów merge GitLab/Bitbucket/Azure i sprzężenia
+    (Go/Python/TS) — szczegóły w commicie kopania.
+- **Guard PR-a przywraca workspace.** Asercje biegną w jednym
+  workspace'ie bez resetu, więc pliki testów PR-a zostawione na dysku
+  zaliczały się kolejnym guardom. Sprawdzone w kontenerze: guard 0/1
+  zgodnie z oczekiwaniem, sonda po nim zielona w obu kierunkach.
+- **Procedury:** ok. 40 poprawek spójności, w tym ścieżka odświeżania
+  zadania wykopanego (pin nie może przejść za zmianę), wyjątek smoke
+  dla ukrytych testów PR-a, brak gita w odświeżaniu oraz rozgraniczenie
+  pól zlecenia wykopanego.
+
 ### Migracja
 
 1. **Wyniki sprzed 0.35.0** są w erze scoringu 2. `bench status` pokaże

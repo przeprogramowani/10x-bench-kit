@@ -11,6 +11,10 @@ description: >-
   files with evidence reports — no git. Use when the user wants tasks,
   says "add tasks / build the backlog / mine our PRs / new task /
   refresh task", or bench backlog shows a class without enough tasks.
+  Also use to fix or edit a task's rubric ("the rubric scores this
+  wrong / fix the rubric / tighten criterion X"): the edit follows
+  RUBRIC_AUTHORING.md, bumps the rubric's version and re-evaluates the
+  preserved attempts.
 ---
 
 # bench-define — from real work to tasks
@@ -32,6 +36,7 @@ procedures live next to this file and are loaded when needed:
 | Source: refresh | [REFRESH.md](REFRESH.md) | `bench validate` warns a task expired |
 | Backlog contract | [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md) | every order, whatever its source |
 | Build | [BUILD.md](BUILD.md) (orchestrator) → [TASK_AUTHORING.md](TASK_AUTHORING.md) + [RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md) (subagent per order) → [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) | orders at stage `ordered` |
+| Rubric fix | [RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md) ("After the first run") | real attempts show the rubric ranks wrong: edit, bump `version`, re-evaluate preserved attempts |
 
 ## Why mining is the default
 
@@ -65,8 +70,9 @@ That is the SWE-bench recipe applied to the company's own repo.
 2. **The agent never sees the solution, the tests or the evaluation.**
    The prompt is reverse-engineered from the change's *intent* (issue,
    PR description), never from its diff. Hidden tests and rubrics live
-   in `evaluation-pool/`, and the reference diff lives in the build
-   report.
+   in `evaluation-pool/`. The reference is the merged commit (SHA in
+   the order and the build report); its diff is regenerated with
+   `mine-prs.mjs emit` when needed and never stored in the instance.
 3. **Hidden tests must not encode implementation shape.** A test
    asserting a name the change *introduced* forces the solver to guess
    it. Mined tests are admissible only when every interface they touch

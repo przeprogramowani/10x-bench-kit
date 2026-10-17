@@ -26,6 +26,7 @@
  */
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { classView, pairedComparisons, parseBacklogMeta, passHatK, resolvableGap, tasksNeeded, timeHorizon } from "./analytics.mjs";
 
 const argv = process.argv.slice(2);
@@ -106,6 +107,14 @@ function configuredJudgeMode() {
   return block.match(/^\s+mode:\s*["']?(agent|api)\b/m)?.[1] ?? "agent";
 }
 const judgeMode = configuredJudgeMode();
+/** judge.model z configu (zapas heurystyki ery). */
+function configuredJudgeModel() {
+  const cfg = join(root, "bench.config.yaml");
+  if (!existsSync(cfg)) return null;
+  const block = readFileSync(cfg, "utf8").match(/^judge:\s*\n((?:[ \t]+.*\n?|\s*\n)*)/m)?.[1] ?? "";
+  return block.match(/^\s+model:\s*["']?([^"'\s#]+)/m)?.[1] ?? null;
+}
+const judgeModel = configuredJudgeModel();
 
 /**
  * Bieżąca era zadania: najwyższa wersja scoringu; potem era ścieżki oceny
@@ -117,12 +126,12 @@ function currentEra(results) {
   for (const r of results) {
     const key = eraKeyOf(r.stamps);
     const mode = r.stamps?.judge_mode;
-    const entry = byKey.get(key) ?? {
-      key,
-      scoring: Number(r.stamps?.scoring_version ?? 0),
-      preferred: mode === judgeMode || mode === "none" ? 1 : 0,
-      count: 0,
-    };
+    // Zgodność z bieżącym configiem: ścieżka oceny, próg, sędzia.
+    const preferred =
+      (mode === judgeMode || mode === "none" ? 1 : 0) +
+      (r.stamps?.pass_threshold === undefined || r.stamps.pass_threshold === threshold ? 1 : 0) +
+      (judgeModel === null || r.stamps?.judge_model === judgeModel ? 1 : 0);
+    const entry = byKey.get(key) ?? { key, scoring: Number(r.stamps?.scoring_version ?? 0), preferred, count: 0 };
     entry.count++;
     byKey.set(key, entry);
   }
@@ -143,6 +152,39 @@ function excludedAttempts(cellDir) {
   }
   return excluded;
 }
+/**
+ * Świeżość z RUNNERA (`bench status --json`) — jedno źródło prawdy o tym,
+ * co jest bieżącą erą: SCORING_VERSION, hash katalogu zadania, sędzia,
+ * wersje rubryk, judge.mode i próg z bieżącej instancji (lib/matrix.ts).
+ * Heurystyka po stemplach (currentEra) zostaje tylko jako zapas, gdy
+ * runner nie jest zainstalowany — i wtedy mówi o tym caveat.
+ */
+const sanitize = (s) => s.replace(/[^A-Za-z0-9._-]+/g, "-");
+function runnerFreshness() {
+  const entry = join(root, ".bench-kit", "runner", "src", "index.ts");
+  if (!existsSync(entry)) return null;
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", entry, "status", "--json", "--root", root], {
+    encoding: "utf8",
+    maxBuffer: 64 << 20,
+  });
+  if (run.status !== 0) return null;
+  try {
+    const status = JSON.parse(run.stdout);
+    const fresh = new Set();
+    const stale = new Map();
+    for (const cell of status.cells ?? []) {
+      for (const t of cell.trials ?? []) {
+        const key = `${cell.task}\0${sanitize(cell.model)}\0trial-${t.trial}`;
+        if (t.evaluated === "fresh") fresh.add(key);
+        else if (t.evaluated === "old") stale.set(key, t.stale_reasons ?? []);
+      }
+    }
+    return { fresh, stale };
+  } catch {
+    return null;
+  }
+}
+const freshness = runnerFreshness();
 const taskRates = new Map();
 const resultsRoot = join(root, "results");
 const attemptsRoot = join(root, "attempts");
@@ -162,18 +204,23 @@ for (const task of dirs(resultsRoot)) {
       if (existsSync(f)) all.push({ modelDir, trialDir, r: JSON.parse(readFileSync(f, "utf8")) });
     }
   }
-  const era = currentEra(all.map((x) => x.r));
-  const rawStamps = all.find((x) => eraKeyOf(x.r.stamps) === era)?.r.stamps ?? null;
+  const isCurrent = freshness
+    ? (x) => freshness.fresh.has(`${task}\0${x.modelDir}\0${x.trialDir}`)
+    : ((era) => (x) => eraKeyOf(x.r.stamps) === era)(currentEra(all.map((x) => x.r)));
+  const rawStamps = all.find(isCurrent)?.r.stamps ?? null;
   if (rawStamps) eras.add([rawStamps.task_hash?.slice(0, 12), rawStamps.judge_model, rawStamps.rubric_version, rawStamps.judge_mode ?? "?"].join(" / "));
 
   for (const modelDir of [...new Set(all.map((x) => x.modelDir))]) {
     const trials = [];
     let modelId = modelDir;
     let otherEra = 0;
-    for (const { trialDir, r } of all.filter((x) => x.modelDir === modelDir)) {
+    const staleReasons = new Set();
+    for (const x of all.filter((x) => x.modelDir === modelDir)) {
+      const { trialDir, r } = x;
       if (r.model) modelId = r.model;
-      if (eraKeyOf(r.stamps) !== era) {
+      if (!isCurrent(x)) {
         otherEra++;
+        for (const reason of freshness?.stale.get(`${task}\0${modelDir}\0${trialDir}`) ?? []) staleReasons.add(reason);
         continue;
       }
       trials.push({
@@ -189,7 +236,21 @@ for (const task of dirs(resultsRoot)) {
         review: reviewBurden(join(attemptsRoot, task, modelDir, trialDir)),
       });
     }
-    if (!trials.length) continue;
+    const excluded = excludedAttempts(join(attemptsRoot, task, modelDir));
+    if (!trials.length) {
+      // Model bez bieżących wyników nie znika: jest NIEZMIERZONY, z powodem.
+      models.push({
+        model_id: modelId,
+        model_dir: modelDir,
+        status: "unmeasured",
+        trials: 0,
+        passes: 0,
+        other_era_trials: otherEra,
+        stale_reasons: [...staleReasons],
+        excluded,
+      });
+      continue;
+    }
 
     const n = trials.length;
     const passes = trials.filter((t) => t.passed).length;
@@ -198,8 +259,9 @@ for (const task of dirs(resultsRoot)) {
     const spend = trials.reduce((s, t) => s + t.cost_usd, 0);
     const meanCost = spend / n;
     const reviews = trials.map((t) => t.review).filter(Boolean);
-    const excluded = excludedAttempts(join(attemptsRoot, task, modelDir));
-    const k = Math.min(n, 3);
+    // Stałe k = 3 w całej kolumnie (porównywalność między modelami);
+    // przy n < 3 pass^3 nie istnieje.
+    const k = 3;
 
     if (!taskRates.has(task)) taskRates.set(task, new Map());
     taskRates.get(task).set(modelId, { passes, trials: n, outcomes: trials.map((t) => t.passed) });
@@ -219,6 +281,7 @@ for (const task of dirs(resultsRoot)) {
       excluded,
       exclusion_rate: excluded / (n + excluded),
       other_era_trials: otherEra,
+      stale_reasons: [...staleReasons],
       spend_usd: spend,
       cost_unknown_trials: costUnknown,
       mean_cost_usd: meanCost,
@@ -237,7 +300,16 @@ for (const task of dirs(resultsRoot)) {
       trials_detail: trials,
     });
   }
+  // Modele, które mają tylko próby wykluczone (awarie) — bez żadnego wyniku.
+  for (const modelDir of dirs(join(attemptsRoot, task))) {
+    if (models.some((m) => m.model_dir === modelDir)) continue;
+    const excluded = excludedAttempts(join(attemptsRoot, task, modelDir));
+    if (excluded > 0) {
+      models.push({ model_id: modelDir, model_dir: modelDir, status: "unmeasured", trials: 0, passes: 0, other_era_trials: 0, stale_reasons: [], excluded });
+    }
+  }
   if (!models.length) continue;
+  const measured = models.filter((m) => m.trials > 0);
 
   // REKOMENDACJA — niezawodność najpierw, cena jako rozstrzygnięcie remisu.
   //
@@ -253,11 +325,11 @@ for (const task of dirs(resultsRoot)) {
   // pchają w tę samą stronę. Cena wchodzi dopiero między modelami o praktycznie
   // równej niezawodności.
   const RELIABILITY_TIE = 0.02;
-  const candidates = models.filter((m) => m.passes > 0);
+  const candidates = measured.filter((m) => m.passes > 0);
+  // Nieznany koszt nie wygrywa remisu ceną (null → nieskończoność, nie 0).
+  const price = (m) => m.expected_cost_per_pass ?? Infinity;
   const ranked = [...candidates].sort((a, b) =>
-    Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE
-      ? b.interval.lo - a.interval.lo
-      : a.expected_cost_per_pass - b.expected_cost_per_pass,
+    Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE ? b.interval.lo - a.interval.lo : price(a) - price(b),
   );
   const pick = ranked[0] ?? null;
 
@@ -294,12 +366,26 @@ for (const task of dirs(resultsRoot)) {
     }
   }
 
-  for (const m of models) {
+  if (!freshness) {
+    caveats.push("bieżąca era wybrana heurystycznie po stemplach — runner niedostępny (npm ci --prefix .bench-kit/runner), świeżość niepotwierdzona");
+  }
+  for (const m of models.filter((x) => x.trials === 0)) {
+    const why = [
+      m.other_era_trials ? `${m.other_era_trials} wynik(ów) z innej ery${m.stale_reasons.length ? ` (${m.stale_reasons.join("; ")})` : ""}` : "",
+      m.excluded ? `${m.excluded} prób wykluczonych (awarie/kill)` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    caveats.push(`${m.model_id}: NIEZMIERZONY w bieżącej erze — ${why || "brak wyników"}`);
+  }
+  for (const m of measured) {
     if (m.exclusion_rate > 0.2 && m.excluded >= 2) {
       caveats.push(`${m.model_id}: ${m.excluded} prób wykluczonych (awarie/kill — ${Math.round(m.exclusion_rate * 100)}%) — pass rate liczony bez nich może być zawyżony`);
     }
     if (m.other_era_trials > 0) {
-      caveats.push(`${m.model_id}: ${m.other_era_trials} wynik(ów) z innej ery pominięte — re-ocena zachowanych prób włączy je do bieżącej`);
+      caveats.push(
+        `${m.model_id}: ${m.other_era_trials} wynik(ów) z innej ery pominięte${m.stale_reasons.length ? ` (${m.stale_reasons.join("; ")})` : ""} — re-ocena zachowanych prób włączy je do bieżącej`,
+      );
     }
   }
 
@@ -307,7 +393,7 @@ for (const task of dirs(resultsRoot)) {
   // (.bench-kit/runner/assets/leaderboard/). Tutaj tylko przekładamy wyniki na
   // jego kształt wiersza, żeby obie drogi pokazywały te same liczby i ten sam
   // wniosek — dwa osobne szablony rozjeżdżały się na tych samych danych.
-  const siteRows = models.map((m) => ({
+  const siteRows = measured.map((m) => ({
     model: m.model_id,
     task,
     trials: m.trials,
@@ -331,11 +417,13 @@ for (const task of dirs(resultsRoot)) {
     pass_threshold: threshold,
     // kolejność prezentacji = kolejność rankingu (niezawodność, potem cena),
     // nie mediana: mediana mówi jak dobra była udana próba, nie jak często
-    models: [...models].sort((a, b) =>
-      Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE
-        ? b.interval.lo - a.interval.lo
-        : (a.expected_cost_per_pass ?? Infinity) - (b.expected_cost_per_pass ?? Infinity),
-    ),
+    // Zmierzone w kolejności rankingu, niezmierzone na końcu (z powodem w caveats).
+    models: [
+      ...[...measured].sort((a, b) =>
+        Math.abs(a.interval.lo - b.interval.lo) > RELIABILITY_TIE ? b.interval.lo - a.interval.lo : price(a) - price(b),
+      ),
+      ...models.filter((m) => m.trials === 0),
+    ],
     recommendation: pick
       ? {
           model_id: pick.model_id,
@@ -346,11 +434,13 @@ for (const task of dirs(resultsRoot)) {
           tied_with: tied.map((m) => m.model_id),
           // Remis rozstrzyga cena — nie ułamek mediany, którego nie da się odróżnić.
           tie_note: tied.length
-            ? "Przedziały pass-rate nachodzą się — wybór po cenie, nie po medianie."
+            ? pick.expected_cost_per_pass === null
+              ? "Przedziały pass-rate nachodzą się, a koszt wybranego jest nieznany — tego remisu nie rozstrzyga ani niezawodność, ani cena."
+              : "Przedziały pass-rate nachodzą się — wybór po cenie, nie po medianie."
             : null,
         }
       : null,
-    spend_usd: models.reduce((s, m) => s + m.spend_usd, 0),
+    spend_usd: measured.reduce((s, m) => s + m.spend_usd, 0),
   });
 }
 

@@ -26,8 +26,10 @@ na zielono". Stąd trzy kontrakty każdej rubryki:
   agentowi (układ plików, nazewnictwo, dekompozycja, wewnętrzne
   helpery) nigdy nie są karane; karane są wyłącznie naruszenia
   nazwanych kryteriów,
-- **podział pracy z guardami** — sędzia czyta diff jako tekst i niczego
-  nie uruchamia; żadnych kryteriów wymagających wykonania kodu
+- **podział pracy z guardami** — sędzia API czyta diff jako tekst
+  i niczego nie uruchamia; sędzia z narzędziami (rate-attempt) może
+  zweryfikować twierdzenie diffu w `bench shell`, ale rubryka tego nie
+  wymaga. Żadnych kryteriów, których treścią jest wykonanie kodu
   ("testy przechodzą", "build zielony") — to mierzą guardy.
 
 Zasady:
@@ -39,7 +41,7 @@ Zasady:
   wg RUBRIC_AUTHORING.md) jako `judge/<zadanie>-rubric` — jedna na
   zadanie, bez współdzielenia; kalibruje ją pierwszy realny bieg
   (poprawka = edycja + bump `version` + re-ocena zachowanych prób);
-  stabilność sędziego mierzy judge diagnostics (bench-measure) na zachowanych próbach
+  stabilność sędziego mierzy bench-measure (JUDGE_DIAGNOSTICS.md) na zachowanych próbach
   (`bench calibrate`); zmiany przez PR,
 - szczegóły promptowania sędziego są świadomie odłożone (patrz DESIGN);
   wiążący jest format odpowiedzi.

@@ -234,9 +234,9 @@ export function planChanges(root: string, base: string): { base: string; groups:
       }
     }
   }
-  // Raport budowy jedzie z zadaniem, którego dotyczy.
+  // Raport budowy / odświeżenia jedzie z zadaniem, którego dotyczy.
   for (const c of changes) {
-    const m = c.path.match(/^reports\/(.+)-build\.md$/);
+    const m = c.path.match(/^reports\/(.+)-(?:build|refresh)\.md$/);
     const g = m ? groups.get(`task:${m[1]}`) : undefined;
     if (g) {
       g.changes.push(c);

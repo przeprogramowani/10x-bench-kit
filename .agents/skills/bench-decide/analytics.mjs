@@ -58,8 +58,14 @@ export function tasksNeeded(delta) {
   return Math.ceil((za * Math.sqrt(psi) + zb * Math.sqrt(Math.max(0, psi - delta * delta))) ** 2 / (delta * delta));
 }
 
-/** Najmniejsza różnica (w punktach proc.), którą n zadań rozstrzyga parowo. */
+/**
+ * Najmniejsza różnica (w punktach proc.), którą n zadań rozstrzyga parowo.
+ * Poniżej 6 zadań test znaków nie osiąga p < 0.05 nawet przy samych
+ * wygranych (min p = 0.0625 dla n = 5) — wtedy żadna różnica (null),
+ * niezależnie od przybliżenia McNemara.
+ */
 export function resolvableGap(nTasks) {
+  if (nTasks < 6) return null;
   for (let pp = 5; pp <= 100; pp++) if (tasksNeeded(pp / 100) <= nTasks) return pp;
   return null;
 }
@@ -90,7 +96,13 @@ export function classView(taskRates, classOf) {
       claim: tasks.size >= 5 ? "class" : "hypothesis",
       resolvable_gap_pp: resolvableGap(tasks.size),
       models: [...models]
-        .map(([model, rows]) => ({ model, tasks: rows.length, ...bootstrapMean(rows.map((r) => r.rate)) }))
+        .map(([model, rows]) => ({
+          model,
+          tasks: rows.length,
+          // Twierdzenie o klasie per model: liczą się zadania TEGO modelu.
+          claim: rows.length >= 5 ? "class" : "hypothesis",
+          ...bootstrapMean(rows.map((r) => r.rate)),
+        }))
         .sort((a, b) => b.lo - a.lo),
     };
   });
@@ -194,29 +206,71 @@ export function timeHorizon(observations) {
   }
   if (!(b < 0)) return { horizon50_min: null, horizon80_min: null, reason: "sukces nie spada z długością zadania — brak horyzontu w tym zakresie" };
   const at = (p) => 2 ** ((Math.log(p / (1 - p)) - a) / b);
-  return { horizon50_min: Math.round(at(0.5)), horizon80_min: Math.round(at(0.8)), tasks: tasks.size, reason: null };
+  // Bez ekstrapolacji: horyzont poza obserwowanym zakresem długości zadań
+  // to "krócej niż najkrótsze" / "dłużej niż najdłuższe", nie liczba.
+  const lo = Math.min(...minutes);
+  const hi = Math.max(...minutes);
+  const bounded = (h) => (h < lo ? { value: null, bound: `<${lo}` } : h > hi ? { value: null, bound: `>${hi}` } : { value: Math.round(h), bound: null });
+  const h50 = bounded(at(0.5));
+  const h80 = bounded(at(0.8));
+  return {
+    horizon50_min: h50.value,
+    horizon80_min: h80.value,
+    horizon50_bound: h50.bound,
+    horizon80_bound: h80.bound,
+    observed_range_min: [lo, hi],
+    tasks: tasks.size,
+    reason: h50.bound || h80.bound ? `horyzont poza zakresem obserwowanych zadań (${lo}–${hi} min) — bez ekstrapolacji` : null,
+  };
 }
 
-/** Pola zlecenia z tasks/backlog.md: klasa i czas człowieka per zadanie. */
+/**
+ * Pola zlecenia z tasks/backlog.md: klasa i czas człowieka per zadanie.
+ * Ta sama gramatyka co parseBacklog w runnerze (commands/backlog.ts):
+ * `- **Pole**: wartość` z kontynuacjami wcięć, PIERWSZE wystąpienie
+ * wygrywa, klasa = tekst do "—" / "(" / ";" (max 32 znaki).
+ */
 export function parseBacklogMeta(text) {
-  const meta = new Map();
-  let current = null;
+  const entries = new Map();
+  let fields = null;
+  let lastField = null;
   for (const line of text.split(/\r?\n/)) {
     const heading = line.match(/^## +(.+?)\s*$/);
     if (heading) {
-      current = { class: null, human_minutes: null, human_estimated: false };
-      meta.set(heading[1], current);
+      fields = new Map();
+      entries.set(heading[1], fields);
+      lastField = null;
       continue;
     }
-    if (!current) continue;
-    const klass = line.match(/^- \*\*Class\*\*:\s*(.+)$/);
-    if (klass && !klass[1].startsWith("<")) current.class = klass[1].split(/\s+[—–-]\s+|\(|;/)[0].trim().toLowerCase();
-    const human = line.match(/^- \*\*Human time\*\*:\s*~?\s*(\d+(?:\.\d+)?)\s*(min|h)/i);
-    if (human) {
-      current.human_minutes = Number(human[1]) * (human[2].toLowerCase() === "h" ? 60 : 1);
-      // Tylko jawnie potwierdzony czas nie jest szacunkiem.
-      current.human_estimated = !/confirmed|potwierdz/i.test(line);
+    if (!fields) continue;
+    const field = line.match(/^- \*\*(.+?)\*\*:\s*(.*)$/);
+    if (field) {
+      const key = field[1].toLowerCase();
+      lastField = fields.has(key) ? null : key;
+      if (!fields.has(key)) fields.set(key, field[2].trim());
+      continue;
     }
+    if (lastField && /^\s+\S/.test(line)) fields.set(lastField, `${fields.get(lastField)} ${line.trim()}`.trim());
+    else if (line.trim() === "") lastField = null;
+  }
+  const meta = new Map();
+  for (const [name, f] of entries) {
+    const rawClass = f.get("class");
+    const klass = rawClass && !rawClass.startsWith("<") ? rawClass.split(/\s+[—–-]\s+|\(|;/)[0]?.trim().toLowerCase().slice(0, 32) || null : null;
+    let minutes = null;
+    let estimated = false;
+    const human = f.get("human time");
+    if (human && !human.startsWith("<")) {
+      // "~45 min", "45-60 min" (środek), "1,5 h" (przecinek dziesiętny).
+      const m = human.replace(",", ".").match(/~?\s*(\d+(?:\.\d+)?)(?:\s*[-–]\s*(\d+(?:\.\d+)?))?\s*(min|h)/i);
+      if (m) {
+        const value = m[2] ? (Number(m[1]) + Number(m[2])) / 2 : Number(m[1]);
+        minutes = value * (m[3].toLowerCase() === "h" ? 60 : 1);
+        // Szacunek, chyba że jawnie potwierdzony ("unconfirmed" to szacunek).
+        estimated = !/(?<!un)confirmed|potwierdzon/i.test(human);
+      }
+    }
+    meta.set(name, { class: klass, human_minutes: minutes, human_estimated: estimated });
   }
   return meta;
 }

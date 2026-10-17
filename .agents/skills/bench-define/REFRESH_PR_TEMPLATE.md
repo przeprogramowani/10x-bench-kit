@@ -1,6 +1,9 @@
-# Task refresh PR template (bench-define (refresh))
+# Task refresh report / PR template (bench-define, REFRESH.md)
 
-Title: `bench-define (refresh): <task-name>`
+Written to `reports/<task-name>-refresh.md`; the user opens the PR with
+it as the description (REFRESH.md rule 1).
+
+Title: `task refresh: <task-name>`
 
 ```markdown
 ## Reason for the refresh

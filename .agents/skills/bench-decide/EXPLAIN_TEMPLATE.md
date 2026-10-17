@@ -24,8 +24,9 @@ insufficient: "unresolved" + what was missing.>
 ## Recommendation
 
 <model fault → the result stands, with the behavior pattern described;
-task fault → what to fix and with which skill (bench-define (refresh) /
-bench-define / judge diagnostics (bench-measure)), which results of the era are tainted;
+task fault → what to fix and with which procedure (bench-define's
+REFRESH.md / RUBRIC_AUTHORING.md / a new task via BUILD.md, bench-measure's
+JUDGE_DIAGNOSTICS.md), which results of the era are tainted;
 infrastructure fault → an issue in the template repo, which trials are
 uninterpretable, whether to repeat the run.>
 

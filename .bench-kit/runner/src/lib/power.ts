@@ -14,8 +14,13 @@ export function tasksNeeded(delta: number): number {
   return Math.ceil((za * Math.sqrt(psi) + zb * Math.sqrt(Math.max(0, psi - delta * delta))) ** 2 / (delta * delta));
 }
 
-/** Najmniejsza różnica (pp), którą n zadań rozstrzyga parowo; null = żadna ≤ 100 pp. */
+/**
+ * Najmniejsza różnica (pp), którą n zadań rozstrzyga parowo; null = żadna.
+ * Poniżej 6 zadań test znaków nie osiąga p < 0.05 nawet przy samych
+ * wygranych (min p = 0.0625 dla n = 5).
+ */
 export function resolvableGap(nTasks: number): number | null {
+  if (nTasks < 6) return null;
   for (let pp = 5; pp <= 100; pp++) if (tasksNeeded(pp / 100) <= nTasks) return pp;
   return null;
 }

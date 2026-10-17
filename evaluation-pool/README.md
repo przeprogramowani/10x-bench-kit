@@ -17,7 +17,7 @@ Asercja = katalog `<typ>/<nazwa>/`, referencja z task.yaml to
 | Typ | Rola | Wynik |
 |---|---|---|
 | `static/` | guard wykonania: lint / typecheck / build repo-natywnymi komendami | 0–1 |
-| `tests/` | guard wykonania: własna suita testów repo bazowego | 0–1 (frakcja przechodzących) |
+| `tests/` | guard wykonania: własna suita testów repo bazowego; wyjątek: `tests/<zadanie>-pr` — testy wykopanej zmiany, per zadanie | 0–1 (frakcja przechodzących); `-pr`: 0/1 |
 | `e2e/` | scenariusze Playwright (zachowanie widoczne dla użytkownika) | 0–1 |
 | `judge/` | rubryki LLM-as-judge — główna miara treści implementacji | 0–1 (JSON sędziego) |
 
