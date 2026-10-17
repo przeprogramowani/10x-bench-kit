@@ -14,13 +14,18 @@
  *    sędziego-z-narzędziami).
  * 2. Składowa judge:
  *    - `--verdict <plik>` (pojedyncza próba): werdykt przygotowany przez
- *      sędziego-agenta z narzędziami (skill rate-attempt) — JSON w
- *      formacie rubryki; runner parsuje i liczy total z wag frontmattera,
+ *      sędziego-agenta z narzędziami (bench-measure → RATE_ATTEMPT.md) albo
+ *      człowieka — JSON w formacie rubryki; runner parsuje i liczy total
+ *      z wag frontmattera. Autor jest obowiązkowy (`--judge-mode agent`
+ *      + `--judge-model`, albo `--judge-mode human`) i trafia do stempli
+ *      (`judge_mode`) — werdykty API, agenta i człowieka to różne ery,
  *    - bez --verdict: wywołanie API modelu sędziego (prompt.md +
  *      patch.diff + rubryka) — ścieżka automatyczna (CI/smoke),
  *    - `--skip-judge`: tylko guardy (krok 1 procedury rate-attempt);
  *      result.json nie powstaje, composant judge czeka na werdykt.
- * 3. result.json: scores, total = ważona suma, koszt/czas/tokeny
+ * 3. result.json: scores, total = ważona suma (miara jakości), `passed` =
+ *    BRAMKA: każdy guard z wagą > 0 na 1 ORAZ judge ≥ pass_threshold
+ *    (guardy to fakty — nie da się ich "nadrobić" opinią sędziego), koszt/czas/tokeny
  *    z metrics.json, stemple er (scoring_version, task_hash BIEŻĄCY,
  *    judge_model, rubric_version, memory_limit_mb z próby). Era oceny
  *    jest ODKLEJONA od ery wykonania — rozjazd task_hash próby
@@ -35,7 +40,7 @@
  * Użycie:
  *   bench evaluate [--attempt <dir>]... [--attempts <dir>]
  *                  [--results <dir> | --no-write-results]
- *                  [--skip-judge | --verdict <plik>]
+ *                  [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>]]
  *                  [--no-deps-cache] [--engine docker|podman] [--root <dir>]
  * (bez argumentów: wszystkie zachowane próby z attempts/ w korzeniu)
  */
@@ -46,6 +51,7 @@ import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { hashTaskDir, rubricVersionStamp } from "../lib/era.ts";
 import { judgeTrial, parseRubric, parseVerdict, type JudgeVerdict } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
+import { underlyingModel } from "../lib/harness.ts";
 import { depsCacheArgs, detectEngine, ensureBaseImage, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
 import { imageExists, prepareTaskImage, sanitize } from "../lib/prepare.ts";
 import { ATTEMPT_FORMAT_VERSION, AttemptSchema, type Attempt } from "../schemas/attempt.ts";
@@ -60,6 +66,12 @@ interface Options {
   noWriteResults: boolean;
   skipJudge: boolean;
   verdict: string | null;
+  /** Autor werdyktu z pliku: agent (rate-attempt) albo człowiek — część ery. */
+  judgeMode: "agent" | "human" | null;
+  /** Model, który (wg deklaracji) napisał werdykt agenta. */
+  judgeModel: string | null;
+  /** Pozwala ocenie API nadpisać wynik oceniony przez agenta/człowieka. */
+  overwriteJudged: boolean;
   engine: string | null;
   noDepsCache: boolean;
 }
@@ -73,6 +85,9 @@ function parseArgs(args: string[]): Options | null {
     noWriteResults: false,
     skipJudge: false,
     verdict: null,
+    judgeMode: null,
+    judgeModel: null,
+    overwriteJudged: false,
     engine: null,
     noDepsCache: false,
   };
@@ -85,14 +100,24 @@ function parseArgs(args: string[]): Options | null {
     else if (arg === "--no-write-results") opts.noWriteResults = true;
     else if (arg === "--skip-judge") opts.skipJudge = true;
     else if (arg === "--verdict") opts.verdict = resolve(value() ?? "");
+    else if (arg === "--judge-mode") {
+      const mode = value();
+      if (mode !== "agent" && mode !== "human") return null;
+      opts.judgeMode = mode;
+    } else if (arg === "--judge-model") opts.judgeModel = value() ?? null;
+    else if (arg === "--overwrite-judged") opts.overwriteJudged = true;
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--no-deps-cache") opts.noDepsCache = true;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
   if (opts.attempts.length > 0 && opts.attemptsDir) return null;
-  if (opts.verdict && opts.attempts.length !== 1) return null; // werdykt jest per próba
   if (opts.verdict && opts.skipJudge) return null;
+  // Werdykt z pliku bez deklaracji autora to werdykt bez proweniencji —
+  // nie do odróżnienia od ręcznie wpisanego JSON-a. Autor jest wymagany.
+  if (opts.verdict && !opts.judgeMode) return null;
+  if (opts.judgeMode === "agent" && !opts.judgeModel) return null;
+  if (!opts.verdict && (opts.judgeMode || opts.judgeModel)) return null;
   return opts;
 }
 
@@ -190,7 +215,7 @@ function runChecksContainer(
 }
 
 /**
- * Werdykt z pliku (skill rate-attempt): JSON w formacie rubryki —
+ * Werdykt z pliku (procedura rate-attempt skilla bench-measure): JSON w formacie rubryki —
  * pojedynczy obiekt (jedna rubryka zadania) albo mapa
  * { "<nazwa-rubryki>": <werdykt> } przy wielu rubrykach.
  */
@@ -216,7 +241,8 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       [
         "usage: bench evaluate [--attempt <dir>]... [--attempts <dir>]",
         "                      [--results <dir> | --no-write-results]",
-        "                      [--skip-judge | --verdict <plik> (z jednym --attempt)]",
+        "                      [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>] (z jednym --attempt)]",
+        "                      [--overwrite-judged]",
         "                      [--no-deps-cache] [--engine docker|podman] [--root <dir>]",
       ].join("\n"),
     );
@@ -253,9 +279,31 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       attempts = findAttempts(dir);
     }
     if (attempts.length === 0) throw new Error("brak zachowanych prób do oceny");
+    // Werdykt jest per próba: --attempt wskazujący katalog komórki znalazłby
+    // kilka prób i przypisał im ten sam werdykt.
+    if (opts.verdict && attempts.length !== 1) {
+      throw new Error(`--verdict dotyczy jednej próby, a wskazane katalogi zawierają ${attempts.length} — podaj katalog trial-N`);
+    }
     console.log(`bench evaluate: ${attempts.length} zachowanych prób(y)`);
 
     const verdictRaw = opts.verdict ? readFileSync(opts.verdict, "utf8") : null;
+    // Sędzia jest stały (era): werdykt agenta musi pochodzić od modelu
+    // sędziego z configu. Porównanie po tożsamości modelu — agent zna swój
+    // model jako `claude-opus-5` / `anthropic/claude-opus-5`, config trzyma
+    // `openrouter/anthropic/claude-opus-5`. To deklaracja, nie dowód — ale
+    // jawna i zapisana w judge.json, zamiast domyślnego stempla configu.
+    if (opts.judgeMode === "agent" && opts.judgeModel) {
+      const want = underlyingModel(config.judge.model);
+      const declared = opts.judgeModel.toLowerCase().replace(/-\d{8}$/, "").replace(/(\d)-(\d)/g, "$1.$2");
+      const matches = want !== null && (underlyingModel(opts.judgeModel) === want || want.endsWith(`/${declared}`));
+      if (!matches) {
+        throw new Error(
+          `werdykt agenta od "${opts.judgeModel}", a sędzią instancji jest ${config.judge.model} — ` +
+            "werdykty innego modelu to inna era; uruchom ocenę modelem sędziego albo zmień judge.model (przez PR)",
+        );
+      }
+    }
+    const judgeMode: "api" | "agent" | "human" = opts.judgeMode ?? "api";
 
     const taskCache = new Map<string, { task: Task; hash: string }>();
     const preparedImages = new Set<string>();
@@ -271,6 +319,22 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           : "awaria infrastruktury w bench attempt, nie ma czego oceniać";
         console.error(`skip:  ${label} — ${why}`);
         continue;
+      }
+      // Werdykt agenta (z narzędziami) albo człowieka jest drogi i celowy —
+      // masowe `bench evaluate` sędzią API nie może go po cichu nadpisać.
+      if (!opts.verdict && !opts.skipJudge && !opts.noWriteResults && !opts.overwriteJudged) {
+        const existing = join(resultsDir, meta.task, sanitize(meta.model), `trial-${meta.trial}`, "result.json");
+        if (existsSync(existing)) {
+          try {
+            const mode = JSON.parse(readFileSync(existing, "utf8"))?.stamps?.judge_mode;
+            if (mode === "agent" || mode === "human") {
+              console.error(`skip:  ${label} — wynik oceniony ścieżką "${mode}"; sędzia API go nie nadpisze (--overwrite-judged, jeśli to świadoma decyzja)`);
+              continue;
+            }
+          } catch {
+            // nieczytelny wynik — ocena go zastąpi
+          }
+        }
       }
       try {
         let cached = taskCache.get(meta.task);
@@ -351,13 +415,24 @@ export async function evaluateCommand(args: string[]): Promise<number> {
               if (verdict.invalid_reason) {
                 throw new Error(`werdykt z pliku dla ${ref} niepoprawny: ${verdict.invalid_reason} — popraw plik werdyktu (kontrakt formatu w rubryce)`);
               }
-              verdicts.push({ ref, source: "verdict-file", ...verdict });
+              verdicts.push({
+                ref,
+                source: "verdict-file",
+                declared_by: { mode: judgeMode, model: opts.judgeModel ?? null },
+                ...verdict,
+              });
             } else {
               const taskPrompt = readFileSync(join(root, "tasks", meta.task, "prompt.md"), "utf8");
               const patchDiff = readFileSync(join(dir, "patch.diff"), "utf8");
               const verdict = await judgeTrial(config.judge.model, taskPrompt, patchDiff, rubricText, {
                 maxTokens: config.judge.max_tokens,
               });
+              // Niepoprawny werdykt sędziego to awaria OCENY, nie porażka
+              // modelu — bez wyniku, zamiast zera wliczonego do pass rate.
+              if (verdict.invalid_reason) {
+                writeFileSync(join(dir, "judge.json"), JSON.stringify([{ ref, source: "api-judge", ...verdict }], null, 2) + "\n");
+                throw new Error(`sędzia API zwrócił niepoprawny werdykt dla ${ref}: ${verdict.invalid_reason} — wynik nie zapisany (judge.json przy próbie)`);
+              }
               verdicts.push({ ref, source: "api-judge", ...verdict });
             }
           }
@@ -382,6 +457,30 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           (acc, c) => acc + task.weights[c] * (scores[c] ?? 0),
           0,
         );
+        // Zaliczenie = bramka, nie próg sumy: guard to fakt (czerwony build
+        // nie jest "częściowo dobry"), więc żaden guard z wagą > 0 nie może
+        // być poniżej 1, a sędzia musi sam przekroczyć próg. total zostaje
+        // miarą jakości (mediany, rozkład), nie decyzją o zaliczeniu.
+        const threshold = config.defaults.pass_threshold;
+        const redGuards = NON_JUDGE.flatMap((c) =>
+          task.weights[c] > 0 ? (refsByComponent.get(c) ?? []).filter((ref) => (refScores.get(ref) ?? 0) < 1) : [],
+        );
+        const judgeGated = task.weights.judge > 0 && judgeRefs.length > 0;
+        // Tolerancja na arytmetykę zmiennoprzecinkową: średnia 0.4/1.0/0.7
+        // to 0.6999999999999998, a znaczy 0.7.
+        const judgeBelow = judgeGated && (judgeScore ?? 0) < threshold - 1e-9;
+        const passed = redGuards.length === 0 && !judgeBelow;
+        const passReason = passed
+          ? judgeGated
+            ? `guardy zielone, judge ${(judgeScore ?? 0).toFixed(2)} ≥ ${threshold}`
+            : "guardy zielone (zadanie bez sędziego)"
+          : [
+              redGuards.length ? `czerwone guardy: ${redGuards.join(", ")}` : "",
+              judgeBelow ? `judge ${(judgeScore ?? 0).toFixed(2)} < ${threshold}` : "",
+            ]
+              .filter(Boolean)
+              .join("; ");
+
         const metricsPath = join(dir, "metrics.json");
         const metrics = existsSync(metricsPath) ? JSON.parse(readFileSync(metricsPath, "utf8")) : {};
         const result: Result = ResultSchema.parse({
@@ -390,7 +489,12 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           trial: meta.trial,
           scores,
           total: Math.min(1, Math.max(0, total)),
+          passed,
+          pass_reason: passReason,
           cost_usd: metrics.cost_usd ?? 0,
+          // null = koszt nieznany (harness bez kosztu i bez ceny) — cost_usd
+          // ma wtedy 0 tylko z kontraktu schematu; konsumenci czytają to pole.
+          cost_source: typeof metrics.cost_usd === "number" ? (metrics.cost_source ?? "harness") : null,
           judge_cost_usd: judgeCostUsd,
           duration_s: metrics.duration_s ?? 0,
           tokens: { input: metrics.tokens?.input ?? 0, output: metrics.tokens?.output ?? 0 },
@@ -399,6 +503,11 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             scoring_version: scoringVersion,
             task_hash: hash,
             judge_model: config.judge.model,
+            // Ścieżka oceny jest częścią ery: sędzia API (diff), sędzia-agent
+            // z narzędziami (rate-attempt) i człowiek nie są wymienni.
+            judge_mode: judgeGated ? judgeMode : "none",
+            pass_threshold: threshold,
+            context_files: meta.context_files?.policy ?? null,
             rubric_version: rubricVersionStamp(root, judgeRefs, config.judge.rubric_version),
             // Sufit zasobów obowiązujący W TRAKCIE próby (z attempt.json) —
             // "model się poprawił" i "daliśmy więcej RAM-u" nie mogą

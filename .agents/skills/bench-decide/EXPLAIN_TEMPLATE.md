@@ -1,4 +1,4 @@
-# Diagnosis template (bench-explain-results)
+# Diagnosis template (bench-decide (explain))
 
 Title (issue/comment): `triage: <model> × <task> — <symptom in 3-5 words>`
 
@@ -24,8 +24,9 @@ insufficient: "unresolved" + what was missing.>
 ## Recommendation
 
 <model fault → the result stands, with the behavior pattern described;
-task fault → what to fix and with which skill (bench-refresh-task /
-bench-build / bench-rubric), which results of the era are tainted;
+task fault → what to fix and with which procedure (bench-define's
+REFRESH.md / RUBRIC_AUTHORING.md / a new task via BUILD.md, bench-measure's
+JUDGE_DIAGNOSTICS.md), which results of the era are tainted;
 infrastructure fault → an issue in the template repo, which trials are
 uninterpretable, whether to repeat the run.>
 

@@ -6,31 +6,28 @@ z template'em i obowiązuje w każdej instancji). Instancja trzyma
 zadania (`tasks/`), materiały oceny (`evaluation-pool/`)
 i konfigurację (`bench.config.yaml`). Liczeniem zajmuje się
 deterministyczny runner (`.bench-kit/` — strefa narzędzia, nie
-edytuj); wszystkim, co wymaga osądu, zajmują się skille. Zanim
+edytuj); wszystkim, co wymaga osądu, zajmują się trzy skille:
+define → measure → decide. Zanim
 zrobisz cokolwiek wpływającego na scoring, użyj właściwego skilla —
-każdy ma procedurę, twarde zasady i szablon PR-a.
+każdy ma procedurę i twarde zasady, a tam, gdzie jego wynik ma
+utrwaloną formę, także jej szablon (raport budowy, opis PR-a, diagnoza).
 
-## Skille i kiedy którego użyć
+## Trzy koncepty, trzy skille
 
-Kolejność odpowiada cyklowi życia instancji:
+Cały cykl instancji to trzy skille. Każdy ładuje swoje szczegółowe
+procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 
-| Kolejność | Skill | Przeznaczenie | Kiedy |
+| Koncept | Skill | Przeznaczenie | Procedury |
 |---|---|---|---|
-| 1 | **bench-wiring** | Od świeżego `bench-kit init` do zielonego `bench validate` i pierwszej zmierzonej próby LOKALNIE: braki po init, silnik kontenerów, klucze API w env, smoke `bench attempt` + `bench evaluate`, commit wyników; opcjonalnie ścieżka publikacji (readiness + leaderboard w GHA) | raz, przy powstaniu instancji (i przy zmianach wiringu) |
-| 2 | **bench-new-task** | Krótki wywiad → zlecenie zadania w backlogu (`tasks/backlog.md`); 5–10 zleceń w jednej sesji, bez budowania. Zlecenie nazywa **decyzję**, którą wynik rozstrzygnie, **klasę pracy** i jej **dzisiejszy koszt** (reguła 7); backlog porządkuje wartość decyzyjna, nie atrakcyjność zadania | cyklicznie, gdy pojawia się pomysł na zadanie |
-| 3 | **bench-build** | Budowa zadań z oczekujących zleceń backlogu: subagent per zlecenie — pin + overlay + prompt + asercje + **rubryka zadania** (RUBRIC_AUTHORING.md: osie zlecenia → kryteria z kotwicami, reguły kciuka junior/senior/lead, checklista wad do wykrycia czytaniem, podłoga pustego diffu z `bench judge`) + wagi jako praca tekstowa (kontener tylko dla własnych dowodów: overlay, nowy guard), potem JEDNA bramka partii u orkiestratora (`bench validate --assert` + smoke + **kontrdowód dyskryminacji**: każda asercja ma zapisane, jak idzie na czerwono — inaczej waga 0, reguła 10) dowodzi stan startowy całej paczki; bez implementacji referencyjnej i bez zbioru kalibracyjnego — rubrykę kalibruje pierwszy realny bieg; gotowe pliki + raport-plik `reports/<zadanie>-build.md` w drzewie roboczym, git po stronie użytkownika | gdy w backlogu czeka paczka zleceń |
-| 4 | **bench-rubric** | Cienkie proxy nad `bench calibrate`: stabilność sędziego API na rubryce zadania albo porównanie dwóch modeli sędziego — zbiór to REALNE zachowane próby (+ pusty diff), nic syntetycznego, żadnych edycji rubryk (wynik "rubryka źle rankuje" wraca jako edycja wg RUBRIC_AUTHORING.md + bump `version` + re-ocena zachowanych prób) | diagnostyka, nie krok cyklu: gdy werdykty na podobnych diffach są niestabilne albo przy wyborze/zmianie modelu sędziego; wymaga prób w `attempts/` |
-| 5 | **bench-measure** | Bieg macierzy na tej maszynie: zakres modele × zadania × próby, projekcja kosztu vs budżet, `bench attempt` w tle (top-up zachowanych prób; wiele procesów naraz bez kolizji — marker próby w toku), `bench status` jako tracker, próby rozdzielane asymetrycznie (dużo tam, gdzie kosztują grosze; dowód istnienia i wyjście tam, gdzie kosztują dolary), ocena tego, co gotowe (rate-attempt / sędzia API), tabela wyników + ścieżki `results/` do commita, dalej bench-summary | „zmierz model X / uruchom benchmark" — każdy pomiar po wiringu |
-| 6 | **rate-attempt** | Sędzia jako agent Z NARZĘDZIAMI: ocena zachowanej próby (`attempts/<zadanie>/<model>/trial-N/`) — guardy jako fakty, praca na jednorazowej kopii workspace'u W KONTENERZE (`bench shell --attempt`: build/testy/uruchomienie — cudzy kod nigdy na hoście), werdykt składany przez `bench evaluate --verdict` do `results/` | wołany z bench-measure per próba; przy re-ocenie zachowanych prób nową rubryką |
-| 7 | **bench-refresh-task** | Odświeżenie przeterminowanego zadania: nowy pin, ponowne dowody, nowa era zadania | po warningu `expires` z `bench validate` |
-| 8 | **bench-explain-results** | Diagnoza wyników: wina modelu / zadania / infrastruktury, z dowodami z zachowanych prób | po biegu, gdy wynik zaskakuje |
-| 9 | **bench-summary** | Migawka decyzyjna nad `results/`: ekonomia liczona deterministycznie przez `summarize.mjs` (pass-rate z przedziałem, **koszt jednego akceptowalnego wyniku** = koszt próby ÷ pass-rate, koszt przeglądu diffu), samowystarczalna strona HTML z werdyktem + krótka narracja; remisy raportowane jako remisy (wybór po cenie), cele niezmierzone jako niezmierzone, nigdy jako zero; żadnych zmian w scoringu | po pomiarze / gdy trzeba wybrać model do klasy pracy („podsumuj wyniki", „czego używamy") |
+| **define** — co mierzymy | **bench-define** | Zadania z prawdziwej pracy firmy. Domyślne źródło to **kopanie PR-ów**: zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to dowód wykonalności, którego agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją, klasą i dzisiejszym kosztem pracy; budowa daje pliki zadań i raport `reports/<zadanie>-build.md` | `MINING.md` + `mine-prs.mjs`, `INTERVIEW.md` (praca bez historii), `REFRESH.md` (przeterminowane zadanie), `BUILD.md` → `TASK_AUTHORING.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
+| **measure** — uruchamiamy modele | **bench-measure** | Preflight (wiring, silnik, klucze), bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
+| **decide** — co z tego wynika | **bench-decide** | Decyzja routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań, horyzont czasowy | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
 - **Zmiany scoringu z dowodem i śladem** — rubryki i
   `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania buduje
-  bench-build jako pliki w drzewie roboczym z dowodami ze stanu
+  bench-define jako pliki w drzewie roboczym z dowodami ze stanu
   startowego w raporcie-pliku `reports/<zadanie>-build.md`
   (REPORT_TEMPLATE.md skilla; raport wyłącznie w wiadomości czatu =
   raport nieistniejący) — **do gita wnosi
@@ -39,14 +36,37 @@ Kolejność odpowiada cyklowi życia instancji:
   overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR);
   dowód dla tego, co wspólne dla paczki (guardy reużyte na pinie,
   `bench validate --assert`, smoke), składa raz orkiestrator
-  bench-build na bramce partii — nie każdy subagent osobno.
-  Benchmark nie utrzymuje implementacji referencyjnych: kierunek
+  bench-define na bramce partii — nie każdy subagent osobno.
+  Benchmark nie PISZE implementacji referencyjnych: kierunek
   "da się zaliczyć" chroni zasada neutralności kształtu asercji
   (TASK_AUTHORING.md — skrypty to wyłącznie repo-natywne guardy
   wykonania; treść implementacji ocenia rubryka sędziego opisem
   dobrych i złych implementacji) i smoke run jako sonda wykonalności.
-- **Świadomość er** — zmiany `task_hash`, rubryki lub sędziego zamykają
-  erę porównywalności; raport/PR mówi to wprost.
+  Wyjątek bez kosztu utrzymania: zadanie wykopane z historii
+  (MINING.md) ma referencję z gita, czyli samą zmianę. Jej testy
+  dowodzi się w obie strony (czerwone na pinie, zielone z
+  `--patch reference.diff`). Referencją jest zmergowany commit (SHA
+  w zleceniu i w raporcie budowy); jego diff odtwarza się w razie
+  potrzeby przez `mine-prs.mjs emit` i nigdy nie jest przechowywany
+  w instancji.
+- **Zaliczenie to bramka, nie próg sumy** — próba zalicza, gdy każdy
+  guard z wagą > 0 jest na 1 ORAZ sędzia sam przekracza
+  `pass_threshold`. Czerwonego guarda nie da się nadrobić hojnym
+  werdyktem. `total` zostaje miarą jakości, a decyzja jest w polu
+  `passed` (`pass_reason` mówi, co zawiodło).
+- **Werdykt ma autora** — werdykt z pliku wchodzi tylko z deklaracją
+  (`--judge-mode agent --judge-model <id>` albo `--judge-mode human`).
+  Ścieżka oceny (`judge_mode`: api / agent / human) jest częścią ery,
+  więc werdykty sędziego API, sędziego z narzędziami i człowieka nigdy
+  nie mieszają się w jednej tabeli. Ścieżkę instancji wybiera
+  `judge.mode` w `bench.config.yaml` (`agent` domyślnie, albo `api`);
+  wynik oceniony inną ścieżką `bench status` pokazuje jako nieświeży
+  ("ścieżka oceny X→Y"), a masowe `bench evaluate` (sędzia API) pomija
+  wyniki ocenione przez agenta albo człowieka, chyba że dostanie
+  `--overwrite-judged`.
+- **Świadomość er** — zmiany `task_hash`, rubryki, sędziego, ścieżki
+  oceny (`judge.mode`) lub progu zaliczenia (`defaults.pass_threshold`)
+  zamykają erę porównywalności; raport/PR mówi to wprost.
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje
@@ -69,6 +89,22 @@ Kolejność odpowiada cyklowi życia instancji:
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
   nie deklaracja.
+- **Stan się wyprowadza, nie zapisuje** — postęp zlecenia (ordered →
+  building → built → ready → measuring → measured) czyta
+  `bench backlog` z faktów na dysku (todo.md, task.yaml, bramka partii
+  w raporcie, próby, oceny w bieżącej erze). W backlogu żyją wyłącznie
+  decyzje (`pending` / `dropped`) i dziennik budowy, więc żaden skill
+  nie przepisuje linii statusu. Świeżość oceny to cała era oceny
+  (zadanie + sędzia + ścieżka oceny + wersje rubryk + scoring z progiem
+  zaliczenia), nie sam `task_hash`:
+  bump rubryki `bench status` pokazuje jako pracę do re-oceny.
+- **Przegląd intencji, nie linii** — zanim użytkownik dostanie pliki do
+  commita, skill uruchamia `bench changes` i przekazuje jego plan. Plan
+  dzieli drzewo robocze wg wpływu na scoring: koordynacja / nowe zadanie
+  / dane / zamknięcie ery (PR) / zablokowane. Do każdej grupy daje
+  gotowe `git add` + `git commit`. Edycja rubryki bez bumpu `version`
+  przy istniejących wynikach i plik roboczy w katalogu zadania blokują
+  plan, a ich naprawa należy do skilla, nie do użytkownika.
 - **Zmiana w skillach = release** — każda pushowana zmiana w skillach
   (lub innej strefie współdzielonej template'u) dostaje bump wersji
   wg SemVer stosownie do wpływu (patch: doprecyzowanie w obrębie

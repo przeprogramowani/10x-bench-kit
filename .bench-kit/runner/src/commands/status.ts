@@ -6,18 +6,17 @@
  * (albo na drugiej maszynie), a tu widać, co gotowe do oceny.
  *
  * Per komórka (zadanie × model): cel prób (defaults.trials), zachowane,
- * w toku, nieinterpretowalne (infra/kill), ocenione (results/ z bieżącym
- * task_hash; ocena starą definicją zadania = "stara"), koszt prób.
+ * w toku, nieinterpretowalne (infra/kill), ocenione (results/ w bieżącej
+ * erze oceny: task_hash + sędzia + wersje rubryk + scoring; ocena z innej
+ * ery = "stara", z powodem — do re-oceny), koszt prób.
  *
  * Użycie: bench status [--tasks x,y] [--models a,b] [--json] [--root <dir>]
  * (bez argumentów: zadania z tasks/, modele z defaults.models + wszystkie
  *  modele obecne w attempts/)
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig } from "../lib/instance.ts";
-import { hashTaskDir } from "../lib/era.ts";
-import { sanitize } from "../lib/prepare.ts";
+import { cellStatus, currentEvalEra, modelsInAttempts, type CellStatus } from "../lib/matrix.ts";
 
 interface Options {
   root: string;
@@ -38,106 +37,6 @@ function parseArgs(args: string[]): Options | null {
     else return null;
   }
   return opts;
-}
-
-interface TrialState {
-  trial: number;
-  state: "done" | "running" | "stale" | "infra";
-  cost_usd: number | null;
-  started_at: string | null;
-  evaluated: "fresh" | "old" | null;
-  total: number | null;
-}
-
-interface CellStatus {
-  task: string;
-  model: string;
-  target: number;
-  trials: TrialState[];
-  aborted: number;
-  superseded: number;
-}
-
-const isDir = (p: string) => statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
-const readJson = (p: string): Record<string, unknown> | null => {
-  try {
-    return JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-};
-
-/** Ta sama reguła przeterminowania co w bench attempt (timeout + 15 min). */
-function runningState(marker: Record<string, unknown> | null): "running" | "stale" {
-  const started = Date.parse(String(marker?.started_at ?? ""));
-  const timeoutS = typeof marker?.timeout_s === "number" ? marker.timeout_s : 0;
-  if (!Number.isFinite(started)) return "stale";
-  return Date.now() > started + (timeoutS + 900) * 1000 ? "stale" : "running";
-}
-
-function cellStatus(root: string, task: string, model: string, target: number, taskHash: string): CellStatus {
-  const cellDir = join(root, "attempts", task, sanitize(model));
-  const resultsCell = join(root, "results", task, sanitize(model));
-  const trials: TrialState[] = [];
-  let aborted = 0;
-  let superseded = 0;
-  if (isDir(cellDir)) {
-    for (const name of readdirSync(cellDir).sort()) {
-      if (/^trial-\d+\.aborted-/.test(name)) aborted++;
-      if (/^trial-\d+\.superseded-/.test(name)) superseded++;
-      const match = name.match(/^trial-(\d+)$/);
-      if (!match) continue;
-      const trial = Number(match[1]);
-      const dir = join(cellDir, name);
-      const attempt = readJson(join(dir, "attempt.json"));
-      if (attempt) {
-        const metrics = readJson(join(dir, "metrics.json"));
-        const result = readJson(join(resultsCell, name, "result.json"));
-        const stamps = (result?.stamps ?? {}) as Record<string, unknown>;
-        trials.push({
-          trial,
-          state: attempt.infra_failure === true ? "infra" : "done",
-          cost_usd: typeof metrics?.cost_usd === "number" ? metrics.cost_usd : null,
-          started_at: typeof attempt.started_at === "string" ? attempt.started_at : null,
-          evaluated: result ? (stamps.task_hash === taskHash ? "fresh" : "old") : null,
-          total: typeof result?.total === "number" ? result.total : null,
-        });
-      } else if (existsSync(join(dir, "running.json"))) {
-        const marker = readJson(join(dir, "running.json"));
-        trials.push({
-          trial,
-          state: runningState(marker),
-          cost_usd: null,
-          started_at: typeof marker?.started_at === "string" ? marker.started_at : null,
-          evaluated: null,
-          total: null,
-        });
-      }
-    }
-  }
-  return { task, model, target, trials, aborted, superseded };
-}
-
-/** Modele obecne w attempts/ (po polu model w attempt.json / running.json). */
-function modelsInAttempts(root: string, tasks: string[]): string[] {
-  const found = new Set<string>();
-  for (const task of tasks) {
-    const taskDir = join(root, "attempts", task);
-    if (!isDir(taskDir)) continue;
-    for (const modelDir of readdirSync(taskDir)) {
-      const cellDir = join(taskDir, modelDir);
-      if (!isDir(cellDir)) continue;
-      for (const name of readdirSync(cellDir)) {
-        if (!/^trial-\d+$/.test(name)) continue;
-        const meta = readJson(join(cellDir, name, "attempt.json")) ?? readJson(join(cellDir, name, "running.json"));
-        if (typeof meta?.model === "string") {
-          found.add(meta.model);
-          break;
-        }
-      }
-    }
-  }
-  return [...found];
 }
 
 const elapsed = (iso: string | null): string => {
@@ -170,8 +69,8 @@ export async function statusCommand(args: string[]): Promise<number> {
 
     const cells: CellStatus[] = [];
     for (const task of tasks) {
-      const taskHash = hashTaskDir(join(root, "tasks", task));
-      for (const model of models) cells.push(cellStatus(root, task, model, target, taskHash));
+      const era = currentEvalEra(root, config, task);
+      for (const model of models) cells.push(cellStatus(root, task, model, target, era));
     }
 
     if (opts.json) {
@@ -188,7 +87,7 @@ export async function statusCommand(args: string[]): Promise<number> {
       const old = done.filter((t) => t.evaluated === "old").length;
       const cost = done.reduce((acc, t) => acc + (t.cost_usd ?? 0), 0);
       const missing = Math.max(0, cell.target - done.length - running);
-      const evaluated = `${fresh}/${done.length}${old ? ` (+${old} starą definicją)` : ""}`;
+      const evaluated = `${fresh}/${done.length}${old ? ` (+${old} z innej ery)` : ""}`;
       const notes = [
         running ? `${running} w toku` : "",
         stale ? `${stale} PRZETERMINOWANE` : "",
@@ -224,6 +123,22 @@ export async function statusCommand(args: string[]): Promise<number> {
     if (stale.length > 0) {
       console.log("\nprzeterminowane markery (proces bench attempt zginął?) — następny bench attempt odłoży je do trial-N.aborted-*:");
       for (const t of stale) console.log(`  ${t.task} × ${t.model} × próba ${t.trial} — start ${t.started_at ?? "?"}`);
+    }
+    // Ocena z innej ery to nie "oceniona": zmiana rubryki / sędziego /
+    // zadania wymaga RE-OCENY zachowanych prób — tu widać, których i dlaczego.
+    const oldByReason = new Map<string, string[]>();
+    for (const cell of cells) {
+      for (const t of cell.trials) {
+        if (t.evaluated !== "old") continue;
+        const key = t.stale_reasons.join("; ");
+        oldByReason.set(key, [...(oldByReason.get(key) ?? []), `${cell.task} × ${cell.model} × próba ${t.trial}`]);
+      }
+    }
+    if (oldByReason.size > 0) {
+      console.log("\nocenione w innej erze (do re-oceny zachowanych prób — bez nowego biegu):");
+      for (const [reason, trials] of oldByReason) {
+        console.log(`  ${reason}: ${trials.length} prób(y)${trials.length <= 3 ? ` — ${trials.join(", ")}` : ""}`);
+      }
     }
     const toEvaluate = cells.reduce((acc, c) => acc + c.trials.filter((t) => t.state === "done" && t.evaluated !== "fresh").length, 0);
     const missing = rows.reduce((acc, r) => acc + Number(r.missing), 0);

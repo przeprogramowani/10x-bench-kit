@@ -1,19 +1,6 @@
----
-name: bench-wiring
-description: >-
-  Takes a fresh bench-kit instance from `bench-kit init` to a green
-  `bench validate` and the first measured attempt ON THE OPERATOR'S
-  MACHINE. First a check that the instance holds together (filling gaps
-  left by init + `bench validate`, within a minute), then the first
-  local run: container engine, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate` that cleans up after itself;
-  optionally the publication path (instance repo on GitHub, readiness + leaderboard
-  workflows). Use when the user has a fresh benchmark instance to
-  configure, wants to hook up a base repo or models, or says "wiring /
-  configure the benchmark / hook up the benchmark".
----
+<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
 
-# bench-wiring — from init to the first measured attempt
+# bench-measure (preflight) — from init to the first measured attempt
 
 You close out the decisions that `bench-kit init` deliberately does not
 make. Two divisions of labor shape the entire procedure:
@@ -51,7 +38,7 @@ from the runner (`bench` output) — never eyeball it.
 
 1. **Output via PR.** Wiring changes `bench.config.yaml` (which affects
    scoring: models, judge, rubric versions) — branch
-   `bench-wiring/<description>` + PR per [PR_TEMPLATE.md](PR_TEMPLATE.md);
+   `bench-wiring/<description>` + PR per [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md);
    a human merges. Exception: the first configuration of a fresh
    instance whose master is still just the template skeleton — there a
    commit to master is acceptable with the user's explicit consent
@@ -71,7 +58,8 @@ from the runner (`bench` output) — never eyeball it.
    `bench evaluate` with a result in `results/`. Never eyeball that
    something will work.
 5. **Judge ≠ evaluated models.** A hard rule (validate enforces it);
-   the judge is a fixed, strong model — changing the judge or the
+   the judge is a fixed, strong model — changing the judge, the
+   evaluation path (`judge.mode`), `defaults.pass_threshold` or the
    rubric version (frontmatter `version` in the rubric) closes the
    comparability era of the tasks that use it. Preserved attempts
    survive such a change — only evaluations are redone.
@@ -82,8 +70,8 @@ from the runner (`bench` output) — never eyeball it.
    needed to **raise** the budget. After each run report the actual
    cost (`metrics.json` / the evaluate summary); do not negotiate
    estimates.
-7. **Era awareness.** Wiring defines the instance's first era (judge +
-   rubric versions). The PR says so explicitly; later changes to those
+7. **Era awareness.** Wiring defines the instance's first era (judge,
+   evaluation path, pass threshold, rubric versions). The PR says so explicitly; later changes to those
    fields re-version the evaluations (cheap: re-evaluate preserved
    attempts), not the attempts themselves.
 8. **Say what is happening to the instance — not what the step is
@@ -124,7 +112,7 @@ git.
   `.bench-kit/ATTEMPT_FORMAT.md`). `--smoke` = 1 trial, first model.
 - `bench evaluate` — evaluation of preserved attempts; writes
   `result.json` into `results/<task>/<model>/trial-N/` in the repo.
-  (For real tasks the judge-with-tools path is the rate-attempt skill;
+  (For real tasks the judge-with-tools path is the rate-attempt procedure (bench-measure);
   for the demo smoke the built-in API judge is enough.)
 
 ## Phase A — first check (budget: one minute, no containers)
@@ -203,12 +191,28 @@ the first attempt in a way no validate catches.
 
 Otherwise note "template defaults" and move on:
 
-- **Evaluated models** (`defaults.models`): OpenCode format
-  `<provider>/<model>`; steer toward a single aggregator provider
-  (e.g. `openrouter/…`) = one key per machine.
+- **Evaluated models** (`defaults.models`): the id's prefix picks the
+  harness that runs the trial. No prefix = OpenCode, `<provider>/<model>`.
+  `claude-code:<model>` = Claude Code, `codex:<model>` = Codex CLI.
+  Insert `openrouter/` after the prefix to route through OpenRouter
+  (`claude-code:openrouter/anthropic/…`, `codex:openrouter/openai/…`).
+  Steer toward one aggregator (`openrouter/…`) = one key per machine.
+  Ask which question the user is answering:
+  - *Which model?* Keep the harness fixed.
+  - *Which tool?* Keep the model fixed and vary the prefix.
+
+  Mixing both axes in one matrix makes neither readable. Codex and
+  OpenRouter-routed Claude Code are priced from tokens; when a model is
+  not in OpenRouter's catalog, `bench attempt` refuses it until the user
+  adds `pricing["<id>"]` (USD per 1M tokens) to the config.
 - **Judge** (`judge.model`): host-side support for `anthropic/…` and
   `openrouter/…`; strong, stable, DIFFERENT from the evaluated models
   (rule 5).
+- **Evaluation path** (`judge.mode`): `agent` (default — the judge with
+  tools, rate-attempt per attempt) or `api` (the API judge on the
+  diff: cheaper, reads text only). It is part of the era: results
+  judged on the other path show in `bench status` as stale. Keep the
+  default unless the user deliberately wants the cheaper path.
 - **`judge.max_tokens`** (8192), **`defaults.trials`** (3),
   **`defaults.timeout_s`**, **`defaults.max_cost_usd`** — do not touch
   without a reason; too low a token limit truncates the judge's JSON
@@ -222,8 +226,14 @@ smoke and telling the user what is happening:
 
 ```
 bench attempt --smoke --tasks demo-hello-bench --models <cheapest>
-bench evaluate
+bench evaluate --attempt attempts/demo-hello-bench/<model>/trial-1
 ```
+
+Evaluate exactly the smoke attempt (`--attempt <dir>`), never a bare
+`bench evaluate`: that takes every preserved attempt in the instance.
+The smoke goes through the API judge, which on an instance with the
+default `judge.mode: agent` is another evaluation path — fine for a
+proof of the results path, and the result is deleted in B5 anyway.
 
 The attempt lands in `attempts/demo-hello-bench/<model>/trial-1/`
 (attempt.json + patch.diff + workspace/ on disk), the evaluation writes
@@ -292,7 +302,7 @@ For a fresh instance the wiring went to master (rule 1) — there is no
 PR, but leave a summary with the same content in the instance README /
 first commit description. For **changes** to existing wiring: branch
 `bench-wiring/<description>`, description per
-[PR_TEMPLATE.md](PR_TEMPLATE.md): decisions ("template defaults" is
+[WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md): decisions ("template defaults" is
 also a decision) with justification, the environment checklist with
 status, proofs (`validate` output, the smoke's total and cost, the
 committed result path), a "Comparability impact" section (the first
@@ -302,7 +312,7 @@ future).
 ## Deferred decisions — they do not block wiring
 
 The template ships defaults for environment policy; return to them only
-when the first real task touches them (usually in bench-build), and
+when the first real task touches them (usually in bench-define), and
 drive changes via PR like any config change:
 
 - **Assertion dependency cache**: default `evaluation.deps_cache: true`
@@ -317,12 +327,12 @@ drive changes via PR like any config change:
   the model's fault.
 - **Verification policy in prompts** (whether the agent should run the
   project to verify): set by the task author in `prompt.md` — the
-  bench-build skill's contract, not wiring's.
+  bench-define skill's contract, not wiring's.
 - **VPS / scheduled runs**: a VPS is just a bigger operator machine
   with the same DX — defer until nightly matrix runs are actually
   wanted.
 - **Toolchain in the agent's trial**: the base image is node + git +
-  pinned OpenCode; any toolchain the assertions need is installed by
+  the three pinned harnesses (OpenCode, Claude Code, Codex CLI); any toolchain the assertions need is installed by
   the `check.yaml` commands themselves (the evaluation stage may use
   the network; only agent trials are offline). If the stack requires a
   toolchain already in the **agent's trial**, that is currently a
@@ -377,7 +387,8 @@ let alternatives dilute the final ask.
 
 Name everything by what it delivers (rule 8): after a green `validate`
 the natural recommendation is "the first measurement on this machine";
-after a committed smoke result — **bench-new-task** (commissions for
-the backlog), then **bench-build**, because an instance without tasks
-measures nothing; once tasks exist, every measurement runs through
+after a successful smoke — **bench-define**: orders for the backlog
+from PR mining by default (MINING.md), from an interview for work
+without history (INTERVIEW.md), then its build step (BUILD.md),
+because an instance without tasks measures nothing; once tasks exist, every measurement runs through
 **bench-measure**.

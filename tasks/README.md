@@ -15,12 +15,18 @@ wszystkich pól: `demo-hello-bench/task.yaml`.
 
 ## Backlog zleceń — `tasks/backlog.md`
 
-Stanowy dokument koordynacji: skill **bench-new-task** dopisuje do
-niego zlecenia zadań po krótkim wywiadzie, skill **bench-build**
-zamienia oczekujące zlecenia w prawdziwe zadania (subagent per
-zlecenie). Runner ignoruje pliki w `tasks/` niebędące katalogami,
-więc backlog nie wpływa na scoring. Skille wyłącznie edytują ten
-plik — gitem zarządza użytkownik.
+Dokument decyzji: skill **bench-define** dopisuje do niego zlecenia
+zadań — domyślnie z kopania PR-ów (`MINING.md`: zmergowana zmiana
+z testami), a dla pracy bez historii z krótkiego wywiadu
+(`INTERVIEW.md`). Krok budowy tego skilla (`BUILD.md`) zamienia
+oczekujące zlecenia w prawdziwe zadania (subagent per zlecenie).
+Status zlecenia to wyłącznie decyzja (`pending` / `dropped`). Etap
+(ordered → building → built → ready → measuring → measured) wylicza
+`bench backlog` z dysku, więc nikt go nie przepisuje, a budowa partii
+nie produkuje edycji konfliktujących z równoległymi zmianami backlogu.
+Runner ignoruje pliki w `tasks/` niebędące katalogami, więc backlog
+nie wpływa na scoring. Skille wyłącznie edytują ten plik — gitem
+zarządza użytkownik.
 
 ## Zasady
 
@@ -28,12 +34,19 @@ plik — gitem zarządza użytkownik.
   wyłącznie referencje `evaluation: [...]` do `evaluation-pool/`.
   Izolacja z konstrukcji, nie ze starannego wycinania.
 - Zadania powstają i są odświeżane skillami, ale skille nie dotykają
-  gita. Nowe zadania bench-build zostawia jako pliki w drzewie
+  gita. Nowe zadania bench-define zostawia jako pliki w drzewie
   roboczym z raportem dowodów ze stanu startowego per zadanie — commit, PR
-  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh-task)
-  i rubryki (bench-rubric) przechodzą przez PR.
+  czy odrzucenie to decyzja użytkownika. Odświeżenie (bench-define →
+  `REFRESH.md`) też zostawia pliki i raport odświeżenia
+  (`reports/<zadanie>-refresh.md`); `bench changes` oznacza tę grupę
+  jako zamykającą erę (PR), a PR otwiera **użytkownik** wg
+  `REFRESH_PR_TEMPLATE.md`. Poprawka rubryki zadania to edycja wg
+  `RUBRIC_AUTHORING.md` w bench-define z bumpem `version` i re-oceną
+  zachowanych prób — również przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,
-  aktualizacja asercji) otwiera nową erę dla tego zadania.
+  aktualizacja asercji) otwiera nową erę dla tego zadania. Zadanie
+  wykopane z historii zachowuje pin (późniejszy commit zawiera już
+  rozwiązanie): odświeżenie dowodzi go ponownie i odnawia `expires`.
 - Zmiana czegokolwiek w katalogu zadania zmienia jego `task_hash`,
   czyli zamyka erę porównywalności dla tego zadania.

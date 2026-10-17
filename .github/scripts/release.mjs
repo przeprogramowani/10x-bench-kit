@@ -6,7 +6,7 @@
 // CLI porównuje wersje z TEGO pliku, nie z tagów gita).
 //
 // Użycie:  node .github/scripts/release.mjs <wersja> "<opis do commita>"
-// Przykład: node .github/scripts/release.mjs 0.20.0 "bench-build: ..."
+// Przykład: node .github/scripts/release.mjs 0.20.0 "bench-define: ..."
 //
 // Kroki: walidacja (semver, wpis w CHANGELOG, brak tagu) → zapis
 // .bench-kit/VERSION → commit `chore(release): <wersja> — <opis>`

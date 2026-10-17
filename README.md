@@ -13,15 +13,31 @@ machine or a VPS with a container engine. GitHub Actions handles
 readiness checks and optional leaderboard publication. Paid execution
 stays on the measurement host.
 
-Trials currently use **OpenCode** as the execution harness. The benchmark
-measures quality, cost, and execution time.
+Trials run in one of three agent CLIs ("harnesses"), all preinstalled in
+the trial image at pinned versions: **OpenCode**, **Claude Code**, and
+**OpenAI Codex CLI**. The harness is part of the model id, so the same
+model in two CLIs shows up as two contestants:
+
+| Model id in `defaults.models` | Runs in | Key |
+|---|---|---|
+| `openrouter/anthropic/claude-sonnet-5` | OpenCode (no prefix, as before) | `OPENROUTER_API_KEY` |
+| `claude-code:claude-sonnet-5` | Claude Code, Anthropic API | `ANTHROPIC_API_KEY` |
+| `claude-code:openrouter/anthropic/claude-sonnet-5` | Claude Code via OpenRouter | `OPENROUTER_API_KEY` |
+| `codex:gpt-5.1-codex` | Codex CLI, OpenAI API | `OPENAI_API_KEY` |
+| `codex:openrouter/openai/gpt-5.1-codex` | Codex CLI via OpenRouter | `OPENROUTER_API_KEY` |
+
+The benchmark measures quality, cost, and execution time. Where a CLI
+does not report a trustworthy cost (Codex, or Claude Code routed through
+OpenRouter), the runner prices the trial's tokens. Prices come from the
+`pricing` map in `bench.config.yaml` or from OpenRouter's public model
+catalog, and the source is recorded with the cost. A model that cannot
+be priced is refused before any money is spent.
 
 ## Get started
 
 You need [10xCLI](https://github.com/przeprogramowani/10x-cli), an AI coding
 tool that supports the installed skills, Docker or Podman, Node.js, and
-provider API keys in your shell environment. The **bench-wiring** skill
-checks machine readiness and sets up runner dependencies.
+provider API keys in your shell environment.
 
 From your product repository, create a benchmark instance:
 
@@ -33,48 +49,46 @@ Init registers the product repository as the first base repo and leaves
 its working clone in `.repos/`. Open the generated `my-bench` directory
 in the AI coding tool you selected during init, then ask:
 
-> Use bench-wiring to check this instance and run the first local smoke measurement.
+> Use bench-measure to set up this instance and run the first smoke measurement.
 
-The skill checks configuration, container access, and credentials, then
-proves that execution and evaluation work locally. Publication is optional.
+Its preflight checks configuration, container access, and credentials,
+then proves that execution and evaluation work locally. Publication is
+optional.
 
 **Init and update are the user-facing CLI operations.** All benchmark
 work goes through skills. The agent invokes the internal runner and
 checks its output as part of each skill's procedure.
 
-## Everyday workflow
+## Three concepts: define → measure → decide
 
-Name the skill in your message to the agent. Follow this sequence after
-wiring; repeat it as your work and model choices change.
+The whole workflow is three skills. Name one in your message to the
+agent; each loads its detailed procedures only when it needs them.
 
-| Step | Skill | Example prompt | What you get |
+| Concept | Skill | Example prompts | What you get |
 |---|---|---|---|
-| 1. Define tasks | [bench-new-task](.agents/skills/bench-new-task/SKILL.md) | “Use bench-new-task to turn our recurring bug-fix work into benchmark task orders.” | A short interview and orders in `tasks/backlog.md`, tied to a decision, a class of work, and its current cost. |
-| 2. Build tasks | [bench-build](.agents/skills/bench-build/SKILL.md) | “Use bench-build to build the pending backlog.” | Pinned tasks, isolated evaluation materials, and evidence in `reports/<task>-build.md`, ready for your review. |
-| 3. Measure models | [bench-measure](.agents/skills/bench-measure/SKILL.md) | “Use bench-measure to compare our configured models on these tasks within the current budget.” | Preserved attempts, evaluated results, actual spend, and the `results/` paths to review. |
-| 4. Make a decision | [bench-summary](.agents/skills/bench-summary/SKILL.md) | “Use bench-summary to show which model we should use for this work and what it costs.” | A self-contained HTML summary and recommendation based on pass rate, uncertainty, cost per acceptable result, and review burden. |
+| **Define** — what we measure | [bench-define](.agents/skills/bench-define/SKILL.md) | “Use bench-define to mine our merged PRs for bugfix tasks.” · “Use bench-define to build the pending backlog.” · “Refresh this expired task.” | Tasks taken from your real work. **PR mining** is the default source: a merged change with tests becomes a task, with its tests as the hidden grader and its code as proof the task is solvable. An interview covers work with no history. Orders tied to a decision land in `tasks/backlog.md`, and built tasks come with evidence in `reports/<task>-build.md`. |
+| **Measure** — run models on it | [bench-measure](.agents/skills/bench-measure/SKILL.md) | “Use bench-measure to compare our configured models within the budget.” · “A new model came out — measure it against what we use.” | Preflight (setup, keys, engine), preserved attempts, evaluation (a judge with tools per attempt), actual spend, a reliability-first table. |
+| **Decide** — what it means | [bench-decide](.agents/skills/bench-decide/SKILL.md) | “Use bench-decide to show which model and tool we should use for bugfixes.” · “Why did model X fail here?” | A one-page verdict. It covers pass rate with uncertainty, cost per acceptable result and review burden; class × model comparisons that count tasks, not trials; whether a difference is actually resolved; what your task set can resolve and how many tasks a closer call needs; and the time horizon (“reliably handles ~N-minute tasks in your repo”). |
+
+**Why mining matters:** comparing two models on the same tasks resolves
+small differences only with many tasks. 10 tasks tell apart a ~70-point
+gap, 40 tasks a ~26-point one. `bench backlog` shows this per class of
+work, and mining is how you get to dozens of real tasks without
+authoring each by hand.
 
 **You review and commit the files.** Skills leave task files, reports, and
-results in the working tree; they do not commit or push them. If you
-configure leaderboard publication, pushing committed results triggers
-its rebuild.
+results in the working tree; they do not commit or push them. Each skill
+ends its handover with a **commit plan**: changes grouped by intent (new
+task with its grader and report, new evaluations, a rubric bump with its
+re-evaluations, backlog). Each group is marked neutral, data, or
+era-closing (needs a PR) and comes with ready `git add` / `git commit`
+lines. You review what each group does to comparability rather than a
+flat list of paths. If you configure leaderboard publication, pushing
+committed results triggers its rebuild.
 
 The configured `defaults.max_cost_usd` limits the measurement run.
 Skills project cost before execution and report actual spend afterwards.
 Raising the budget requires your approval.
-
-## Setup, diagnosis, and maintenance
-
-Use these skills when you need them; they are not extra mandatory steps
-in every measurement.
-
-| Skill | When to use it | Example prompt |
-|---|---|---|
-| [bench-wiring](.agents/skills/bench-wiring/SKILL.md) | Initial setup or changes to instance wiring. | “Use bench-wiring to check this instance's local setup.” |
-| [rate-attempt](.agents/skills/rate-attempt/SKILL.md) | Judge a preserved attempt with tools, or re-evaluate it after a rubric change. Also used by bench-measure. | “Use rate-attempt to evaluate the completed attempts for this task.” |
-| [bench-explain-results](.agents/skills/bench-explain-results/SKILL.md) | A result is surprising, a trial failed, or a model regressed. | “Use bench-explain-results to explain this model's failures from the preserved evidence.” |
-| [bench-rubric](.agents/skills/bench-rubric/SKILL.md) | Check API-judge consistency or compare judges using real preserved attempts. | “Use bench-rubric to check whether these verdicts are stable.” |
-| [bench-refresh-task](.agents/skills/bench-refresh-task/SKILL.md) | A task has expired or its base repository has moved on. | “Use bench-refresh-task to refresh this expired task and document the new comparison era.” |
 
 Skill links point to this template's `.agents/skills/` directory. Init
 installs them in the directory appropriate for your selected tool; the
@@ -129,6 +143,6 @@ From the benchmark instance directory:
 | Tasks, evaluation materials, configuration, attempts, and results | You | Left untouched. |
 
 Review the proposed shared-file changes and the [changelog](CHANGELOG.md).
-Use **bench-wiring** if the update requires a wiring check, and
-**rate-attempt** when a scoring change calls for re-evaluation of
+Use **bench-measure** if the update requires a wiring check or when a
+scoring change calls for re-evaluation of
 preserved attempts.

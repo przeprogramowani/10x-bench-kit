@@ -1,18 +1,6 @@
----
-name: bench-explain-results
-description: >-
-  Diagnoses benchmark results: descends from the aggregate (report over
-  results/) through result.json to the preserved attempt's artifacts
-  (agent.log, patch.diff, workspace/, checks.json, judge.json) and
-  classifies the cause — model fault, task fault, or infrastructure
-  fault. Everything lives on this machine: results/ in the repo,
-  attempts/ on disk. The output is a comment or issue with evidence,
-  never a scoring change. Use after a run when a result is surprising,
-  a model dropped between runs, a trial failed, or the user asks "why
-  did this model score that / analyze the run".
----
+<!-- Procedure of the **bench-decide** skill — loaded from its SKILL.md when needed. -->
 
-# bench-explain-results — reading the results
+# bench-decide (explain) — reading the results
 
 A trial's score is the end of a chain of evidence: report → result →
 artifacts. Your job is to walk down that chain and **name the cause**
@@ -28,8 +16,9 @@ fix — never with changing the results.
    `results/` tree, preserved attempts (`attempts/`), tasks,
    assertions, rubrics, or `bench.config.yaml`. Even when an assertion
    bug is obvious:
-   diagnosis → issue → fix via the appropriate skill (bench-build /
-   bench-refresh-task / bench-rubric), never an edit as part of triage.
+   diagnosis → issue → fix via the appropriate procedure (bench-define's
+   BUILD.md / REFRESH.md / RUBRIC_AUTHORING.md, bench-measure's
+   JUDGE_DIAGNOSTICS.md), never an edit as part of triage.
    Trial artifacts are read-only.
 2. **Hypothesis → proof by command.** Verify suspicions about an
    assertion or the judge with the runner (`bench assert`,
@@ -44,9 +33,11 @@ fix — never with changing the results.
    what was missing (e.g. the attempt directory no longer exists on
    this machine) — do not guess the class.
 4. **Eras before comparisons.** Before concluding "the model dropped
-   between runs", check the stamps tuple (`template_version`,
-   `task_hash`, `judge_model`, `rubric_version`) — different eras are
-   not a model regression, just a change of measure. The leaderboard
+   between runs", check the stamps tuple (`scoring_version` — falling
+   back to `template_version` on older results — `task_hash`,
+   `judge_model`, `rubric_version`, `judge_mode`, `pass_threshold`) —
+   different eras are not a model regression, just a change of
+   measure. The leaderboard
    does not mix them; neither do you.
 5. **A budget instead of a consent ritual.** Re-judging and
    re-asserting cost money (judge calls, containers), but the
@@ -71,11 +62,13 @@ Everything is local — no artifact downloads, no retention windows:
   `trial-N.superseded-<stamp>/`.
 - **Attempt files**: `attempt.json` (metadata, format version),
   `execution.json` (agent exit code; 124 = timeout), `agent.log`
-  (full OpenCode output; on disk, gitignored), `patch.diff` (the
+  (full harness output: OpenCode text, or Claude Code / Codex JSONL
+  events with `agent.stderr.log` beside them; on disk, gitignored), `patch.diff` (the
   agent's work vs the starting commit), `workspace/` (the agent's
   final workspace state — on disk, gitignored), `metrics.json`
-  (cost/tokens/time from the trial's local opencode.db;
-  `"incomplete": true` = the adapter found no data), `container.log`
+  (cost/tokens/time from the trial's own harness state; `cost_source`
+  says whether the harness or the runner's token pricing produced the
+  cost; `"incomplete": true` = the adapter found no data), `container.log`
   (exists only on infrastructure failure), `signal.json` (exists only
   when the agent was killed by a signal even after retry — signal
   name, hint, memory limit, log tail; such an attempt has
@@ -129,7 +122,11 @@ first (identical stamps or not).
 
 ### 4. Down: the trial's result.json
 
-Which component drags the total down (`scores.static/tests/e2e/judge`;
+Start from the gate: `passed` and `pass_reason` say whether the trial
+passed and, if not, what failed it (a red guard with weight > 0, or
+the judge below `pass_threshold`) — a high `total` with `passed:
+false` is a gate failure, not a scoring anomaly. Then the components:
+which one drags the total down (`scores.static/tests/e2e/judge`;
 `null` = weight 0, not counted). Compare with trials that passed — the
 difference usually points to one component, not all of them.
 
@@ -142,10 +139,10 @@ difference usually points to one component, not all of them.
 | `execution.json` exit 137 (or another 128+N) without a timeout | `signal.json`, tail of `agent.log` | agent killed by a signal — SIGKILL during install/build = resource exhaustion → infrastructure fault (since 0.11.0 the runner classifies this itself: retry, `resource_kill`, exclusion from evaluation; no `signal.json` = run predates that version, classify manually) |
 | `container.log` exists | `container.log`, `execution.json` | container died before the agent → infrastructure fault |
 | `attempt.json` with `provider_error: true` | `agent.log` (5xx/429), `provider-error-attempt-1/` | transient provider outage; the runner did 1 retry — if that failed too, infrastructure fault (provider), not the model |
-| `metrics.json` incomplete | `agent.log`, OpenCode storage | adapter/OpenCode version → infrastructure fault |
+| `metrics.json` incomplete | `agent.log`, `attempt.json.harness`, `incomplete_reason` | adapter / harness version → infrastructure fault; "brak ceny modelu" → missing `pricing` entry, wiring fault |
 | assertion 0 in `checks.json` | assertion log + read the assertion + cross-attempt check: does ANY trial green it? (`bench assert --task <t> --patch <trial-1/patch.diff> --patch <trial-2/patch.diff> …`) | red across all attempts incl. ones whose diffs plausibly do the work → suspect-harness (broken env, repo command drift — and a shape-neutrality violation: the script assuming an implementation shape, the retired convention), task fault; green for some attempts → model fault |
-| judge 0 in `judge.json` | raw response in `judge.json` | no valid JSON / wrong format → rubric contract, task fault; a valid verdict with justification → read the criteria |
-| judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread with a sane ranking → judge instability (bench-rubric on the preserved attempts); wrong ranking against a manual read → rubric fault (edit per bench-build's RUBRIC_AUTHORING.md), task fault |
+| judge 0 in `judge.json` | raw response in `judge.json` | a valid verdict with justification → read the criteria. (No valid JSON / wrong format no longer scores 0: `bench evaluate` reports an invalid API-judge verdict as an evaluation error and writes no result — the raw response stays in the attempt's `judge.json`. That is a rubric-contract or `judge.max_tokens` problem, never a model failure; re-evaluate after the fix) |
+| judge diverges across trials on similar diffs | `bench judge --task <t> --patch <trial's patch.diff>` ×3 | large spread with a sane ranking → judge instability (bench-measure's JUDGE_DIAGNOSTICS.md on the preserved attempts); wrong ranking against a manual read → rubric fault (edit per bench-define's RUBRIC_AUTHORING.md), task fault |
 | large out-of-scope `patch.diff` | prompt.md + the scope criterion in the verdict | prompt sets no boundaries → task fault; it does → model fault |
 | non-empty `patch.diff`, yet judge 0 | hunk headers (`@@ -1,N +1,M @@` spanning the whole file) | destructive overwrite instead of incremental edits → model fault (the judge's verdict will confirm it in the justifications) |
 
@@ -178,10 +175,11 @@ that produces it — otherwise you pay the same triage every run.
   In the output, describe the behavior pattern (more valuable than the
   number: "loses tool calling", "does not respect scope").
 - **Task fault** — an issue in the instance repo + delegation:
-  assertion / overlay / prompt / timeout → bench-refresh-task (or
-  bench-new-task + bench-build for a new task), rubric → a rubric edit
-  per bench-build's RUBRIC_AUTHORING.md (version bump, re-evaluation
-  of preserved attempts), judge instability → bench-rubric.
+  assertion / overlay / prompt / timeout → bench-define's REFRESH.md (or
+  bench-define (MINING/INTERVIEW → BUILD) for a new task), rubric → a
+  rubric edit per bench-define's RUBRIC_AUTHORING.md (version bump,
+  re-evaluation of preserved attempts), judge instability →
+  bench-measure's JUDGE_DIAGNOSTICS.md.
   Note in the issue which results of the current era are tainted — the
   era will close with the fix anyway.
 - **Infrastructure fault** — an issue in the template repo (runner /
@@ -205,10 +203,12 @@ recommendation with a one-sentence justification, at most two
 alternatives with a price, and — separately — what awaits a human
 decision. Typical transitions by class:
 
-- **task fault** → bench-refresh-task or bench-new-task + bench-build —
-  depending on whether the fix preserves the task's intent;
+- **task fault** → bench-define's REFRESH.md or bench-define
+  (MINING/INTERVIEW → BUILD) — depending on whether the fix preserves
+  the task's intent;
 - **rubric fault** → rubric edit (RUBRIC_AUTHORING.md) + re-evaluation
-  of preserved attempts; **judge instability** → bench-rubric;
+  of preserved attempts; **judge instability** → bench-measure's
+  JUDGE_DIAGNOSTICS.md;
 - **infrastructure fault** → repeat the run after the fix — the
   affected trials' results are uninterpretable;
 - **model fault** → nothing in the benchmark — that is the answer, not

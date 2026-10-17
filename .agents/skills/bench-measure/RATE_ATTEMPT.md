@@ -1,16 +1,4 @@
----
-name: rate-attempt
-description: >-
-  Judges a preserved benchmark attempt as an agent WITH TOOLS: reads the
-  rubric, takes the execution guards' results as facts, works on a
-  disposable copy of the attempt's preserved workspace inside a
-  container (`bench shell` — may run build, tests, lint, even the app)
-  and produces a verdict JSON that
-  `bench evaluate --verdict` folds deterministically into result.json in
-  the repo's results/ tree. Use when the user says "rate / judge / score
-  an attempt (or a model's attempts)", after `bench attempt` finishes,
-  or when re-evaluating preserved attempts against a new rubric version.
----
+<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
 
 # rate-attempt — the judge with tools
 
@@ -72,11 +60,20 @@ judge session, not a matrix run.
    final state, not just the patch), start the app if the task is
    behavioural and the stack allows it within minutes. Time-box deep
    verification to what the criteria actually price.
-5. **The judge is fixed.** Run under the instance's judge model
-   (`judge.model` in bench.config.yaml) — verdicts from different
-   models are different eras and must not mix. If you are not that
-   model, say so and stop; the user launches the session with the
-   right model.
+5. **The judge is fixed, and you sign your verdict.** Run under the
+   instance's judge model (`judge.model` in bench.config.yaml):
+   verdicts from different models are different eras and must not mix.
+   If you are not that model, say so and stop; the user launches the
+   session with the right model. Every verdict you fold carries its
+   author: `--judge-mode agent --judge-model <your model id>`. The
+   runner refuses a verdict without an author, and one whose declared
+   model is not the instance's judge. It stamps `judge_mode: agent`
+   into the result, so agent verdicts never share an era with API-judge
+   or human verdicts. A human writing a verdict uses
+   `--judge-mode human`: the result is stamped `judge_mode: human` with
+   `judge_model` = the instance's judge model, so human verdicts are
+   their own era. A bulk API-judge `bench evaluate` never overwrites
+   agent or human verdicts unless given `--overwrite-judged`.
 6. **Uninterpretable attempts are skipped, not scored.**
    `infra_failure` / `resource_kill` in attempt.json = nothing to
    judge; report and move on. A timeout (`timed_out: true`) IS
@@ -99,7 +96,7 @@ these yourself.
   With `-- <command>` it runs one command via `bash -lc` and returns
   its exit code; without, an interactive shell. Every execution of
   step 3 goes through it.
-- `bench evaluate --attempt <dir> --verdict <file>` — folds your
+- `bench evaluate --attempt <dir> --verdict <file> --judge-mode agent --judge-model <your model id>` — folds your
   verdict into `result.json`.
 - `bench status` — which preserved attempts still lack a fresh
   evaluation (batch mode).
@@ -165,31 +162,40 @@ ran, a file:line). With several rubrics on one task, produce a map
 ### 5. Fold into the results tree
 
 ```
-bench evaluate --attempt <dir> --verdict <scratch-file>
+bench evaluate --attempt <dir> --verdict <scratch-file> --judge-mode agent --judge-model <your model id>
 ```
 
 The runner validates the verdict against the rubric (invalid = loud
 error, fix the file), computes the total, writes `result.json` and
 `judge.json` to the attempt AND to `results/<task>/<model>/trial-N/`.
-Report the total and per-component scores. Committing `results/` is the
+It also decides `passed`, which is a **gate**, not a threshold on the
+total. Every guard with weight > 0 must score 1, and the judge
+component must reach `defaults.pass_threshold` on its own. A red guard
+cannot be outvoted by a generous verdict. `pass_reason` names what
+failed. Report the total, per-component scores and the gate outcome. Committing `results/` is the
 user's move — you never commit or push.
 
 ## Procedure — batch (a model, a task, or "everything new")
 
 The unit above is one attempt; a batch is a thin loop over attempt
 directories — `bench status` lists, per cell, how many preserved
-attempts lack a fresh evaluation (result stamped with the current
-task definition) and which are still running (skip those; `bench
+attempts lack a fresh evaluation (a result stamped with the current
+evaluation era: task definition, judge model, rubric versions, scoring
+version; it names the reason for every stale one, so a rubric bump
+lists exactly the attempts to re-judge) and which are still running (skip those; `bench
 attempt` may still be working in the background). For each attempt run the single-attempt procedure; with
 subagent support, one subagent per attempt keeps verdicts independent
 (they must not see each other — cross-attempt anchoring biases scores).
 Summarize at the end: a table of attempt → total, skipped attempts with
-reasons, guard failures worth escalating to bench-explain-results.
+reasons, guard failures worth escalating to bench-decide (explain).
 
 ## Closing message
 
-End with: a results table (attempt, guards, judge, total), where the
-results landed (`results/…` paths, uncommitted), the evaluation-era
-note (judge model + rubric versions this verdict is stamped with), and
-one call to action — normally "review and commit results/, then the
-leaderboard workflow picks them up on push".
+End with: a results table (attempt, guards, judge, total), the
+evaluation-era note (judge model + rubric versions this verdict is
+stamped with), and the commit plan from `bench changes`, which groups
+where the results landed (`results/…`, uncommitted) by intent. A
+re-evaluation after a rubric bump lands in the same group as the bump
+because they belong in one PR. Close with one call to action, normally
+"review and commit the groups, then the leaderboard workflow picks them
+up on push".

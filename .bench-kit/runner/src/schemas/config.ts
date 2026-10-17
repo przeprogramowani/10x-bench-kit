@@ -23,6 +23,14 @@ export const JudgeConfig = z.object({
    */
   max_tokens: z.number().int().positive().default(8192),
   /**
+   * Ścieżka oceny instancji — część bieżącej ery: "agent" (sędzia
+   * z narzędziami, werdykty przez bench-measure → RATE_ATTEMPT.md) albo
+   * "api" (sędzia API na diffie). Wyniki ocenione inną ścieżką `bench
+   * status` pokazuje jako nieświeże, z powodem; bench-decide nie miesza
+   * ich z bieżącymi. Smoke/CI może oceniać API — to jawnie inna era.
+   */
+  mode: z.enum(["agent", "api"]).default("agent"),
+  /**
    * Fallback dla rubryk bez `version` we frontmatterze (kontrakt legacy).
    * Docelowo wersję deklaruje każda rubryka u siebie — stempel ery jest
    * per rubryka, więc kalibracja jednej nie unieważnia wyników zadań,
@@ -40,7 +48,11 @@ export const BenchConfigSchema = z.object({
   defaults: z.object({
     /** Liczba prób na (model × zadanie). */
     trials: z.number().int().positive().default(3),
-    /** Modele oceniane, gdy wywołanie nie poda własnej listy. */
+    /**
+     * Modele oceniane, gdy wywołanie nie poda własnej listy. Id niesie
+     * harness jako prefiks (`claude-code:…`, `codex:…`; bez prefiksu =
+     * OpenCode) — lib/harness.ts.
+     */
     models: z.array(z.string().min(1)).min(1),
     /** Timeout próby, gdy task.yaml nie nadpisze. */
     timeout_s: z.number().int().positive().default(1800),
@@ -64,6 +76,14 @@ export const BenchConfigSchema = z.object({
      * 1 = zachowanie sekwencyjne (default).
      */
     parallel: z.number().int().positive().default(1),
+    /**
+     * Pliki instrukcji projektu (AGENTS.md / CLAUDE.md) w workspace'ie
+     * próby: "unified" = gdy repo ma tylko jeden z pary, drugi jest
+     * dokładany przed commitem startowym, żeby każdy harness czytał te
+     * same instrukcje (lib/context-files.ts); "native" = repo bez zmian.
+     * Zmienia to, co widzi agent → część definicji pomiaru.
+     */
+    context_files: z.enum(["unified", "native"]).default("unified"),
   }),
   /**
    * Polityka środowiska oceny (decyzja wiringu instancji).
@@ -85,6 +105,26 @@ export const BenchConfigSchema = z.object({
    * memory_limit_mb w result.json) i przerwanie jest atrybuowalne.
    * Dobierz do najcięższej operacji stacku (instalacja + build) z zapasem.
    */
+  /**
+   * Stawki modeli (USD za 1M tokenów) dla wyceny prób, których harness
+   * nie raportuje wiarygodnego kosztu (Codex zawsze; Claude Code przez
+   * OpenRouter; Claude Code po timeoucie) — lib/pricing.ts. Klucz = id
+   * modelu jak w defaults.models (z prefiksem harnessu). Wpis ma
+   * pierwszeństwo przed katalogiem OpenRouter; bez wpisu i bez
+   * odpowiednika w katalogu `bench attempt` odmawia startu modelu, który
+   * wymaga wyceny — koszt nieznany to budżet, który nie działa.
+   */
+  pricing: z
+    .record(
+      z.string().min(1),
+      z.object({
+        input: z.number().min(0),
+        output: z.number().min(0),
+        cache_read: z.number().min(0).optional(),
+        cache_write: z.number().min(0).optional(),
+      }),
+    )
+    .optional(),
   resources: z
     .object({
       /** Limit pamięci kontenera w MiB (--memory, swap = memory). */

@@ -6,6 +6,352 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.33.0 — 2026-10-17 [scoring-breaking]
+
+Jeden release obejmuje trzy części, rozwijane na jednej gałęzi:
+**(A)** trzy koncepty, kopanie PR-ów i bramka zaliczenia — niżej;
+**(B)** Claude Code i Codex CLI jako harnessy; **(C)** stan wyprowadzany
+z dysku i przegląd intencji (`bench backlog`, `bench changes`).
+
+### (A) Trzy koncepty, kopanie PR-ów, bramka zaliczenia
+
+**Trzy koncepty (define → measure → decide), kopanie PR-ów jako źródło
+zadań, zaliczenie jako bramka.** `SCORING_VERSION` 2 → 3: wyniki
+sprzed tego release'u to osobna era.
+
+#### Dlaczego
+
+Instancja zwykle kończy na 5–15 ręcznie budowanych zadaniach. Dwa
+modele porównane na tych samych zadaniach (test znaków) dają się
+rozróżnić dopiero przy wielu zadaniach: **10 zadań rozstrzyga różnicę
+~70 pp, 40 zadań ~26 pp.** Więcej prób tego nie zmienia, liczba prób
+mierzy pojedyncze zadanie. Do tego zaliczenie było progiem ważonej sumy,
+więc czerwony guard dało się nadrobić hojnym werdyktem, a werdykt z
+pliku nie miał autora.
+
+#### Zmiany
+
+- **Kopanie PR-ów** (`bench-define/MINING.md`, `mine-prs.mjs`).
+  Zmergowana zmiana z testami staje się zadaniem: pin = rodzic zmiany,
+  testy zmiany = ukryty guard `tests/<zadanie>-pr` (pliki po merge'u
+  nadpisują workspace, potem repo-natywna komenda testów), kod zmiany =
+  dowód wykonalności, którego agent nie widzi.
+  - **Skrypt** czyta tylko lokalnego gita i ma tryby scan / show / emit.
+    Wykrywa **sprzężenie**: identyfikatory, nazwy kontraktu (pola,
+    klucze) i nowe pliki, które zmiana wprowadza, a jej testy używają.
+    Testy sprzężone są dopuszczone tylko wtedy, gdy prompt podaje te
+    nazwy dosłownie (istniejący wyjątek zasady neutralności kształtu).
+    Testy sprzężone ze strukturą wewnętrzną odpadają.
+  - **Dowód w obie strony** jest obowiązkowy: pusty diff → 0, `--patch
+    reference.diff` → 1, czerwień z właściwego powodu.
+  - **Repo publiczne** to tylko kotwice (`Class: anchor`), nigdy
+    decyzja routingu.
+  - Sprawdzone na prawdziwej historii tego repo. Kandydat 3fcf331: na
+    pinie 17 testów zielonych i 3 nowe czerwone, z referencją 1.00;
+    sprzężenie `deepClone` wykryte. 055049e oznaczony jako mocno
+    sprzężony (nowy moduł).
+- **Trzy skille zamiast dziewięciu.**
+  - **bench-define**: MINING, INTERVIEW, REFRESH, BUILD →
+    TASK_AUTHORING + RUBRIC_AUTHORING, BACKLOG_TEMPLATE,
+    REPORT_TEMPLATE.
+  - **bench-measure**: preflight WIRING, RATE_ATTEMPT,
+    JUDGE_DIAGNOSTICS, nowa procedura „wyszedł nowy model".
+  - **bench-decide**: summarize.mjs + analytics.mjs, EXPLAIN.
+  - Procedury to pliki obok SKILL.md, ładowane dopiero, gdy krok ich
+    potrzebuje. `bench-kit update` usuwa z instancji osiem wycofanych
+    skilli (`RETIRED_SKILLS`, tylko te, których template już nie
+    wysyła). Kasowanie widać w `git diff` i ostrzeżeniu, a lokalne
+    dostosowania zostają w historii.
+- **Zaliczenie = bramka** [scoring-breaking]. `passed` w result.json
+  jest prawdą, gdy każdy guard z wagą > 0 = 1 ORAZ judge ≥
+  `pass_threshold`; `pass_reason` mówi, co zawiodło. `total` zostaje
+  miarą jakości. Czytają to `bench report` (pass@k, nowe pass^k),
+  leaderboard i bench-decide. Wyniki legacy bez pola liczą się po
+  staremu.
+- **Werdykt ma autora** [scoring-breaking]. `bench evaluate --verdict`
+  wymaga `--judge-mode agent --judge-model <id>` albo `--judge-mode
+  human`. Werdykt agenta z modelu innego niż sędzia instancji jest
+  odrzucany (porównanie po tożsamości modelu). `stamps.judge_mode`
+  (api / agent / human / none) jest częścią klucza ery, więc ścieżki
+  oceny już się nie mieszają. Autor trafia do `judge.json →
+  declared_by`.
+- **bench-decide: statystyka decyzji** (`analytics.mjs`, deterministyczna):
+  - **bieżąca era per zadanie:** wcześniej `summarize.mjs` mieszał
+    ery w komórce, teraz pozostałe wyniki są liczone jako
+    `other_era_trials`;
+  - **wykluczone próby:** infra i kill są widoczne, z ostrzeżeniem
+    przy >20%;
+  - **pass^k** (τ-bench);
+  - **koszt nieznany jako nieznany**, nie $0;
+  - **klasa × model po ZADANIACH** (bootstrap), z flagą `hypothesis`
+    poniżej 5 zadań;
+  - **porównania parowe** na wspólnych zadaniach (dokładny test
+    znaków);
+  - **rozdzielczość:** ile zadań na jaką różnicę;
+  - **horyzont czasowy** (METR) z nowego pola backlogu **Human time**.
+  - `bench backlog` drukuje rozdzielczość per klasa, zanim cokolwiek
+    zostanie wydane.
+- **Pliki instrukcji wyrównane między harnessami.** Claude Code czyta
+  CLAUDE.md, a Codex i OpenCode AGENTS.md. `defaults.context_files:
+  unified` (domyślnie) dokłada brakujący z pary przed commitem
+  startowym: CLAUDE.md = `@AGENTS.md`, AGENTS.md = symlink. Działa w
+  obrazie próby i w stanie referencyjnym asercji. `attempt.json →
+  context_files` zapisuje, co agent zastał.
+- **Czas API** (`metrics.json → api_duration_s`, Claude Code) odróżnia
+  timeout „model myślał" od „provider dławił".
+- **Backlog:** nowe pola Source, Human time, oraz dla zleceń `pr`: Pin,
+  Reference, Hidden tests, Coupled names.
+- **Pula oceny:** README dopuszcza jedyny wyjątek od wycofanych ukrytych
+  testów, czyli testy PR-a w opisanych warunkach.
+- **CI:** e2e-gate sprawdza kontrakt `passed` / `pass_reason` /
+  `judge_mode`.
+
+#### Poprawki z niezależnego przeglądu (przed wydaniem)
+
+Trzech recenzentów ze świeżym kontekstem: kod runnera, spójność
+procedur skilli, statystyka i kopanie na prawdziwych repo (JS, Python,
+Go). Każde znalezisko odtworzone przed poprawką.
+
+- **Era jest jedna wszędzie.**
+  - Próg bramki jest stemplowany (`pass_threshold`) i należy do klucza
+    ery.
+  - `judge.mode` (agent | api, domyślnie agent) to ścieżka oceny
+    bieżącej ery w `bench status`, `bench backlog`, raporcie i
+    bench-decide.
+  - bench-decide pyta runner (`bench status --json`), co jest bieżące,
+    zamiast zgadywać po liczności. Wcześniej po edycji zadania stara,
+    liczniejsza era wygrywała jako „bieżąca”.
+  - `bench changes` traktuje `pass_threshold`, `judge.mode` i
+    `context_files` jako pola ery i honoruje zapasową wersję rubryki.
+- **Werdykty są bezpieczne.**
+  - Masowe `bench evaluate` nie nadpisuje werdyktów agenta ani
+    człowieka (wymuszenie: `--overwrite-judged`).
+  - `--verdict` wskazujący katalog z kilkoma próbami jest odrzucany.
+  - Niepoprawny werdykt sędziego API to błąd oceny, nie porażka
+    modelu.
+  - Bramka ma tolerancję 1e-9.
+- **Koszt nieznany wszędzie jako nieznany:** w raporcie, leaderboardzie
+  i projekcji budżetu. W bench-decide nie wygrywa remisu ceną.
+- **Model bez bieżących wyników nie znika.** Jest raportowany jako
+  NIEZMIERZONY, z powodem (inna era, same awarie).
+- **Statystyka:**
+  - rozdzielczość `null` poniżej 6 zadań, bo test znaków nie osiąga
+    p < 0.05;
+  - horyzont bez ekstrapolacji poza obserwowany zakres;
+  - stałe k = 3 dla pass^k;
+  - parser backlogu z tą samą gramatyką co runner (pierwsze
+    wystąpienie, kontynuacje, zakresy, przecinek dziesiętny,
+    „unconfirmed” = szacunek);
+  - kotwice wyłączone z porównań, horyzontu i rozdzielczości;
+  - udział szacowanych czasów człowieka raportowany przy horyzoncie.
+- **Kopanie:**
+  - działa na płytkim klonie (z ostrzeżeniem i `fetch
+    --shallow-since`);
+  - domyślny `--ref` to `origin/HEAD`;
+  - `reference.diff` zawiera tylko kod z manifestami i lockfile'ami;
+  - snapshoty liczą się jako testy;
+  - poprawki dla binariów, ścieżek nie-ASCII, konfiguracji gita
+    użytkownika, formatów merge GitLab/Bitbucket/Azure i sprzężenia
+    (Go/Python/TS) — szczegóły w commicie kopania.
+- **Guard PR-a przywraca workspace.** Asercje biegną w jednym
+  workspace'ie bez resetu, więc pliki testów PR-a zostawione na dysku
+  zaliczały się kolejnym guardom. Sprawdzone w kontenerze: guard 0/1
+  zgodnie z oczekiwaniem, sonda po nim zielona w obu kierunkach.
+- **Procedury:** ok. 40 poprawek spójności, w tym ścieżka odświeżania
+  zadania wykopanego (pin nie może przejść za zmianę), wyjątek smoke
+  dla ukrytych testów PR-a, brak gita w odświeżaniu oraz rozgraniczenie
+  pól zlecenia wykopanego.
+
+#### Migracja
+
+1. **Wyniki sprzed 0.33.0** są w erze scoringu 2. `bench status` pokaże
+   je jako „ocenione w innej erze". Re-ocena zachowanych prób
+   (`bench evaluate`, sędzia z narzędziami przez bench-measure) wnosi
+   je do ery 3 bez nowego biegu.
+2. **Skrypty i notatki wołające `bench evaluate --verdict`** muszą dodać
+   `--judge-mode`.
+3. **Instancje z dostosowanymi skillami** (np. własny bench-build):
+   update je usunie. Przenieś zmiany do odpowiedniego pliku procedury
+   (np. `bench-define/BUILD.md`). Treść jest w historii gita.
+4. **Pliki instrukcji:** kto chce zachować workspace bez dokładania
+   pliku z pary, ustawia `defaults.context_files: native`.
+5. **Nowe pola** `pricing`, `context_files`, pola backlogu i pola
+   result.json są opcjonalne; stare pliki dalej się parsują.
+
+### (B) Claude Code i Codex CLI jako harnessy prób obok OpenCode
+
+**Claude Code i Codex CLI jako harnessy prób obok OpenCode.** Bez
+`[scoring-breaking]`: dotychczasowe id modeli (bez prefiksu) dalej
+wykonuje OpenCode tą samą ścieżką. Wyniki, katalogi prób i era
+porównywalności nie zmieniają się. Nowe harnessy to nowi zawodnicy,
+nie nowa definicja starych.
+
+- **Harness w id modelu.** `claude-code:<model>` / `codex:<model>`,
+  z `openrouter/` po prefiksie dla routingu przez OpenRouter (jeden
+  klucz dla całej macierzy). Ten sam model w innym CLI to osobny
+  wiersz wyników, bo mierzymy parę model × narzędzie. Parser i mapa
+  kluczy żyją w `runner/src/lib/harness.ts`. `bench validate` łapie
+  literówkę w prefiksie (`claude:…`) i harness w `judge.model`;
+  `bench doctor` zna klucze per harness (Codex: `OPENAI_API_KEY` albo
+  `CODEX_API_KEY`).
+- **Obraz bazowy z trzema CLI** w pinowanych wersjach
+  (`docker/opencode.version`, `claude-code.version` = 2.1.302,
+  `codex.version` = 0.163.0), osobna warstwa per CLI. Wersje są w tagu
+  (`bench-base:oc…-cc…-cx…`), a `attempt.json.harness` zapisuje
+  `{name, version, route}` (pole addytywne, `format` bez zmian). Obraz
+  rośnie o ~700 MB (Claude Code ~270 MB, Codex ~410 MB), raz na
+  maszynę: warstwy są współdzielone przez wszystkie obrazy zadań.
+- **`trial.sh` per harness** (`trial.sh <timeout_s> <harness> <route>
+  <model>`):
+  - **Claude Code:** `claude -p --permission-mode bypassPermissions
+    --output-format stream-json --verbose`. Tryb uprawnień podany
+    jawnie, bo domyślny tryb `-p` zależy od pobrania feature flag.
+    `IS_SANDBOX=1` pozwala na bypass jako root, więc wszystkie harnessy
+    mają te same uprawnienia. Telemetria i aktualizacje wyłączone.
+    Przez OpenRouter: `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`
+    oraz jawnie pusty `ANTHROPIC_API_KEY`. Wszystkie aliasy (haiku do
+    zadań w tle, subagenci) wskazują oceniany model.
+  - **Codex:** `codex exec --json --dangerously-bypass-approvals-and-sandbox`
+    (kontener jest granicą izolacji). Przez OpenRouter: provider w
+    `CODEX_HOME/config.toml`, `wire_api` = responses, auth komendą.
+    `OPENAI_API_KEY` jest mapowany na `CODEX_API_KEY`, bo `exec`
+    czyta tylko ten drugi.
+  - **Prompt** idzie przez stdin. Treść zaczynająca się od `-` nie
+    zostanie wzięta za flagę, a otwarty stdin nie zawiesi Codexa.
+  - **Timeout** wysyła SIGINT zamiast SIGTERM. SIGTERM gubił bufor
+    stdout Claude Code, a po SIGINT zostają zdarzenia i transkrypt.
+    Exit 137 po upływie limitu to timeout, nie kill zasobowy.
+- **Adaptery metryk per harness** (`metrics-adapter/{opencode,claude-code,codex}.mjs`,
+  wspólny kontrakt + `cost_source`):
+  - **Claude Code:** koszt i tokeny z linii `result` (z subagentami).
+    Po timeoucie tokeny z transkryptu sesji: finalne `usage`, bo
+    zdarzenia stream-json niosą usage z początku wiadomości.
+  - **Codex:** skumulowane `turn.completed.usage`. Po timeoucie ostatni
+    `token_count` z rolloutu sesji, dlatego bez `--ephemeral`.
+- **Wycena z tokenów** (`runner/src/lib/pricing.ts`) tam, gdzie harness
+  nie daje wiarygodnego kosztu.
+  - **Codex:** zawsze, bo nie raportuje USD.
+  - **Claude Code przez OpenRouter:** zawsze. Sprawdzone: Claude Code
+    wycenia slug `anthropic/claude-sonnet-4.5` jako `claude-sonnet-4-0`,
+    zgadując po nazwie. Jego kwota zostaje jako `harness_cost_usd`.
+  - **Claude Code natywnie:** tylko po timeoucie.
+  - **Źródła ceny:** `pricing` w `bench.config.yaml` (USD / 1M
+    tokenów, nowe opcjonalne pole), potem publiczny katalog OpenRouter.
+  - **Przed startem:** cena jest ustalana przed biegiem. Model bez
+    ceny nie startuje, bo koszt nieznany oznacza budżet, który nie
+    działa, i $0 w ekonomii bench-summary.
+- **Wykrywanie awarii providera** dla harnessów JSONL patrzy tylko w pola
+  błędów (`result.is_error`, `turn.failed`, `error`) i stderr, nie w całą
+  treść. Agent czytający kod o rate limitach to nie awaria.
+- **Sędzia ≠ oceniany po tożsamości modelu, nie po stringu.** Z
+  prefiksami harnessów `claude-code:openrouter/anthropic/claude-opus-5`
+  przechodził porównanie stringów z sędzią
+  `openrouter/anthropic/claude-opus-5`. Teraz `bench validate`
+  normalizuje oba do `<vendor>/<model>` (`lib/harness.ts →
+  underlyingModel`): ten sam model to błąd, ten sam dostawca to
+  ostrzeżenie (ryzyko faworyzowania własnej rodziny). Domyślny config
+  template'u (Opus ocenia Sonneta) dostaje to ostrzeżenie celowo.
+- **Bramka/proxy firmy:** `BENCH_OPENROUTER_BASE_URL` jest przekazywane
+  do próby i podmienia endpoint OpenRouter dla Claude Code i Codexa.
+  Celowo NIE są przekazywane `ANTHROPIC_*` / `CLAUDE_*` hosta: operator
+  pracujący w Claude Code ma je w env, a routing próby ustala trial.sh.
+
+Sprawdzone offline, bez kluczy i bez kosztów. Mock API Anthropic
+(Messages) i OpenAI (Responses) dał prawdziwe wywołania narzędzi i
+zmiany w workspace:
+
+- obraz zbudowany z prawdziwymi CLI, `trial.sh` uruchomiony w
+  kontenerze dla Claude Code (natywnie i przez OpenRouter) i Codexa;
+- obie ścieżki timeoutu z odzyskaniem tokenów;
+- pełne `bench attempt` → koszt wyceniony z katalogu, `harness` w
+  `attempt.json`;
+- odmowa modelu bez ceny przed startem;
+- `bench evaluate` z kosztem w `result.json`;
+- regresja ścieżki OpenCode.
+
+Nie zrobione: e2e w CI dalej mierzy tylko OpenCode. Płatna próba Claude
+Code / Codexa w CI to decyzja o koszcie, nie o kodzie.
+
+### (C) Stan wyprowadzany z dysku, przegląd intencji zamiast linii
+
+**Stan się wyprowadza, a przegląd dotyczy intencji, nie linii.** Zmiana
+procedur i dwie nowe komendy tylko do odczytu. Schematy (`task.yaml`,
+`bench.config.yaml`, `result.json`, format próby), scoring i
+`SCORING_VERSION` są bez zmian. Istniejące wyniki pozostają ważne, a era
+porównywalności nienaruszona. Git zostaje: komendy go czytają, nigdy nie
+commitują.
+
+Inspiracja: projekt Scion (Anthropic, „Redesigning source control"),
+wzięty selektywnie. Pochodne indeksy liczone z niezmiennych faktów
+zamiast globalnego stanu, który wszyscy muszą ręcznie uzgadniać.
+Przegląd intencji zmiany i semantyczne reguły akceptacji (inna ścieżka
+dla zmiany neutralnej, inna dla zmiany ruszającej logikę) zamiast
+przeglądu każdej linii. Stąd trzy problemy znalezione w tym repo:
+
+- **Statusy backlogu dryfowały.** `in-progress → built → done`
+  przepisywał ręcznie orkiestrator bench-build, choć każdy z tych stanów
+  już leżał na dysku jako fakt: todo.md subagenta, task.yaml, raport z
+  sekcją „Batch gate". Martwa sesja zostawiała zlecenie na zawsze
+  `in-progress`, a partia N zleceń przepisywała N linii pliku, który
+  równolegle edytował ktoś inny.
+- **`bench status` uznawał re-ocenę za zbędną.** Świeżość oceny
+  porównywała tylko `task_hash`. Po bumpie rubryki albo zmianie sędziego
+  status meldował „wszystkie zachowane próby ocenione”, a tryb wsadowy
+  rate-attempt nie widział, co ocenić ponownie. Tymczasem AGENTS.md
+  mówi, że zmiana rubryki to RE-OCENA.
+- **Użytkownik commitował listę ścieżek.** Skille zostawiały zadania,
+  rubryki, raporty, wyniki i backlog w jednym drzewie roboczym. Co z
+  tego zamyka erę, a co jest neutralne, trzeba było wyczytać samemu.
+  Edycji rubryki bez bumpu `version` nic nie łapało, więc stare i nowe
+  oceny nosiłyby ten sam stempel.
+
+Zmiany:
+
+- **`bench backlog`** wylicza etap każdego zlecenia z dysku: `ordered` →
+  `building` → `built` → `ready` → `measuring` → `measured` (+
+  `dropped`). Dorzuca pokrycie klas pracy („klasa jeszcze bez
+  odpowiedzi”), uwagi o rozjazdach (osierocone `in-progress`, `done` bez
+  bramki w raporcie, todo.md nieruszany od godzin, brak Decision,
+  zdublowana lub zgubiona linia Status) i stan w gicie. Ma też `--json`.
+- **Backlog trzyma decyzje, nie postęp.** Status to już tylko `pending`
+  albo `dropped`. bench-build niczego nie przełącza, a porażki dopisuje
+  jako datowane linie pola **Build log**. Statusy legacy są nadal
+  czytane, rozjazd z dyskiem trafia do uwag. Odmowa subagenta kasuje
+  wszystkie jego pliki (TASK_AUTHORING.md krok 0), więc zlecenie wraca
+  do `ordered`.
+- **`bench status`: świeżość = cała era oceny.** Liczy się `task_hash`,
+  sędzia, wersje rubryk i scoring, czyli ten sam klucz, którym
+  report i leaderboard grupują wyniki. Ocena z innej ery jest „stara”
+  z powodem (np. `rubryka default-rubric@4→default-rubric@5`), a
+  status wypisuje listę prób do re-oceny. Odczyt komórek przeniesiono
+  do `lib/matrix.ts`, wspólnego dla `status` i `backlog`.
+- **`bench changes [--base <ref>]`** dzieli zmiany drzewa roboczego
+  względem HEAD (lub refa) wg intencji i wpływu na scoring. `neutral`
+  to koordynacja, nowe zadanie z rubryką, nowymi guardami i raportem
+  albo ustawienia biegu. `data` to nowe oceny, re-oceny i metadane
+  prób. `era` (przez PR) to zmienione zadanie, bump rubryki razem z
+  re-ocenami lub pole configu ze stempli. `blocked` (exit 1) to rubryka
+  zmieniona bez bumpu przy istniejących wynikach z jej wersją, todo.md
+  w katalogu zadania, workspace próby w gicie albo ręczna edycja
+  `.bench-kit/`. Każda grupa dostaje gotowe `git add` i `git commit`.
+- **Skille kończą przekazanie planem z `bench changes`**, a nie listą
+  ścieżek: bench-build (Next step), bench-measure (handover),
+  rate-attempt (closing). bench-build zaczyna od `bench backlog`
+  (zakres = etap `ordered`). RUBRIC_AUTHORING.md wskazuje blokadę
+  braku bumpu.
+
+Odrzucone po teście: `merge=union` dla `tasks/backlog.md`. Przy dwóch
+gałęziach dopisujących zlecenia union scalił wspólne linie kontekstu i
+zgubił linię Status jednego z wpisów. Cichy błąd jest gorszy od
+konfliktu, który trzeba rozwiązać ręcznie (zostaw oba bloki).
+
+Znalezisko na później, celowo bez zmiany w tym release (byłaby
+`[scoring-breaking]`): asercje puli (`static/`, `tests/`, `e2e/`) nie
+wchodzą do stempli ery, więc zmiana guarda zmienia wyniki bez zmiany
+ery. `bench changes` oznacza taką zmianę jako `era` i wymaga re-oceny
+oraz noty w PR. Docelowo hash guardów zadania powinien wejść do
+stempli.
+
 ## 0.32.0 — 2026-09-18 (neutralny)
 
 **Nagłówek strony jest treścią redakcyjną, nie kodem.** Zmiana wyłącznie

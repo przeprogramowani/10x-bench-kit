@@ -1,4 +1,4 @@
-# Task report template (bench-build)
+# Task report template (bench-define)
 
 The task remains as **files in the working tree** — the subagent does
 nothing in git. The report takes over the role of a change description:
@@ -55,10 +55,13 @@ what the prompt overrides — or "none found".>
 <left as this placeholder by the subagent; the orchestrator pastes
 here, once for the batch: `bench validate --assert` → <result for this
 task's reference declarations>; smoke attempt `bench attempt --smoke`
-+ `bench evaluate --no-write-results` → <result per component, or
-"deferred — no secrets in the session">. The smoke run is the
-solvability probe — an assertion no attempt greens is flagged
-suspect-harness here, not counted against models.>
++ `bench evaluate --attempt <dir> --no-write-results` → <result per
+component, or "deferred — no secrets in the session">. The smoke run is
+the solvability probe — an assertion no attempt greens is flagged
+suspect-harness here, not counted against models. Exception: a mined
+order's `tests/<task>-pr` failed by the smoke is not suspect-harness —
+its solvability proof is the reference diff green (shape-neutrality
+section below), so the failed smoke is a model result.>
 
 ## Shape-neutrality checklist
 
@@ -66,7 +69,16 @@ suspect-harness here, not counted against models.>
 confirmation it encodes no implementation shape (no paths, symbols,
 grep discovery, copied-in test files, forced environments — paths the
 prompt fixes verbatim are the only exception); how pre-existing repo
-problems are not punished; dependency self-install.>
+problems are not punished; dependency self-install.
+
+For a mined order's `tests/<task>-pr`, instead:
+- the source change (SHA, PR number) and its pin;
+- the coupling decision: which names the tests assert that the change
+  introduced, and where the prompt states them;
+- the two-direction proof: `bench assert` output with the empty diff
+  at 0 and `reference.diff` at 1;
+- the red log excerpt showing the change's own assertions are what
+  fails at the pin.>
 
 ## Rubric
 
@@ -94,7 +106,7 @@ assertion decision (reuse instead of new or vice versa) — say so
 explicitly, so the orchestrator can close out a possible duplicate in
 the pool.
 
-Per assertion also state its **counter-proof** (SKILL.md rule 10) —
+Per assertion also state its **counter-proof** (BUILD.md rule 10) —
 red on the starting state / red on a deliberate break (paste the
 failing output) / cannot go red → weight 0 with a note. "Green at the
 start" is not a counter-proof: a guard that is green before the agent

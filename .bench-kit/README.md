@@ -15,12 +15,15 @@ Zawartość:
 - `ATTEMPT_FORMAT.md` — kontrakt ZACHOWANEJ PRÓBY (format katalogu
   `attempts/<zadanie>/<model>/trial-N/`): jedyny punkt styku między
   wykonaniem a oceną, wersjonowany.
-- `runner/` — CLI `bench` (`attempt` / `evaluate` / `status` / `shell` /
+- `runner/` — CLI `bench` (`attempt` / `evaluate` / `status` /
+  `backlog` / `changes` / `shell` /
   `validate` / `report` / `leaderboard` / `assert` / `judge` /
   `calibrate` / `doctor`); schematy kontraktów w `runner/src/schemas/`.
-- `docker/` — bazowy Dockerfile obrazu próby, pinowana wersja OpenCode
-  (`opencode.version`), adapter metryk (lokalne opencode.db → koszt
-  i tokeny), skrypty cyklu próby i oceny.
+- `docker/` — bazowy Dockerfile obrazu próby z trzema harnessami
+  w pinowanych wersjach (`opencode.version`, `claude-code.version`,
+  `codex.version` — wersje są w tagu obrazu `bench-base:oc…-cc…-cx…`),
+  adaptery metryk per harness (`metrics-adapter/`), skrypty cyklu próby
+  i oceny.
 - `workflows/` — workflows GitHub Actions instancji (GHA = zwykłe CI/CD,
   NIE wykonanie prób): `readiness` (spójność instancji on push),
   `leaderboard` (statyczny build dashboardu z `results/` po commicie

@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { must, sh } from "./containers.ts";
 import { gitAuthArgs } from "./git-auth.ts";
+import { unifyContextFiles } from "./context-files.ts";
+import { loadConfig } from "./instance.ts";
 import type { Task } from "../schemas/task.ts";
 
 export const sanitize = (s: string): string => s.replace(/[^A-Za-z0-9._-]+/g, "-");
@@ -44,6 +46,10 @@ export function prepareTaskImage(engine: string, root: string, baseImage: string
       });
     }
 
+    // Pliki instrukcji projektu wyrównane między harnessami (context-files.ts)
+    // — przed commitem startowym, więc poza patch.diff.
+    const unified = unifyContextFiles(workspace, loadConfig(root).defaults.context_files);
+
     // Commit startowy = punkt odniesienia dla patch.diff (repo@pin + overlay).
     must("git", ["-C", workspace, "add", "-A"], "git add punktu startowego");
     must(
@@ -72,7 +78,10 @@ export function prepareTaskImage(engine: string, root: string, baseImage: string
       [`FROM ${baseImage}`, "COPY workspace/ /workspace/", "COPY prompt.md start-sha /bench/", ...prepareLines, ""].join("\n"),
     );
 
-    console.log(`prepare: ${name} → ${image} (pin ${task.commit.slice(0, 12)}…)${task.prepare ? " + prepare środowiska" : ""}`);
+    console.log(
+      `prepare: ${name} → ${image} (pin ${task.commit.slice(0, 12)}…)${task.prepare ? " + prepare środowiska" : ""}` +
+        (unified.length ? ` + ${unified.join(", ")}` : ""),
+    );
     must(engine, ["build", "-q", "-t", image, context], `budowa obrazu zadania ${name}`, { timeout: 1_800_000 });
     const effectiveStartSha = task.prepare
       ? must(engine, ["run", "--rm", image, "cat", "/bench/start-sha"], `odczyt start-sha obrazu ${name}`, { timeout: 120_000 }).trim()

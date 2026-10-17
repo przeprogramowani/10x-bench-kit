@@ -1,21 +1,10 @@
----
-name: bench-build
-description: >-
-  Builds benchmark tasks from pending orders in the backlog
-  (`tasks/backlog.md`): fans the orders out to subagents — each does
-  the authoring as text work (pin, overlay, prompt, assertions,
-  rubric, weights), containers only where its own files need proof — then
-  proves the whole batch once at the batch gate (`bench validate
-  --assert` + smoke) and leaves finished files in the working tree
-  with an evidence report — no git.
-  Use when the user wants to build tasks from the backlog or says
-  "bench-build / build the tasks / process the backlog".
----
+<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
 
-# bench-build — building tasks from the backlog
+# Build — tasks from the backlog's orders
 
 You orchestrate task construction: you read `pending` orders from
-`tasks/backlog.md`, fan them out to subagents, keep statuses accurate,
+`tasks/backlog.md`, fan them out to subagents, watch their stages
+through `bench backlog` (derived from disk, never written — rule 4),
 and run the **batch gate** at the end. The actual task authoring —
 pin, overlay, prompt, assertions, the rubric, weights, self-check — is
 done by a **subagent** following the procedure in
@@ -33,7 +22,7 @@ no per-task smoke, no waves throttled by container contention.
 
 **Empty backlog**: if `tasks/backlog.md` does not exist or has no
 `pending` entries, tell the user that orders are created first with the
-**bench-new-task** skill (short interview → backlog entry), and stop —
+interview (INTERVIEW.md) or PR mining (MINING.md), and stop —
 do not invent tasks yourself.
 
 ## Hard rules
@@ -41,11 +30,11 @@ do not invent tasks yourself.
 1. **The orchestrator does not author.** You do not pick pins, write
    prompts, or write assertions — subagents do that per
    TASK_AUTHORING.md. Your job: scoping, preparing shared resources,
-   fan-out, statuses, the aggregate report.
+   fan-out, watching stages (`bench backlog`), the aggregate report.
 2. **The order is a contract.** A subagent builds what the backlog
-   entry says — the design decisions were made in bench-new-task. Do
+   entry says — the design decisions were made when the order was written (INTERVIEW.md / MINING.md). Do
    not patch gaps in an entry with guesses: an incomplete order goes
-   back to the user (or to bench-new-task), not into the build.
+   back to the user (or to the interview), not into the build.
 3. **Zero git — files and reports, nothing more.** Neither you nor the
    subagents commit, branch, or push. The output of a batch is finished
    `tasks/<name>/` directories (+ new assertions in the pool) in the
@@ -55,11 +44,18 @@ do not invent tasks yourself.
    starting state — what happens next (commit, PR, review, rejection) is
    solely the user's decision. Keep tasks from one batch separate:
    separate directories, separate reports, no merging.
-4. **Backlog statuses are the source of truth.** Before a subagent
-   starts, the entry moves to `in-progress`; when it returns, to
-   `built` (files + report present) or back to `pending` with a note
-   explaining why; `done` only after the batch gate (step 5). Backlog
-   updates are file edits, not commits (rule 3).
+4. **The disk is the source of truth, not the backlog's status
+   lines.** You do not move statuses. An order's stage is derived by
+   `bench backlog` from facts the procedure already produces: the
+   subagent's `todo.md` (building), `task.yaml` + report (built), the
+   report's filled `## Batch gate` section (ready), attempts and
+   current-era evaluations (measuring / measured). A stage cannot
+   drift, a dead session cannot leave an order stuck `in-progress`, and
+   a batch does not rewrite N status lines that conflict with whoever
+   else edited the backlog meanwhile. The only backlog edit you make is
+   appending a dated line to an order's **Build log** when its subagent
+   refused or its gate went red. That is history, not state, and it is
+   a file edit, not a commit (rule 3).
 5. **Parallel is the default mode — the whole batch at once.** Orders
    in one batch are independent: each subagent writes only to
    `tasks/<its-task>/` and its own directories in `evaluation-pool/`,
@@ -164,10 +160,14 @@ the operator machine) — phrased that way, not as runner commands.
 
 ### 1. Scope
 
-Read `tasks/backlog.md` and list the `pending` orders (name + one
-sentence). By default you build all of them; if the user named a subset
-in the invocation, build those. Orders incomplete against the entry
-schema (BACKLOG_TEMPLATE.md in bench-new-task) get set aside with a
+Run `bench backlog` and take the orders at stage `ordered` (name + one
+sentence from the entry). By default you build all of them; if the user
+named a subset in the invocation, build those. Read its notes before
+fanning out: an order flagged without a Decision is not built
+(bench-define SKILL.md rule 1 / INTERVIEW.md rule 7), and a `building`
+order whose todo.md has gone stale is a dead session. Tell the user about it; do not overwrite it with a
+second subagent. Orders incomplete against the entry
+schema (BACKLOG_TEMPLATE.md in bench-define) get set aside with a
 list of gaps — for completion, not for building.
 
 ### 2. Preparation
@@ -191,23 +191,30 @@ list of gaps — for completion, not for building.
   default case), build the whole batch in parallel (rule 5). An order
   waiting on a shared assertion starts after its owner finishes.
 - Container readiness (engine up, `bench-base` image, runner
-  dependencies) is needed by bugfix orders (overlay proofs) and by
-  the gate — check `bench doctor` now if the batch has bugfix orders,
-  otherwise before step 5. Infrastructure is fixed once, by you —
-  never by a subagent mid-task.
+  dependencies) is needed by bugfix orders (overlay proofs), by mined
+  orders (`Source: pr` — the two-direction proof of `tests/<task>-pr`)
+  and by the gate — check `bench doctor` now if the batch has bugfix
+  or mined orders, otherwise before step 5. Infrastructure is fixed
+  once, by you — never by a subagent mid-task.
 
 ### 3. Fan-out
 
-For each order: switch the status to `in-progress` (a backlog edit),
-launch a subagent via your tool's mechanism, and pass in its prompt:
+For each order, launch a subagent via your tool's mechanism. There is
+no status to switch: the subagent's first action, `tasks/<name>/todo.md`,
+is the claim `bench backlog` reads as `building`. Pass in its prompt:
 
 - the full backlog entry for the order, verbatim;
-- the pin candidate for the order's base repo: SHA + proof of green CI
+- for a **mined order** (`Source: pr`): its own **Pin** from the entry,
+  not the batch candidate, and the instruction to follow the "Mined
+  orders" path of TASK_AUTHORING.md, which extracts the tests and
+  reference with `mine-prs.mjs emit` and proves both directions. The
+  clone must already be deep enough to contain the pin (rule 6);
+- otherwise, the pin candidate for the order's base repo: SHA + proof of green CI
   (step 2) and the deviation rule — the candidate is the default, the
   subagent verifies that its order makes sense on that commit, and any
   deviation requires a justification in the report;
 - an instruction to read and follow
-  `.agents/skills/bench-build/TASK_AUTHORING.md` (path per the
+  `.agents/skills/bench-define/TASK_AUTHORING.md` (path per the
   instance's skills directory) — that is its procedure, with the hard
   rules and the report template;
 - the instance root and a reminder: zero git, no fetching in
@@ -247,10 +254,7 @@ matters in every profile. Implementation orders get full power.
 
 A subagent may end with a refusal plus a reason (e.g. the order is
 infeasible on the current repo, the bug is unobservable) — that is a
-valid outcome, not an orchestration failure. A deferred smoke test (no
-secrets in the session, step 6.4 of TASK_AUTHORING) is not a failure
-either — noted in the report, it moves to the batch gate (the "Next
-step" section).
+valid outcome, not an orchestration failure.
 
 ### 4. Collecting results and statuses
 
@@ -264,10 +268,12 @@ or flag it to the user as a leftover to remove (a working file would
 enter `task_hash`).
 
 After each subagent: (in the default mode its files are already in the
-instance tree; only with isolated copies move them — rule 5), mark the
-entry `built` (an interim status: files and report present, gate
-pending) or restore `pending` with a note on refusal/failure. **The
-report file is part of the deliverable**: confirm that
+instance tree; only with isolated copies move them — rule 5),
+`bench backlog` shows the order as `built` (task.yaml + report present,
+gate pending). On a refusal, make sure the subagent removed its partial
+`tasks/<name>/` (TASK_AUTHORING.md step 0) so the order reads `ordered`
+again, and append the reason to its **Build log**. **The report file
+is part of the deliverable**: confirm that
 `reports/<task-name>-build.md` exists in the working tree and that its
 evidence sections carry **pasted command output** for everything the
 subagent owns — a `bench assert` result behind every overlay
@@ -275,8 +281,8 @@ counter-proof and every guard it created, a `bench judge` empty-diff
 verdict behind the rubric, `bench validate --offline` green. A report
 that arrived only in the subagent's message, or whose
 evidence sections are declarations without output, is a missing
-report: send the subagent back to persist it (or restore `pending`
-with that note) — "runner output confirms states, not declarations"
+report: send the subagent back to persist it (or, if it cannot, have
+its files removed and log the reason in the order's Build log) — "runner output confirms states, not declarations"
 applies to the build itself, not just to runs. Do not fix a subagent's
 work yourself — a failed order goes back into the queue with a
 diagnosis, not with your patch.
@@ -291,21 +297,29 @@ subagents deliberately skipped (rule 9).
 2. `bench validate --assert` — verifies **every** `reference`
    declaration of the batch's tasks (and the instance) on the starting
    state in containers. Red on a task of the batch → that order goes
-   back to its subagent with the pasted output (status `pending` with
-   the note), the rest of the batch proceeds.
+   back to its subagent with the pasted output (a dated Build log line
+   on the order), the rest of the batch proceeds.
 3. Smoke, **provided the session has provider API keys**:
    `bench attempt --smoke --tasks <all batch tasks> --models
-   <cheap-model>` then `bench evaluate --no-write-results` on the
-   produced attempts. This is the **solvability probe** (there is no
-   reference implementation): an assertion that no smoke attempt
-   greens is suspect-harness — back to the subagent for diagnosis, or
-   weight 0 with a note, never a charge against models. Without keys:
-   note "smoke deferred — no secrets in the session" and hand it to the
-   Next step; points 1–2 remain unconditional.
+   <cheap-model>`, then for each smoke attempt it produced
+   `bench evaluate --attempt <attempts/<task>/<model>/trial-N>
+   --no-write-results` (one `--attempt` per smoke attempt; a bare
+   `bench evaluate` would take every preserved attempt). This is the
+   **solvability probe** (no reference implementation is written; only
+   a mined order brings one, from history): an assertion that no smoke
+   attempt greens is suspect-harness — back to the subagent for
+   diagnosis, or weight 0 with a note, never a charge against models.
+   **Exception:** a mined order's `tests/<task>-pr` is not
+   suspect-harness when the smoke attempt fails it — its solvability
+   proof is the reference diff green in the build report
+   (TASK_AUTHORING.md, "Mined orders"), so a failed smoke there is a
+   model result. Without keys: note "smoke deferred — no secrets in the
+   session" and hand it to the Next step; points 1–2 remain
+   unconditional.
    **Read the smoke's judge verdict per criterion, not just the total.**
    The judge call is already paid for, and the smoke diff is the only
    real wrong-but-competent attempt the batch will see before the
-   matrix (bench-rubric calibrates on real attempts and fabricates no
+   matrix (bench-measure's JUDGE_DIAGNOSTICS.md calibrates on real attempts and fabricates no
    synthetic ones, so there is no other source). Open `judge.json`,
    read each criterion's score and justification against the diff, and
    ask the one question the total hides: **does a diff that fails the
@@ -320,7 +334,10 @@ subagents deliberately skipped (rule 9).
    every task in the batch, record one of:
    - **red on the starting state** — already proven by point 2 for
      bugfix-style tasks whose overlay seeds the defect: the assertion
-     is red before, green after. Nothing more to do.
+     is red before, green after. The same holds for a mined order's
+     `tests/<task>-pr`: declared `fail` at the pin and proven red there
+     (and green with the reference diff) in the build report. Nothing
+     more to do.
    - **red on a deliberate break** — for tasks green at the start
      (feature work: the repo's own lint / types / suite), show the
      assertion failing on a plausible wrong implementation. One
@@ -339,7 +356,10 @@ subagents deliberately skipped (rule 9).
 4. Append a `## Batch gate` section (REPORT_TEMPLATE.md) with the
    pasted outputs of 2–3a to **each** task report of the batch — the
    report must carry the proof, not your chat message.
-5. Only now: `built` → `done` for every order that passed.
+5. Nothing to flip: the filled `## Batch gate` section is the fact
+   `bench backlog` reads, so every order that passed now shows as
+   `ready`. Run it once and check that the batch reads the way you
+   think it does.
 
 The gate costs one `validate --assert` pass and one smoke attempt per
 task — the same container time a single subagent used to spend on
@@ -356,30 +376,41 @@ satisfied by that default; do not edit the config for them.
 
 End your summary response with a **Next step** section: batch status
 (how many tasks are ready in the working tree — with file lists and
-per-task reports, how many orders went back to `pending`, total
-costs),
+per-task reports, how many orders are back at `ordered`, total
+costs, and the `bench backlog` stages of the batch),
 **one** recommendation with a one-sentence justification, at most two
 alternatives with a price, and — separately — what awaits a human
 decision. The fate of the built files — commit, PR, review, rejection —
 is ALWAYS the user's decision; the reports give them the evidence for
-it. Typical transitions:
+it. **Hand that decision over in its reviewable form: run
+`bench changes` and paste its plan.** It groups the working tree by
+intent, one group per new task with its rubric, new guards and report,
+the backlog separately, and anything that touched an existing guard or
+rubric marked as closing an era. Each group comes with the `git add` /
+`git commit` lines the user can take as they are. The user reviews
+intent per group instead of a flat list of paths. A blocked group (a
+leftover `todo.md`, a rubric edited without a version bump while results
+use it) is yours to fix before handing over. Typical transitions:
 
 - **A task with a judge component** → straight to **bench-measure**;
   the rubric is calibrated by the first real attempts (the report names
   the criterion to spot-check first). A rubric fix after that run
-  re-evaluates preserved attempts, never re-runs them. bench-rubric is
-  not a step here — it is a diagnostic for judge stability / judge
+  re-evaluates preserved attempts, never re-runs them. bench-measure's
+  JUDGE_DIAGNOSTICS.md is not a step here — it is a diagnostic for judge stability / judge
   comparison once attempts exist.
-- **Orders went back to `pending`** → complete the entries
-  (bench-new-task) or re-run bench-build on the subset.
+- **Orders are back at `ordered`** (refused, gate red) → complete the
+  entries (MINING.md / INTERVIEW.md) or re-run BUILD.md on the subset.
 - **The batch gate deferred its smoke (no secrets in the session)** →
   after the user accepts the files, one `bench attempt --smoke` on all
   of the batch's new tasks at once, in a session with keys — you run
   it once the user provides them (never ask the user to run `bench`
-  themselves) — before the full run. The smoke run doubles as the
-  **solvability probe**: an assertion that no smoke attempt greens is
-  suspect-harness — flag it for diagnosis instead of letting it count
-  against models.
+  themselves) — before the full run, evaluated per smoke attempt with
+  `bench evaluate --attempt <dir> --no-write-results` as in step 5.3.
+  The smoke run doubles as the **solvability probe**: an assertion
+  that no smoke attempt greens is suspect-harness — flag it for
+  diagnosis instead of letting it count against models — except a
+  mined order's `tests/<task>-pr`, whose solvability the reference
+  diff already proved (a failed smoke there is a model result).
 - **A report's full-run cost projection exceeds `max_cost_usd`** →
   surface it here, before anything runs: the recommendation is
   a single-model run (or the smoke gate alone) first, with the

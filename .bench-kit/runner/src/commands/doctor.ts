@@ -1,7 +1,7 @@
 /**
  * bench doctor — deterministyczna checklista środowiska instancji.
  *
- * To, co dotąd było prozą w skillu bench-wiring (i pracą agenta powtarzaną
+ * To, co dotąd było prozą w preflighcie skilla bench-measure (i pracą agenta powtarzaną
  * w każdej firmie), a jest w 100% deterministyczne: silnik kontenerów,
  * wersja node, zależności runnera, klucze API (sama obecność, nigdy
  * wartości), remote repo instancji, klonowalność repo bazowych, workflows.
@@ -18,6 +18,7 @@ import { findInstanceRoot, loadConfig } from "../lib/instance.ts";
 import type { BenchConfig } from "../schemas/config.ts";
 import { engineMemoryBytes, sh } from "../lib/containers.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
+import { requiredKeysFor } from "../lib/harness.ts";
 
 interface Options {
   root: string;
@@ -48,14 +49,6 @@ interface CheckResult {
   status: "OK" | "BRAK" | "WARN";
   detail: string;
   fix?: string;
-}
-
-/** Klucz API wymagany przez model w formacie <provider>/<model>. */
-function requiredKeyFor(model: string): string | null {
-  const provider = model.split("/")[0];
-  if (provider === "anthropic") return "ANTHROPIC_API_KEY";
-  if (provider === "openrouter") return "OPENROUTER_API_KEY";
-  return null;
 }
 
 export async function doctorCommand(args: string[]): Promise<number> {
@@ -155,18 +148,20 @@ export async function doctorCommand(args: string[]): Promise<number> {
 
   const presentKeys = Object.keys(process.env).filter((name) => /_API_KEY$/.test(name));
   if (config) {
-    const needed = new Set(
-      [config.judge.model, ...config.defaults.models].map(requiredKeyFor).filter((k): k is string => k !== null),
-    );
-    for (const key of [...needed].sort()) {
+    // Alternatywy (np. OPENAI_API_KEY | CODEX_API_KEY): wystarczy którakolwiek.
+    const needed = new Map<string, string[]>();
+    for (const keys of [config.judge.model, ...config.defaults.models].map(requiredKeysFor)) {
+      if (keys) needed.set(keys.join(" | "), keys);
+    }
+    for (const [label, keys] of [...needed].sort(([a], [b]) => a.localeCompare(b))) {
       checks.push(
-        presentKeys.includes(key)
-          ? { name: `klucz ${key}`, status: "OK", detail: "obecny w env" }
+        keys.some((k) => presentKeys.includes(k))
+          ? { name: `klucz ${label}`, status: "OK", detail: "obecny w env" }
           : {
-              name: `klucz ${key}`,
+              name: `klucz ${label}`,
               status: "BRAK",
               detail: "brak w env",
-              fix: `wyeksportuj ${key} w env maszyny operatora (benchmark pracuje lokalnie — sekrety repo są potrzebne tylko workflowom publikacji)`,
+              fix: `wyeksportuj ${keys[0]} w env maszyny operatora (benchmark pracuje lokalnie — sekrety repo są potrzebne tylko workflowom publikacji)`,
             },
       );
     }

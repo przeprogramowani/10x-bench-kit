@@ -13,63 +13,42 @@ to; the user's surface is the config, environment variables, and git. The
 benchmark runs LOCALLY (operator machine / VPS) — GitHub Actions is only
 readiness CI and leaderboard publication.
 
-Target set (concept: SKILLS_DESIGN in the project repo):
+Three skills, three concepts: **define → measure → decide.** Each
+SKILL.md is short and routes to the procedures beside it, loaded only
+when the step needs them:
 
-- **bench-wiring** *(available)* — from a fresh `init` to a green
-  `validate` and the first measured attempt on the operator's machine:
-  base repo, models, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate`, committed results; optionally the
-  publication path (remote repo, readiness + leaderboard workflows).
-- **bench-new-task** *(available)* — a short interview → a new task
-  request in the stateful backlog `tasks/backlog.md`; a single session
-  can define 5–10 requests without building anything.
-- **bench-build** *(available)* — builds tasks from pending backlog
-  requests: distributes them across subagents, each of which performs
-  full authoring (prompt + pin + overlay + assertions with `reference`
-  declarations + weights + the task's rubric, all proven on the
-  starting state via `bench assert` / `bench validate --assert` /
-  the empty-diff floor; no reference implementation — expectations
-  for future attempts live in the rubric (RUBRIC_AUTHORING.md: axes →
-  criteria with anchors, junior/senior/lead rules of thumb, read-only
-  failure checklist) and assertions); the result lands as files in the
-  working tree with a per-task evidence report — git stays on the
-  user's side. The rubric is calibrated by the first real measurement.
-- **bench-rubric** *(available)* — thin proxy over `bench calibrate`:
-  measures the API judge's stability on a task's rubric, or compares
-  two judge models on it, using REAL preserved attempts (plus the empty
-  diff) as the set — requires attempts, fabricates nothing, writes no
-  rubrics. A diagnostic, not a pipeline step; a rubric finding is
-  handed back as an edit per RUBRIC_AUTHORING.md (version bump →
-  re-evaluate preserved attempts, never re-run).
-- **bench-measure** *(available)* — the measurement loop on this
-  machine: scopes the matrix (models × tasks × trials), projects cost
-  against the run budget, executes `bench attempt` (preserved
-  attempts, top-up semantics), drives evaluation (rate-attempt per
-  attempt, or the API judge for smoke runs) and hands the user the
-  results table plus the `results/` paths to commit. The user's
-  surface is consent and git — never runner commands.
-- **rate-attempt** *(available)* — the judge as an agent WITH TOOLS:
-  takes a preserved attempt (`attempts/<task>/<model>/trial-N/`),
-  reads the rubric, treats guard results as facts, investigates a
-  disposable containerized copy of the preserved workspace (build, tests, running
-  the app) and produces a verdict that `bench evaluate --verdict`
-  folds into `results/` deterministically. Batch mode: a thin loop /
-  subagent per attempt.
-- **bench-refresh-task** *(available)* — refreshes an expired task
-  (new pin + assertions) → a PR opening a new era of the task.
-- **bench-explain-results** *(available)* — diagnoses results:
-  drilling down from the aggregate through result.json to the
-  preserved attempt's artifacts and classifying the root cause
-  (model / task / infrastructure fault) with evidence; the output is
-  a comment or an issue, never a scoring change.
-- **bench-summary** *(available)* — the decision snapshot over
-  `results/`: `summarize.mjs` computes the economics deterministically
-  (pass rate with a Wilson interval, **cost per acceptable result** =
-  cost per attempt ÷ pass rate, diff size as review burden) from the
-  git-tracked trees only, renders a self-contained one-page HTML
-  verdict, and adds a short narrative. Ties are reported as ties and
-  settled on price; unmeasured cells are reported as unmeasured, never
-  as zero; it never changes scoring.
+- **bench-define**: what we measure. Real work becomes tasks.
+  - **PR mining** is the default source (`MINING.md`, `mine-prs.mjs`).
+    A merged change that brought tests becomes a task: the pin is its
+    parent, its tests are a hidden fail-to-pass guard admitted only
+    without shape coupling, and its code proves solvability.
+  - The **interview** (`INTERVIEW.md`) covers work without history, and
+    **refresh** (`REFRESH.md`) handles expired tasks.
+  - Orders go to `tasks/backlog.md` (`BACKLOG_TEMPLATE.md`). **Build**
+    (`BUILD.md`) fans out one subagent per order (`TASK_AUTHORING.md`,
+    `RUBRIC_AUTHORING.md`), runs a batch gate and writes evidence
+    reports (`REPORT_TEMPLATE.md`). No git.
+- **bench-measure**: run models on it.
+  - **Preflight / wiring** (`WIRING.md`).
+  - The matrix run: cost projection against the budget, preserved
+    attempts, top-up.
+  - Evaluation by the **judge with tools**, one subagent per attempt
+    (`RATE_ATTEMPT.md`; verdicts signed with `--judge-mode`).
+  - **Judge diagnostics** (`JUDGE_DIAGNOSTICS.md`), and the "new model
+    came out" re-run on the same tasks.
+- **bench-decide**: what it means.
+  - `summarize.mjs` + `analytics.mjs` compute the routing decision:
+    pass rate with interval and pass^k per task × model; class × model
+    with tasks as the unit; paired comparisons by sign test; the
+    resolution of the task set; the time horizon.
+  - Output is one HTML verdict plus a narrative. `EXPLAIN.md` diagnoses
+    a surprising result from its preserved attempt.
+
+Two read-only runner views tie the cycle together. `bench backlog`
+derives each order's stage from disk (the backlog stores decisions
+only), and `bench changes` turns the uncommitted working tree into a
+commit plan grouped by scoring impact. Skills end their handover with
+that plan instead of a list of paths.
 
 In the template, skills live under the tool-agnostic `.agents/skills/`;
 `10x bench-kit init` materializes them in the instance under the path of

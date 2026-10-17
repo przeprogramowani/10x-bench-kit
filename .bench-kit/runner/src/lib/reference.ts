@@ -8,6 +8,7 @@
  * (ten sam /bench/evaluate.mjs co w `bench evaluate`), więc wynik asercji
  * jest tożsamy z tym z pełnego cyklu próby.
  */
+import { unifyContextFiles, type ContextFilesPolicy } from "./context-files.ts";
 import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,7 +41,12 @@ export function buildEvalPlan(root: string, refs: string[]) {
  * Buduje stan startowy w katalogu tymczasowym: repo@pin + overlay + commit
  * startowy. Zwraca ścieżkę workspace'u (sprzątanie po stronie wołającego).
  */
-export function buildStartWorkspace(repoUrl: string, commit: string, overlayDir: string | null): string {
+export function buildStartWorkspace(
+  repoUrl: string,
+  commit: string,
+  overlayDir: string | null,
+  contextPolicy: ContextFilesPolicy = "unified",
+): string {
   const workspace = mkdtempSync(join(tmpdir(), "bench-reference-"));
   must("git", ["init", "-q", workspace], "git init workspace referencyjnego");
   must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, commit], `fetch pinowanego commita ${commit.slice(0, 12)}…`, {
@@ -51,6 +57,9 @@ export function buildStartWorkspace(repoUrl: string, commit: string, overlayDir:
   if (overlayDir && existsSync(overlayDir)) {
     cpSync(overlayDir, workspace, { recursive: true, filter: (src) => !src.endsWith(".gitkeep") });
   }
+
+  // Ten sam stan co obraz próby (prepare.ts) — guardy widzą to, co agent.
+  unifyContextFiles(workspace, contextPolicy);
 
   must("git", ["-C", workspace, "add", "-A"], "git add stanu startowego");
   must(

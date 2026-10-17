@@ -3,9 +3,12 @@
  *
  * - MEDIANA per (model × zadanie) dla total / kosztu / czasu — nie średnia,
  *   żeby pojedynczy odjazd kosztowy nie zaburzał wyniku,
- * - pass@k jako miara niezawodności: próba "zalicza", gdy
- *   total >= defaults.pass_threshold z bench.config.yaml; estymator
- *   pass@k = 1 - C(n-c, k)/C(n, k) dla n prób, c zaliczonych,
+ * - pass@k jako miara niezawodności: próba "zalicza" wg pola `passed`
+ *   z result.json (bramka: guardy zielone + judge ≥ próg; wyniki sprzed
+ *   bramki — legacy total >= defaults.pass_threshold); estymator
+ *   pass@k = 1 - C(n-c, k)/C(n, k) dla n prób, c zaliczonych, oraz
+ *   pass^k = C(c, k)/C(n, k) — szansa, że k prób Z RZĘDU zaliczy
+ *   (τ-bench): miara "czy da się to zautomatyzować", nie "czy kiedyś wyjdzie",
  * - koszt runu = suma kosztów wszystkich prób (koszt sędziego jeszcze
  *   nieuwzględniany — pole cost_scope mówi wprost, co jest w sumie),
  * - wyniki grupowane w ery (identyczna krotka stamps) — nigdy nie
@@ -59,12 +62,21 @@ function findResults(runDir: string): Result[] {
 }
 
 function median(values: number[]): number {
+  if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
 }
 
 /** pass@k = 1 - C(n-c, k)/C(n, k); n prób, c zaliczonych. */
+/** pass^k (τ-bench): estymator C(c,k)/C(n,k) — k niezależnych prób, wszystkie zaliczone. */
+function passHatK(n: number, c: number, k: number): number {
+  if (k > n || k < 1) return 0;
+  let p = 1;
+  for (let i = 0; i < k; i++) p *= (c - i) / (n - i);
+  return Math.max(0, p);
+}
+
 function passAtK(n: number, c: number, k: number): number {
   if (n - c < k) return 1;
   let ratio = 1;
@@ -110,7 +122,10 @@ export async function reportCommand(args: string[]): Promise<number> {
       pass_threshold: threshold,
       /** Suma kosztów prób; koszt sędziego osobno (total_judge_cost_usd). */
       cost_scope: "trials",
-      total_cost_usd: results.reduce((acc, r) => acc + r.cost_usd, 0),
+      // Koszt nieznany (cost_source null) nie jest zerem — poza sumą i medianą,
+      // policzony osobno.
+      total_cost_usd: results.filter((r) => r.cost_source !== null).reduce((acc, r) => acc + r.cost_usd, 0),
+      unknown_cost_trials: results.filter((r) => r.cost_source === null).length,
       // Koszt sędziego jako osobna pozycja — nie dokleja się do kosztu
       // modelu, ale przy tanich modelach bywa porównywalny z kosztem próby.
       total_judge_cost_usd: results.some((r) => typeof r.judge_cost_usd === "number")
@@ -123,20 +138,23 @@ export async function reportCommand(args: string[]): Promise<number> {
           .map(([key, cellResults]) => {
             const [model, task] = key.split("\0") as [string, string];
             const n = cellResults.length;
-            const passed = cellResults.filter((r) => r.total >= threshold).length;
+            const passed = cellResults.filter((r) => r.passed ?? r.total >= threshold).length;
+            const k = Math.min(n, config.defaults.trials);
             return {
               model,
               task,
               trials: n,
               median_total: median(cellResults.map((r) => r.total)),
-              median_cost_usd: median(cellResults.map((r) => r.cost_usd)),
+              median_cost_usd: median(cellResults.filter((r) => r.cost_source !== null).map((r) => r.cost_usd)),
+              unknown_cost_trials: cellResults.filter((r) => r.cost_source === null).length,
               median_judge_cost_usd: cellResults.every((r) => typeof r.judge_cost_usd === "number")
                 ? median(cellResults.map((r) => r.judge_cost_usd as number))
                 : null,
               median_duration_s: median(cellResults.map((r) => r.duration_s)),
               passed,
               pass_at_1: passAtK(n, passed, 1),
-              pass_at_k: passAtK(n, passed, Math.min(n, config.defaults.trials)),
+              pass_at_k: passAtK(n, passed, k),
+              pass_hat_k: passHatK(n, passed, k),
             };
           })
           .sort((a, b) => a.task.localeCompare(b.task) || b.median_total - a.median_total),

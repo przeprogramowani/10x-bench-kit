@@ -1,31 +1,25 @@
----
-name: bench-new-task
-description: >-
-  Collects an order for a new benchmark task in a short interview and
-  appends it to the backlog (`tasks/backlog.md`) — without building
-  anything. A single session can define 5–10 orders; building is done
-  later by the bench-build skill. Use when the user wants to add a task
-  to the benchmark, has task idea(s), or says "new task / task for the
-  bench / add to the backlog".
----
+<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
 
-# bench-new-task — ordering a task into the backlog
+# Interview — ordering a task into the backlog
 
 You turn the user's idea into an **order** in the stateful backlog
 `tasks/backlog.md`. An order is the complete set of the task's design
 decisions — everything that changes WHAT the task measures — written
-precisely enough that a bench-build subagent can build the task from it
-**without asking the user anything**. This skill is deliberately fast:
-interview only, no cloning repos, no containers, no runner commands.
+precisely enough that a build subagent (BUILD.md) can build the task from it
+**without asking the user anything**. This procedure is deliberately
+fast: interview only, no cloning repos, no containers, no runner
+commands.
 
 ## Hard rules
 
 1. **Zero building.** You do not pick a pin, write `prompt.md`, an
-   overlay, or assertions, and you do not call `bench` commands. That
-   is bench-build's job. If the user wants to build right away, record
-   the order and point them to bench-build — do not build within this
-   skill.
-2. **Zero git.** This skill's output is an edit to `tasks/backlog.md`
+   overlay, or assertions, and you do not call `bench` commands during
+   the interview (the `bench backlog` read in bench-define SKILL.md
+   step 1 happens before it). Building is the build step's job
+   (BUILD.md). If the user wants to build right away, record the order
+   and move on to the build step (BUILD.md) — do not build within this
+   procedure.
+2. **Zero git.** This procedure's output is an edit to `tasks/backlog.md`
    in the working tree — you do not commit, branch, or push; when and
    how the backlog reaches git is the user's decision. The backlog is
    coordination state, not scoring (the runner ignores files in
@@ -36,7 +30,7 @@ interview only, no cloning repos, no containers, no runner commands.
    description are proposals to be accepted, not decisions.
 4. **One order = one intent.** The idea "fix X and refactor Y while
    you're at it" is two orders.
-5. **The order must be self-sufficient.** The bench-build subagent will
+5. **The order must be self-sufficient.** The build subagent will
    receive the backlog entry and nothing else — no access to this
    conversation. Everything you agreed on must be in the entry.
 6. **A premise is not a fact until it is probed.** Every claim the
@@ -72,7 +66,7 @@ two exceptions you always ask about:
   those are what should be recorded in the entry, instead of leaving
   the differentiation to the guesses of the agent building the rubric.
   This is the task's **primary grading source**: the benchmark keeps
-  no reference implementation, so the rubric (written by bench-build
+  no reference implementation, so the rubric (written by the build step
   from these criteria, calibrated by the first real attempts) is
   derived from them — the more concrete
   the do's/don'ts (and, for large tasks, the milestone/phase map for
@@ -84,7 +78,7 @@ two exceptions you always ask about:
   the judge as a code review, without nitpicking.
   If the user has no opinion, propose an axis derived from the task
   type and get acceptance; record a missing axis explicitly as "at
-  bench-build's discretion".
+  the builder's discretion".
 - **The decision this order informs (rule 7)** — what would you do
   differently depending on the outcome? The useful shape is a routing
   question: *"can we stop sending feature work in this repo to a
@@ -97,7 +91,7 @@ two exceptions you always ask about:
     component / …). One task is a hypothesis about one class, never a
     routing rule for a repo: a model that is bad at locating code in
     an unfamiliar tree may be fine at a scoped bugfix. The class is
-    what lets bench-summary aggregate results into a **class × model**
+    what lets bench-decide aggregate results into a **class × model**
     matrix instead of one row, and what shows which classes of your
     work are still unmeasured.
   - **What the work costs today** — roughly how often it comes up and
@@ -122,18 +116,23 @@ Remaining fields (ask only when the description does not settle them):
 - **What the task measures**: implementation / bugfix / refactor /
   documentation.
 - **Base repo** — must be in `base_repos` in bench.config.yaml
-  (check!); if it is not, bench-wiring comes first, not this order.
+  (check!); if it is not, bench-measure → WIRING.md comes first, not
+  this order.
 - **Difficulty and time limit** — always discussed and recorded in
   **minutes** (typically 5–15 min, up to 30 min for the widest
   product-level orders); consistent with the guidance level — a
   too-short limit measures speed, not quality. Seconds are an
-  implementation detail: bench-build converts the minutes into
+  implementation detail: the build subagent converts the minutes into
   `timeout_s` in `task.yaml` (min × 60). Never put a raw second count
   in front of the user.
 - (Workspace preservation is not a decision anymore: every trial keeps
   its full post-agent workspace on disk — the preserved-attempt
   contract, `.bench-kit/ATTEMPT_FORMAT.md` — so manual launch and the
   judge-with-tools always have the real state to work with.)
+- **Human time**: how long this work takes a developer, in minutes.
+  It feeds bench-decide's time horizon ("reliably handles N-minute
+  tasks"). The user's own estimate is fine; record it as "estimated"
+  unless it is measured.
 - **Task name**: kebab-case, saying what is to be done
   (e.g. `fix-cart-total-rounding`), not how (`edit-cart-ts`).
 
@@ -144,7 +143,7 @@ An order rests on claims about the base repo — "the feature is absent",
 are its **load-bearing premises**, and the interview cannot verify
 them: they come from the user's memory of the repo, and that is exactly
 what turns out wrong. A false premise does not fail cheaply — it fails
-after a full bench-build authoring cycle, as a refusal, or worse as a
+after a full build step, as a refusal, or worse as a
 task that builds fine while its evaluation axis measures nothing.
 
 So for every order, whatever its guidance level:
@@ -164,13 +163,13 @@ So for every order, whatever its guidance level:
    justification.
 
 Do not read the base repo yourself in this session — the probe is this
-skill's only permitted contact with `.repos/`, and it still is not
+procedure's only permitted contact with `.repos/`, and it still is not
 building (rule 1).
 
 What the verdict obliges you to do:
 
 - **confirmed** → record it in the entry's **Premises** field with the
-  SHA. bench-build then knows the claim was checked, not assumed.
+  SHA. The build step then knows the claim was checked, not assumed.
 - **refuted** → the order as stated cannot be built. Take it back to
   the user with the evidence; the idea usually survives in a changed
   form, because the gap is elsewhere or smaller than they thought.
@@ -207,7 +206,9 @@ presented for acceptance at all; it goes back into the interview.
 
 If `tasks/backlog.md` does not exist, create it per
 [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md). Append each order as an
-entry with status `pending` and a date. An order's name must not
+entry with status `pending` and a date. `pending` is the only status
+you write; how far an order has got is derived from disk later
+(`bench backlog`), so nobody ever edits it. An order's name must not
 collide with an existing `tasks/<name>/` directory or another backlog
 entry. Nothing in git (rule 2) — the file stays in the working tree.
 
@@ -215,5 +216,5 @@ entry. Nothing in git (rule 2) — the file stays in the working tree.
 
 End your summary response with a **Next step** section: how many orders
 are waiting in the backlog (`pending`), **one** recommendation —
-usually: add more orders (this skill) or launch **bench-build** when
+usually: add more orders (this procedure) or move on to the build step (BUILD.md) when
 the batch is ready — and what awaits a human decision.

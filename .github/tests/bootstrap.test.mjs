@@ -432,6 +432,35 @@ test("update: strefy — runtime wymieniony, propozycje zsynchronizowane, strefa
   assert.equal(response.zones.shared.updated, 1);
 });
 
+test("update: wycofane skille znikają z instancji, skille firmy i aktualne zostają", () => {
+  const { target } = initInstance("0.1.0");
+  // Instancja sprzed konsolidacji: dwa wycofane skille (jeden dostosowany
+  // przez firmę) obok własnego skilla firmy.
+  for (const name of ["bench-summary", "rate-attempt"]) {
+    mkdirSync(join(target, ".claude", "skills", name), { recursive: true });
+    writeFileSync(join(target, ".claude", "skills", name, "SKILL.md"), `# ${name} (customized)\n`);
+  }
+  mkdirSync(join(target, ".claude", "skills", "company-skill"), { recursive: true });
+  writeFileSync(join(target, ".claude", "skills", "company-skill", "SKILL.md"), "# ours\n");
+  spawnSync("git", ["add", "-A"], { cwd: target });
+  spawnSync("git", ["commit", "-m", "legacy skills"], { cwd: target });
+
+  const response = runBootstrap(
+    baseRequest(buildTemplateFixture("0.2.0"), target, {
+      mode: "update",
+      toolProfiles: { "claude-code": ".claude/skills", codex: ".agents/skills" },
+    }),
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(existsSync(join(target, ".claude", "skills", "bench-summary")), false);
+  assert.equal(existsSync(join(target, ".claude", "skills", "rate-attempt")), false);
+  assert.equal(readFileSync(join(target, ".claude", "skills", "company-skill", "SKILL.md"), "utf8"), "# ours\n");
+  assert.ok(existsSync(join(target, ".claude", "skills", "bench-task", "SKILL.md")));
+  assert.equal(response.zones.skills.removed, 2);
+  assert.ok(response.warnings.some((w) => w.includes("bench-summary") && w.includes("rate-attempt")));
+});
+
 test("update: honoruje narzędzie z manifestu poprzez mapę toolProfiles", () => {
   const { target } = initInstance("0.1.0");
   const manifestPath = join(target, ".bench-kit", "instance.json");

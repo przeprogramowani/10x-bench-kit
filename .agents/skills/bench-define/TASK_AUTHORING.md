@@ -1,6 +1,6 @@
-# TASK_AUTHORING — bench-build subagent procedure
+# TASK_AUTHORING — build subagent procedure (bench-define)
 
-You are a bench-build subagent. You received an **order** — an entry
+You are a bench-define build subagent. You received an **order** — an entry
 from `tasks/backlog.md` with the design decisions already made (type,
 base repo, guidance level, difficulty/time limit, description, notes).
 The order states the time limit in **minutes** — convert it to
@@ -28,6 +28,11 @@ milestones — which you turn into the task's rubric per
 proven on the starting state. Building a reference implementation, or
 "variant" diffs degraded from one, is explicitly out of scope — for a
 large order it is unmaintainable, and it is never needed for grading.
+The one exception costs no authoring: a mined order (`Source: pr`)
+comes with a reference someone already wrote, the merged change
+itself. You extract its diff with `mine-prs.mjs emit` as proof
+material, never write or edit it, and it never ships ("Mined orders"
+below).
 
 **You do not conduct an interview and you do not change the order's
 decisions.** If the order has a gap that makes building impossible (a
@@ -44,12 +49,13 @@ task built on guesses.
    **files in the working tree** + a report **file** at
    `reports/<task-name>-build.md` per
    [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) with evidence from the
-   reference; what happens to them next (commit, PR, review) is the
+   starting state; what happens to them next (commit, PR, review) is the
    user's decision. The task's own rubric
    (`evaluation-pool/judge/<name>-rubric.md`) IS your scope; other
-   rubrics and `bench.config.yaml` are not (bench-wiring). You do not
-   touch the backlog (`tasks/backlog.md`) at all — the orchestrator
-   manages statuses.
+   rubrics and `bench.config.yaml` are not (bench-measure → WIRING.md). You do not
+   touch the backlog (`tasks/backlog.md`) at all. Your progress is
+   read from your own files (`todo.md`, then `task.yaml` and the
+   report) by `bench backlog`; nobody records it by hand.
 2. **Isolation of evaluation materials.** Nothing from
    `evaluation-pool/` may be copied or referenced in `tasks/<name>/`
    (the only exception: `evaluation: [...]` entries in task.yaml).
@@ -68,7 +74,8 @@ task built on guesses.
    measure. The green direction — "can this task be satisfied at
    all?" — is guarded by the shape-neutrality rule (step 4) and by
    the batch smoke run (step 6), which doubles as the solvability
-   probe.
+   probe — for a mined order, by the reference diff going green on its
+   `tests/<task>-pr` (step 4).
 4. **The runner is your tool.** Do not reimplement its logic, do not
    evaluate "by eye" — call the `bench` commands and read their output.
    If the runner lacks something, report it (an issue), do not work
@@ -129,7 +136,9 @@ zone, and your fix would race with neighbors building in parallel.
   — non-LLM assertions on the task's starting state (repo@pin + overlay);
   `--no-overlay` = clean repo@pin, `--patch` = with a diff applied
   (used here only for small probe diffs, e.g. the bug-inverse probe of
-  step 2 — never for a task implementation). `--patch` can be given
+  step 2 — never for an implementation you wrote; the one exception is
+  a mined order's `reference.diff`, the real change extracted from
+  history, in "Mined orders" below). `--patch` can be given
   **multiple times** — several diffs are evaluated in a single
   container entry;
   `--json` prints a structured result to stdout instead of a table to
@@ -147,6 +156,101 @@ zone, and your fix would race with neighbors building in parallel.
   format). `--assert`, `bench attempt` and `bench evaluate` are **not**
   your tools — the orchestrator runs them once for the whole batch at
   the batch gate.
+
+## Mined orders (`Source: pr`)
+
+An order mined from history (MINING.md) arrives with facts the
+interview path has to establish. Pin, solution and tests already exist,
+which changes four steps; everything else, including the rubric, the
+todo.md progress file and the report, stays as below.
+
+- **Step 1, pin:** the order's **Pin**, the parent of the mined change.
+  No CI hunt: it is a commit of the default branch's first-parent
+  history. Do not take the orchestrator's batch pin candidate for a
+  mined order.
+- **Step 2, overlay:** none. The change's code is absent at the pin by
+  construction; that *is* the task.
+- **Step 3, prompt:** reverse-engineered from the order's intent (PR
+  description, issue, commit message) at its guidance level.
+  - Write it as the request a developer would have received: the
+    problem or goal, the observable behaviour wanted, the boundaries.
+  - **The order's Coupled names appear verbatim**, as stated
+    requirements, because the hidden tests assert them.
+  - **Nothing else from the reference diff may appear:** no other new
+    identifiers, file names, line numbers or test names. Check it
+    mechanically against `meta.json`: every entry of
+    `new_identifiers`, and the `name:` / `file:` entries of `coupled`
+    (for a file, its path and its file name). Any of them in
+    `prompt.md` that is not in Coupled names is a leak.
+- **Step 4, assertions:** the hidden guard `tests/<task>-pr`.
+  1. `node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> emit
+     <sha> --out <scratch>` writes `reference.diff` (the solution: code
+     plus the manifests, lockfiles and config it needs, so dependencies
+     the change added still install; docs and AGENTS.md / CLAUDE.md are
+     left out), `files/` (the test files after the merge, byte-exact,
+     including binary fixtures and snapshots under `__snapshots__/` and
+     `*.snap`) and `meta.json` (pin, files by class including
+     `manifest_files`, `new_identifiers`, `coupled`).
+  2. Copy `files/` to `evaluation-pool/tests/<task>-pr/files/`, and
+     drop any test file you decided not to use (Coupled names: internal
+     structure). Two adjustments are allowed, each with its reason in
+     the report:
+     - **test-only helpers and fixtures** the change added outside the
+       test directories (a fixture file, a test utility) may be shipped
+       in `files/` too: they are test material, not solution;
+     - **individual test cases** may be dropped by editing the copied
+       test file (e.g. the one case that asserts an internal name),
+       instead of dropping the whole file.
+  3. Write `check.yaml`. Copy the files over the workspace (the
+     agent's edits to those same files lose, as in SWE-bench), install
+     dependencies the way the repo does, run the repo's own test
+     command **for those files**, then put the workspace back:
+     ```yaml
+     score: binary
+     checks:
+       - name: pr-tests
+         run: |
+           list=$(cd "$ASSERTION_DIR/files" && find . -type f)
+           backup=$(mktemp -d)
+           for f in $list; do [ -e "$f" ] && mkdir -p "$backup/$(dirname "$f")" && cp -p "$f" "$backup/$f"; done
+           cp -r "$ASSERTION_DIR/files/." .
+           ( <repo-native install, lockfile-detected as in static/lint> && <repo-native test command for the copied files> ); rc=$?
+           for f in $list; do if [ -e "$backup/$f" ]; then cp -p "$backup/$f" "$f"; else rm -f "$f"; fi; done
+           exit $rc
+     ```
+     **A `-pr` guard leaves the workspace as it found it.** The
+     evaluation runs every assertion of the task in the same workspace,
+     without a reset in between: post-merge test files left behind
+     would be picked up by the next guard (the repo's suite guard would
+     then run the hidden tests too, and score the agent on them twice).
+     Back up what the copy overwrites, delete what did not exist before,
+     and exit with the tests' own code. List `tests/<task>-pr` **last**
+     in `evaluation[]`, so even a guard that failed to restore cannot
+     leak into its neighbours.
+  4. Declare `reference: { tests/<task>-pr: fail }` in task.yaml.
+  5. **Prove both directions** with one batch call: `bench assert
+     tests/<task>-pr --task <task> --patch <empty.diff> --patch
+     <scratch>/reference.diff`. The empty diff must score 0 and the
+     reference 1.
+  6. Read the red log: the change's new assertions must be what fails,
+     while the pre-existing tests in those files pass. A crash, an
+     import error or a missing module at the pin is the wrong reason.
+     It means the tests reach for something the change created, so go
+     back to the coupling decision.
+  7. Paste both outputs into the report, together with the reference
+     SHA. The reference is the merged commit (SHA in the order and the
+     report): its diff stays in your scratch dir, is deleted at handoff,
+     is regenerated with `mine-prs.mjs emit` whenever it is needed
+     again, and is never stored in the instance.
+- **Step 5, weights:** the hidden tests carry correctness, so they
+  usually take the larger weight (e.g. tests 0.6, judge 0.4). The
+  rubric then focuses on what tests cannot see: scope, quality, the
+  order's evaluation axis. Pass is a gate (guards green and judge ≥
+  threshold), so the weights shape the quality score, not who passes.
+- **`expires`:** a mined task gets an `expires` date in task.yaml like
+  any task (typically a few months out). Its refresh differs: the pin
+  can never move past the mined change, so a refresh re-proves the
+  same pin and renews the date (REFRESH.md, "Mined task").
 
 ## Procedure
 
@@ -177,12 +281,17 @@ orchestrator and the user read this file live — it must describe the
 actual state, not a plan; a backfilled entry written just before the
 report defeats its purpose.
 
-When handing off the work (step 7), **delete** todo.md — also on
-refusal (in that case also delete the task directory if nothing besides
-todo.md was created in it). Everything meant to survive belongs in the
-final report.
+When handing off the work (step 7), **delete** todo.md. On refusal,
+delete everything you created: the task directory and any pool entries
+of your own. A refusal leaves no files behind, only its reason, which
+the orchestrator logs on the order. Partial files would show the order
+in the wrong stage in `bench backlog`, and if they were picked up later
+they would enter the next build's `task_hash`. Everything meant to
+survive belongs in the final report.
 
 ### 1. Pin
+
+(Mined order: the order's Pin — see "Mined orders" above.)
 
 The orchestrator gave you a **pin candidate** in the prompt (SHA +
 proof of green CI) for the base repo — do not repeat its work: do not
@@ -240,6 +349,8 @@ a bug seed, not a project rebuild.
 
 ### 3. prompt.md
 
+(Mined order: reverse-engineered from intent, Coupled names verbatim — see "Mined orders" above.)
+
 Write it like a brief for a human: goal, context, boundaries ("change
 nothing beyond…") — at the guidance level **declared in the order**:
 *product-level* describes only the symptom/goal, *directional* may name
@@ -271,6 +382,8 @@ the project — you end up measuring temperament, not skill.
 
 ### 4. Assertions
 
+(Mined order: the hidden guard `tests/<task>-pr`, proven in both directions — see "Mined orders" above.)
+
 The grading layers divide cleanly, and the division is binding:
 
 - **Execution guards** (`static/`, `tests/`, `e2e/`) — scripted checks
@@ -296,7 +409,13 @@ environments. Litmus test: **any two correct implementations must
 score identically on every scripted assertion.** The moment you feel
 the need for grep, dynamic discovery, copied-in tests, or environment
 forcing, the thing you are checking is review-visible — move it into
-the review criteria. Bespoke hidden behavioural tests (the previous
+the review criteria. **One exception:** a mined order's tests
+(`tests/<task>-pr`, "Mined orders" above). They are not bespoke; they
+are the tests a real developer wrote for the real change. They are
+admitted only when they touch interfaces that exist at the pin, or
+names the prompt states verbatim. The litmus test still holds for
+them: two correct implementations of the *stated* request pass them
+alike. Bespoke hidden behavioural tests (the previous
 convention) are retired for exactly this reason: they measured
 "was it coded the way the author imagined", not the work.
 
@@ -364,6 +483,14 @@ first run").
 
 ### 5. Weights
 
+Since 0.33.0, pass is a **gate**. Every guard with weight > 0 must score
+**1** and the judge must reach `pass_threshold` on its own; the weights
+shape only `total`, the quality score. A `fraction`-scored guard (e.g. 4
+of 5 test commands green) therefore never lets a trial pass partially.
+Any weight > 0 makes it a hard requirement, and its partial credit only
+moves `total`. Give a guard weight only if failing it must fail the
+trial; otherwise weight 0 with a note.
+
 Propose weights with justification: what each component **actually
 discriminates** in this task. Without variant measurements the
 justification is reasoned, not measured — say per component which
@@ -388,7 +515,8 @@ In order, each must pass before you move on:
    shape-neutrality rule of step 4 — repo-native commands only; a
    scan of the assertion scripts for path/symbol literals, grep
    discovery, or copied-in test files must come back empty (paths the
-   prompt fixes verbatim are the only exception). Record the result
+   prompt fixes verbatim, and a mined order's `tests/<task>-pr` within
+   its Coupled names, are the only exceptions). Record the result
    in the report.
 2. `bench validate --offline` — green (schemas, `evaluation[]` vs the
    pool, weights, rubric format; no containers). The gate covers the
@@ -413,9 +541,12 @@ In order, each must pass before you move on:
    green-direction evidence). If the gate finds an assertion that no
    attempt greens, the order comes back to you as suspect-harness for
    diagnosis (wrong command? broken env?) — weight 0 with a note if
-   it cannot be fixed, never a charge against models. Points 1–3 are
-   unconditional. A task that passes with an empty diff goes back to
-   step 4.
+   it cannot be fixed, never a charge against models. **Exception:** a
+   mined order's `tests/<task>-pr` is not suspect-harness when the
+   smoke attempt fails it. Its solvability proof is the reference diff
+   going green (step 4, pasted in your report), so a failed smoke
+   there is a model result. Points 1–3 are unconditional. A task that
+   passes with an empty diff goes back to step 4.
 
 ### 7. Handoff
 

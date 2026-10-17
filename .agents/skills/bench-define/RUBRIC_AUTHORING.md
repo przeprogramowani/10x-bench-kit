@@ -1,4 +1,4 @@
-# RUBRIC_AUTHORING — writing the task's rubric (bench-build subagent)
+# RUBRIC_AUTHORING — writing the task's rubric (bench-define subagent)
 
 The rubric is the task's **main assertion artifact**: the execution
 guards only say whether the workspace is still green, the rubric grades
@@ -10,7 +10,7 @@ below), by the empty-diff floor (`bench judge`), and then by real
 attempts — the first measurement is the calibration, and a rubric fix
 after it costs a re-evaluation of preserved attempts, never a re-run.
 
-The judge that reads this rubric is **rate-attempt** — an agent with
+The judge that reads this rubric is **rate-attempt** (bench-measure) — an agent with
 tools working on a copy of the preserved workspace (it may run the
 tests, start the app, grep the code). Write for a senior reviewer who
 can verify what the diff claims, not for a text-only reader.
@@ -77,6 +77,9 @@ valid JSON = 0 for the judge component.
 - `version: "1"` for a new rubric. A bump is due only when the rubric
   changes **after** results were computed with it (a new era for the
   tasks using it; preserved attempts are re-evaluated, not re-run).
+  `bench changes` enforces it: a rubric whose text changed while
+  results carry its current version is a blocked group until the
+  version moves.
 - The anti-nitpicking clause and the conciseness contract appear
   **verbatim** — they are pool contracts, not style.
 
@@ -102,7 +105,7 @@ valid JSON = 0 for the judge component.
 
 - Each axis of the order's Evaluation section becomes a criterion (or a
   named penalty inside one). No criterion without a source in the
-  order; no axis left uncovered. Where the order says "at bench-build's
+  order; no axis left uncovered. Where the order says "at the builder's
   discretion", derive the axis from the task type and say so in the
   report.
 - **A decisive axis dominates by weight and by anchors**, not by a
@@ -141,7 +144,7 @@ valid JSON = 0 for the judge component.
   rollback, it moves back* — then it is a test specification, and
   paying a judge to evaluate it by reading buys variance instead of
   removing it. Hand that part to an execution guard (with its
-  counter-proof, SKILL.md rule 10) and leave the judge what only a
+  counter-proof, BUILD.md rule 10) and leave the judge what only a
   judge can score: scope discipline, convention-fit, the quality of the
   reasoning behind edge cases. A criterion is a judge's job when it
   requires taste or repo knowledge; it is an assertion's job when it
@@ -239,8 +242,11 @@ rubric once — a minute instead of a wasted measurement:
 - [ ] **The rubric does not gate on its own primary axis.** Arithmetic,
       not judgment, and it costs thirty seconds: score the decisive
       criterion at **0.0** and every other criterion at **1.0**, apply
-      the weights, fold in the task's guard weights, and compare against
-      `defaults.pass_threshold`. If that total passes, an attempt that
+      the rubric's own weights, and compare that judge score against
+      `defaults.pass_threshold`. Guard weights play no part: pass is a
+      gate (every guard green **and** the judge alone at or above the
+      threshold), so green guards never carry a judge score over the
+      line. If that judge score passes, an attempt that
       fails the thing the task exists to measure can still be graded a
       success — the decisive axis needs more weight, or a cap clause
       (see "Say what the OTHER criteria do when the work is
@@ -273,4 +279,4 @@ already computed with it, and re-evaluate the preserved attempts
 (rate-attempt / `bench evaluate`). If verdicts on similar diffs look
 *unstable* rather than *wrong* — or you want to know whether a
 different judge model reads the rubric the same way — that is
-bench-rubric's job (`bench calibrate` on the real attempts).
+the job of bench-measure's judge diagnostics (JUDGE_DIAGNOSTICS.md) (`bench calibrate` on the real attempts).
