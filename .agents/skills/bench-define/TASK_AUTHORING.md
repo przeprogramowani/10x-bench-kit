@@ -184,10 +184,13 @@ todo.md progress file and the report, stays as below.
     `prompt.md` that is not in Coupled names is a leak.
 - **Step 4, assertions:** the hidden guard `tests/<task>-pr`.
   1. `node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> emit
-     <sha> --out <scratch>` writes `reference.diff` (code changes only:
-     docs, lockfiles and other noise, and AGENTS.md / CLAUDE.md are
-     left out), `files/` (the test files after the merge, including
-     snapshots under `__snapshots__/` and `*.snap`) and `meta.json`.
+     <sha> --out <scratch>` writes `reference.diff` (the solution: code
+     plus the manifests, lockfiles and config it needs, so dependencies
+     the change added still install; docs and AGENTS.md / CLAUDE.md are
+     left out), `files/` (the test files after the merge, byte-exact,
+     including binary fixtures and snapshots under `__snapshots__/` and
+     `*.snap`) and `meta.json` (pin, files by class including
+     `manifest_files`, `new_identifiers`, `coupled`).
   2. Copy `files/` to `evaluation-pool/tests/<task>-pr/files/`, and
      drop any test file you decided not to use (Coupled names: internal
      structure). Two adjustments are allowed, each with its reason in

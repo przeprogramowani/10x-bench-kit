@@ -45,8 +45,12 @@ limits (`--max-files`, `--max-lines`). It excludes release commits,
 reverts, bots, and docs- or lockfile-only changes (`--all` shows the
 excluded ones with reasons). Per candidate you get:
 
-- **PR number:** read from `Merge pull request #N` or a squash suffix
-  `(#N)`.
+- **PR number:** read from GitHub's `Merge pull request #N` or a squash
+  suffix `(#N)`, GitLab's `See merge request …!N` (stored as `!N`, with
+  the real title taken from the body), Bitbucket's `Merged in … (pull
+  request #N)` and Azure's `Merged PR N: …`. Sync and back-merges (`Merge
+  remote-tracking branch`, stable/release branches merged into main)
+  are excluded; they are not work anyone ordered.
 - **Size:** S/M/L by code lines.
 - **Class hint:** from a conventional-commit prefix or keywords. It is a
   hint, not a decision.
