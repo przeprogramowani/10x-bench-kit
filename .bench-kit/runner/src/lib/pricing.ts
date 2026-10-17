@@ -58,7 +58,9 @@ export function catalogSlugFor(spec: HarnessModel): string | null {
   if (spec.harness === "codex") return `openai/${spec.cliModel}`;
   if (spec.harness === "claude-code") {
     if (!spec.cliModel.startsWith("claude-")) return null;
-    const base = spec.cliModel.replace(/-\d{8}$/, "").replace(/-(\d+)-(\d+)$/, "-$1.$2");
+    // Ta sama normalizacja co underlyingModel: wersja z myślnikami → kropki
+    // także w środku nazwy (claude-3-5-sonnet → claude-3.5-sonnet).
+    const base = spec.cliModel.replace(/-\d{8}$/, "").replace(/(\d)-(\d)/g, "$1.$2");
     return `anthropic/${base}`;
   }
   return null;

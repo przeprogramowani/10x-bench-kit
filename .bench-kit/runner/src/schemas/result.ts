@@ -39,6 +39,14 @@ export const EraStamps = z.object({
    */
   judge_mode: z.enum(["api", "agent", "human", "none"]).optional(),
   /**
+   * Próg sędziego obowiązujący przy wyliczeniu `passed` — część ery:
+   * zmiana defaults.pass_threshold zmienia, co znaczy "zaliczone".
+   * Brak pola = wynik sprzed bramki.
+   */
+  pass_threshold: z.number().min(0).max(1).optional(),
+  /** Polityka plików instrukcji w próbie (z attempt.json) — informacyjnie. */
+  context_files: z.enum(["unified", "native"]).nullable().optional(),
+  /**
    * Wersje rubryk użytych przez zadanie: `<rubryka>@<wersja>` (sortowane,
    * łączone "+"), "none" dla zadań bez składowej judge — kalibracja
    * rubryki otwiera nową erę tylko zadaniom, które jej używają.

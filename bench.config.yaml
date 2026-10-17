@@ -16,6 +16,11 @@ base_repos:
 # opcjonalne judge.rubric_version to tylko fallback dla rubryk legacy).
 judge:
   model: openrouter/anthropic/claude-opus-5
+  # Ścieżka oceny instancji (część ery): agent = sędzia z narzędziami per
+  # próba (bench-measure → RATE_ATTEMPT.md), api = sędzia API na diffie
+  # (smoke / CI). Wyniki z innej ścieżki są widoczne jako inna era, a
+  # masowe `bench evaluate` nie nadpisuje werdyktów agenta ani człowieka.
+  mode: agent
   # Budżet tokenów odpowiedzi sędziego. U modeli z rozumowaniem reasoning
   # liczy się do tego budżetu — za niski limit ucina JSON werdyktu
   # i zeruje składową judge z winy narzędzia, nie modelu.

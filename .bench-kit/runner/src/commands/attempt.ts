@@ -241,8 +241,10 @@ function projectedTrialCost(resultsDir: string, task: string, model: string): nu
       if (statSync(full).isDirectory()) walk(full);
       else if (name === "result.json") {
         try {
-          const parsed = JSON.parse(readFileSync(full, "utf8")) as { model?: string; cost_usd?: number };
-          if (typeof parsed.cost_usd === "number" && typeof parsed.model === "string") {
+          const parsed = JSON.parse(readFileSync(full, "utf8")) as { model?: string; cost_usd?: number; cost_source?: string | null };
+          // cost_source null = koszt nieznany (cost_usd 0 tylko z kontraktu) —
+          // wliczony zaniżałby projekcję budżetu.
+          if (typeof parsed.cost_usd === "number" && typeof parsed.model === "string" && parsed.cost_source !== null) {
             costs.push({ model: parsed.model, cost: parsed.cost_usd });
           }
         } catch {

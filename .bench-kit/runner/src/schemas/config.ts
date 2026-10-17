@@ -23,6 +23,14 @@ export const JudgeConfig = z.object({
    */
   max_tokens: z.number().int().positive().default(8192),
   /**
+   * Ścieżka oceny instancji — część bieżącej ery: "agent" (sędzia
+   * z narzędziami, werdykty przez bench-measure → RATE_ATTEMPT.md) albo
+   * "api" (sędzia API na diffie). Wyniki ocenione inną ścieżką `bench
+   * status` pokazuje jako nieświeże, z powodem; bench-decide nie miesza
+   * ich z bieżącymi. Smoke/CI może oceniać API — to jawnie inna era.
+   */
+  mode: z.enum(["agent", "api"]).default("agent"),
+  /**
    * Fallback dla rubryk bez `version` we frontmatterze (kontrakt legacy).
    * Docelowo wersję deklaruje każda rubryka u siebie — stempel ery jest
    * per rubryka, więc kalibracja jednej nie unieważnia wyników zadań,

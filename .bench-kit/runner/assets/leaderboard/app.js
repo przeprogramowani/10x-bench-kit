@@ -76,7 +76,10 @@ const ofUnit = (k, n, unit) => k + " z " + n + " " + unit;
 // bench-decide), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
 // kosztu, więc tam jest to przybliżenie. Przy zerowym pass rate liczba nie
 // istnieje i musi zostać pokazana jako "brak" — to też informacja.
-const costPerPass = r => (r.passed > 0
+// Koszt nieznany (żadna próba nie ma ceny — unknown_cost_trials) to nie $0:
+// pokazujemy "nieznany", a koszt dobrego wyniku nie istnieje.
+const costUnknown = r => (r.unknown_cost_trials ?? 0) >= r.trials && r.trials > 0;
+const costPerPass = r => (r.passed > 0 && !costUnknown(r)
   ? (r.cost_per_pass ?? r.median_cost_usd * r.trials / r.passed)
   : null);
 
@@ -159,7 +162,8 @@ function tableHtml(rows, threshold) {
     '<th class="num" ' + tipAttr(TIPS.duration) + '>Czas próby <span class="q">?</span></th>' +
     '</tr></thead><tbody>' +
     sorted.map((r, i) => {
-      const passed = r.median_total >= threshold;
+      // Zaliczenie wg bramki (passed z wyników), nie wg mediany sumy.
+      const passed = r.trials > 0 && r.passed / r.trials >= 0.5;
       const opensBand = bands.size > 1 && (i === 0 || r.band !== sorted[i - 1].band);
       const bandMates = sorted.filter(x => x.band === r.band).length;
       // Pasmo NIE znaczy "bierz tanszy" — znaczy, ze tej roznicy ta proba nie
@@ -175,7 +179,7 @@ function tableHtml(rows, threshold) {
         '<td>' + reliabilityCell(r) + '</td>' +
         '<td class="num">' + ofUnit(r.passed, r.trials, "prób") +
           (r.trials < MIN_TRIALS ? '<span class="warn" data-tip="' + esc("Mniej niż " + MIN_TRIALS + " próby: za mało, żeby cokolwiek orzekać o niezawodności. Dolej prób przez bench attempt --trials.") + '">za mało prób</span>' : "") + '</td>' +
-        '<td class="num">' + fmt.cost(r.median_cost_usd) + '</td>' +
+        '<td class="num">' + (costUnknown(r) ? "nieznany" : fmt.cost(r.median_cost_usd)) + '</td>' +
         '<td class="num' + (cpp === null ? " muted" : "") + '"><b>' + (cpp === null ? "brak" : fmt.cost(cpp)) + '</b></td>' +
         '<td class="num' + (passed ? " pass" : "") + '">' + fmt.score(r.median_total) + '</td>' +
         '<td class="num">' + fmt.time(r.median_duration_s) + '</td></tr>';

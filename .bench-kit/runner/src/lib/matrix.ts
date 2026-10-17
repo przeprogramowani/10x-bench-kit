@@ -43,6 +43,9 @@ export interface EvalEra {
   task_hash: string;
   judge_model: string;
   rubric_version: string;
+  /** Ścieżka oceny bieżącej ery: judge.mode z configu, "none" dla zadań bez sędziego. */
+  judge_mode: string;
+  pass_threshold: number;
 }
 
 export const isDir = (p: string) => statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
@@ -63,9 +66,12 @@ export const readJson = (p: string): Record<string, unknown> | null => {
 export function currentEvalEra(root: string, config: BenchConfig, task: string): EvalEra {
   const scoringVersion = readFileSync(join(root, ".bench-kit", "SCORING_VERSION"), "utf8").trim();
   let rubric = "?";
+  let judgeMode: string = config.judge.mode;
   try {
-    const judgeRefs = loadTask(root, task).evaluation.filter((ref) => ref.startsWith("judge/"));
+    const loaded = loadTask(root, task);
+    const judgeRefs = loaded.evaluation.filter((ref) => ref.startsWith("judge/"));
     rubric = rubricVersionStamp(root, judgeRefs, config.judge.rubric_version);
+    if (!(loaded.weights.judge > 0 && judgeRefs.length > 0)) judgeMode = "none";
   } catch {
     // task.yaml / rubryka nieczytelne — validate powie dlaczego
   }
@@ -74,6 +80,8 @@ export function currentEvalEra(root: string, config: BenchConfig, task: string):
     task_hash: hashTaskDir(join(root, "tasks", task)),
     judge_model: config.judge.model,
     rubric_version: rubric,
+    judge_mode: judgeMode,
+    pass_threshold: config.defaults.pass_threshold,
   };
 }
 
@@ -90,6 +98,18 @@ export function staleReasons(stamps: Record<string, unknown>, era: EvalEra): str
   if (stamps.judge_model !== era.judge_model) reasons.push(`sędzia ${String(stamps.judge_model)}→${era.judge_model}`);
   if (stamps.rubric_version !== era.rubric_version) {
     reasons.push(`rubryka ${String(stamps.rubric_version)}→${era.rubric_version}`);
+  }
+  // Ścieżka oceny i próg bramki — tylko dla wyników, które je stemplują
+  // (starsze i tak różnią się wersją scoringu).
+  if (stamps.judge_mode !== undefined && stamps.judge_mode !== era.judge_mode) {
+    reasons.push(
+      stamps.judge_mode === "human"
+        ? `ocena człowieka (judge.mode = ${era.judge_mode}; chroniona przed nadpisaniem przez bench evaluate)`
+        : `ścieżka oceny ${String(stamps.judge_mode)}→${era.judge_mode}`,
+    );
+  }
+  if (stamps.pass_threshold !== undefined && stamps.pass_threshold !== era.pass_threshold) {
+    reasons.push(`próg zaliczenia ${String(stamps.pass_threshold)}→${era.pass_threshold}`);
   }
   return reasons;
 }

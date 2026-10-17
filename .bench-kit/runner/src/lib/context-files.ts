@@ -14,7 +14,7 @@
  * patch.diff, a wszystkie harnessy (i guardy) widzą ten sam stan.
  * `native`: workspace bez zmian (repo takie, jak jest).
  */
-import { existsSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type ContextFilesPolicy = "unified" | "native";
@@ -24,11 +24,14 @@ export function unifyContextFiles(workspace: string, policy: ContextFilesPolicy)
   if (policy !== "unified") return [];
   const agents = join(workspace, "AGENTS.md");
   const claude = join(workspace, "CLAUDE.md");
-  if (existsSync(agents) && !existsSync(claude)) {
+  // lstat, nie existsSync: wiszący symlink "istnieje" jako wpis katalogu —
+  // nie wolno go nadpisywać ani na nim tworzyć drugiego.
+  const present = (p: string) => lstatSync(p, { throwIfNoEntry: false }) !== undefined;
+  if (present(agents) && !present(claude)) {
     writeFileSync(claude, "@AGENTS.md\n");
     return ["CLAUDE.md → import @AGENTS.md"];
   }
-  if (existsSync(claude) && !existsSync(agents)) {
+  if (present(claude) && !present(agents)) {
     symlinkSync("CLAUDE.md", agents);
     return ["AGENTS.md → symlink do CLAUDE.md"];
   }

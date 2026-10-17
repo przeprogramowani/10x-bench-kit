@@ -62,6 +62,7 @@ function findResults(runDir: string): Result[] {
 }
 
 function median(values: number[]): number {
+  if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
@@ -121,7 +122,10 @@ export async function reportCommand(args: string[]): Promise<number> {
       pass_threshold: threshold,
       /** Suma kosztów prób; koszt sędziego osobno (total_judge_cost_usd). */
       cost_scope: "trials",
-      total_cost_usd: results.reduce((acc, r) => acc + r.cost_usd, 0),
+      // Koszt nieznany (cost_source null) nie jest zerem — poza sumą i medianą,
+      // policzony osobno.
+      total_cost_usd: results.filter((r) => r.cost_source !== null).reduce((acc, r) => acc + r.cost_usd, 0),
+      unknown_cost_trials: results.filter((r) => r.cost_source === null).length,
       // Koszt sędziego jako osobna pozycja — nie dokleja się do kosztu
       // modelu, ale przy tanich modelach bywa porównywalny z kosztem próby.
       total_judge_cost_usd: results.some((r) => typeof r.judge_cost_usd === "number")
@@ -141,7 +145,8 @@ export async function reportCommand(args: string[]): Promise<number> {
               task,
               trials: n,
               median_total: median(cellResults.map((r) => r.total)),
-              median_cost_usd: median(cellResults.map((r) => r.cost_usd)),
+              median_cost_usd: median(cellResults.filter((r) => r.cost_source !== null).map((r) => r.cost_usd)),
+              unknown_cost_trials: cellResults.filter((r) => r.cost_source === null).length,
               median_judge_cost_usd: cellResults.every((r) => typeof r.judge_cost_usd === "number")
                 ? median(cellResults.map((r) => r.judge_cost_usd as number))
                 : null,

@@ -204,7 +204,7 @@ export function parseBacklogMeta(text) {
   for (const line of text.split(/\r?\n/)) {
     const heading = line.match(/^## +(.+?)\s*$/);
     if (heading) {
-      current = { class: null, human_minutes: null };
+      current = { class: null, human_minutes: null, human_estimated: false };
       meta.set(heading[1], current);
       continue;
     }
@@ -212,7 +212,11 @@ export function parseBacklogMeta(text) {
     const klass = line.match(/^- \*\*Class\*\*:\s*(.+)$/);
     if (klass && !klass[1].startsWith("<")) current.class = klass[1].split(/\s+[—–-]\s+|\(|;/)[0].trim().toLowerCase();
     const human = line.match(/^- \*\*Human time\*\*:\s*~?\s*(\d+(?:\.\d+)?)\s*(min|h)/i);
-    if (human) current.human_minutes = Number(human[1]) * (human[2].toLowerCase() === "h" ? 60 : 1);
+    if (human) {
+      current.human_minutes = Number(human[1]) * (human[2].toLowerCase() === "h" ? 60 : 1);
+      // Tylko jawnie potwierdzony czas nie jest szacunkiem.
+      current.human_estimated = !/confirmed|potwierdz/i.test(line);
+    }
   }
   return meta;
 }

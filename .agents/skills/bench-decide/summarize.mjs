@@ -87,19 +87,46 @@ function reviewBurden(attemptDir) {
 
 const threshold = passThreshold();
 
-/** Klucz ery jak w runnerze (lib/era.ts → eraKey). */
+/** Klucz ery jak w runnerze (lib/era.ts → eraKey) — ta sama krotka, ta sama kolejność. */
 const eraKeyOf = (s = {}) =>
-  JSON.stringify([s.scoring_version ?? s.template_version, s.task_hash, s.judge_model, s.rubric_version, s.judge_mode ?? null]);
-/** Bieżąca era zadania: najwyższa wersja scoringu, przy remisie — najliczniejsza. */
+  JSON.stringify([
+    s.scoring_version ?? s.template_version,
+    s.task_hash,
+    s.judge_model,
+    s.rubric_version,
+    s.judge_mode ?? null,
+    s.pass_threshold ?? null,
+  ]);
+
+/** judge.mode z configu (ścieżka oceny instancji) bez zależności yaml; domyślnie agent. */
+function configuredJudgeMode() {
+  const cfg = join(root, "bench.config.yaml");
+  if (!existsSync(cfg)) return "agent";
+  const block = readFileSync(cfg, "utf8").match(/^judge:\s*\n((?:[ \t]+.*\n?|\s*\n)*)/m)?.[1] ?? "";
+  return block.match(/^\s+mode:\s*["']?(agent|api)\b/m)?.[1] ?? "agent";
+}
+const judgeMode = configuredJudgeMode();
+
+/**
+ * Bieżąca era zadania: najwyższa wersja scoringu; potem era ścieżki oceny
+ * z configu (judge.mode; zadania bez sędziego mają "none"); potem
+ * najliczniejsza. Reszta to other_era_trials — widoczna, nie mieszana.
+ */
 function currentEra(results) {
   const byKey = new Map();
   for (const r of results) {
     const key = eraKeyOf(r.stamps);
-    const entry = byKey.get(key) ?? { key, scoring: Number(r.stamps?.scoring_version ?? 0), count: 0 };
+    const mode = r.stamps?.judge_mode;
+    const entry = byKey.get(key) ?? {
+      key,
+      scoring: Number(r.stamps?.scoring_version ?? 0),
+      preferred: mode === judgeMode || mode === "none" ? 1 : 0,
+      count: 0,
+    };
     entry.count++;
     byKey.set(key, entry);
   }
-  return [...byKey.values()].sort((a, b) => b.scoring - a.scoring || b.count - a.count)[0]?.key ?? null;
+  return [...byKey.values()].sort((a, b) => b.scoring - a.scoring || b.preferred - a.preferred || b.count - a.count)[0]?.key ?? null;
 }
 /** Próby wyłączone z oceny (awaria infrastruktury / kill zasobowy) — z attempts/. */
 function excludedAttempts(cellDir) {
@@ -332,25 +359,35 @@ const backlogPath = join(root, "tasks", "backlog.md");
 const backlogMeta = existsSync(backlogPath) ? parseBacklogMeta(readFileSync(backlogPath, "utf8")) : new Map();
 const classOf = new Map([...taskRates.keys()].map((t) => [t, backlogMeta.get(t)?.class ?? null]).filter(([, c]) => c));
 const classes = classView(taskRates, classOf);
+// Kotwice (zadania z publicznych repo, MINING.md) sprawdzają ustawienie
+// względem publikowanych liczb — nie wchodzą do statystyki decyzji.
+const anchorTasks = new Set([...taskRates.keys()].filter((t) => classOf.get(t) === "anchor"));
+const decisionRates = new Map([...taskRates].filter(([t]) => !anchorTasks.has(t)));
+const anchorRates = new Map([...taskRates].filter(([t]) => anchorTasks.has(t)));
 const paired = {
-  all: pairedComparisons(taskRates),
+  all: pairedComparisons(decisionRates),
   by_class: Object.fromEntries(
     classes
       .filter((c) => c.tasks >= 2)
-      .map((c) => [c.class, pairedComparisons(taskRates, new Set([...taskRates.keys()].filter((t) => (classOf.get(t) ?? "(bez klasy)") === c.class)))]),
+      .filter((c) => c.class !== "anchor")
+      .map((c) => [c.class, pairedComparisons(decisionRates, new Set([...decisionRates.keys()].filter((t) => (classOf.get(t) ?? "(bez klasy)") === c.class)))]),
   ),
 };
-const horizonModels = [...new Set([...taskRates.values()].flatMap((m) => [...m.keys()]))];
+const horizonModels = [...new Set([...decisionRates.values()].flatMap((m) => [...m.keys()]))];
 const horizons = Object.fromEntries(
   horizonModels.map((model) => {
     const obs = [];
-    for (const [task, m] of taskRates) {
+    const tasksUsed = new Set();
+    for (const [task, m] of decisionRates) {
       const minutes = backlogMeta.get(task)?.human_minutes;
       const cell = m.get(model);
       if (!minutes || !cell) continue;
+      tasksUsed.add(task);
       for (const passed of cell.outcomes) obs.push({ task, minutes, passed });
     }
-    return [model, timeHorizon(obs)];
+    const estimated = [...tasksUsed].filter((t) => backlogMeta.get(t)?.human_estimated).length;
+    // Horyzont jest tak dobry jak minuty pod nim — udział szacunków jedzie z liczbą.
+    return [model, { ...timeHorizon(obs), estimated_share: tasksUsed.size ? estimated / tasksUsed.size : null }];
   }),
 );
 
@@ -363,11 +400,16 @@ const out = {
   classes,
   paired,
   horizons,
+  anchors: {
+    tasks: [...anchorTasks],
+    paired: pairedComparisons(anchorRates),
+    note: "kotwice z publicznych repo — kontrola ustawienia, nie decyzja routingu",
+  },
   // Rozdzielczość: jaką różnicę między modelami ten zbiór zadań w ogóle
   // potrafi rozstrzygnąć — i ile zadań trzeba na mniejszą.
   power: {
-    tasks_measured: taskRates.size,
-    resolvable_gap_pp: resolvableGap(taskRates.size),
+    tasks_measured: decisionRates.size,
+    resolvable_gap_pp: resolvableGap(decisionRates.size),
     tasks_needed: { "20pp": tasksNeeded(0.2), "30pp": tasksNeeded(0.3), "50pp": tasksNeeded(0.5) },
     assumption: "porównanie parowe na wspólnych zadaniach, α=0.05, moc 0.8, rozbieżność modeli ψ=δ+0.1",
   },

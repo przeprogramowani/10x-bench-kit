@@ -6,22 +6,24 @@
  * = guard fail-to-pass, kod PR-a = dowód wykonalności (referencja, której
  * agent nigdy nie widzi).
  *
- * Czyta WYŁĄCZNIE lokalnego gita (`.repos/<nazwa>`, potrzebna historia —
- * klon płytki trzeba najpierw pogłębić). Bez sieci, bez GitHuba, niczego
- * nie zapisuje poza --out.
+ * Czyta WYŁĄCZNIE lokalnego gita (`.repos/<nazwa>`). Klon płytki działa,
+ * o ile jego historia pokrywa okno --since (inaczej ostrzeżenie z komendą
+ * pogłębienia). Domyślny --ref to origin/HEAD (tip remote'a po `git fetch`),
+ * z powrotem do HEAD. Bez sieci, bez GitHuba, niczego nie zapisuje poza --out.
  *
  * Tryby:
  *   scan   (domyślny) — lista kandydatów z historii first-parent gałęzi
  *   show   <sha>      — szczegóły jednego kandydata (pliki, sprzężenie)
  *   emit   <sha> --out <dir> — artefakty do budowy zadania:
- *            reference.diff  zmiany NIE-testowe (rozwiązanie; tylko dowód)
+ *            reference.diff  zmiany kodu z manifestami/lockfile'ami, bez docs
+ *                            i plików instrukcji agentów (rozwiązanie; tylko dowód)
  *            tests.diff      zmiany testowe (do raportu)
  *            files/<ścieżka> wersje plików testowych PO merge'u (do
  *                            evaluation-pool/tests/<zadanie>-pr/files/)
  *            meta.json       pin, merge, PR, pliki, identyfikatory
  *
  * Użycie:
- *   node mine-prs.mjs --repo .repos/<nazwa> [--ref HEAD] [--since 365]
+ *   node mine-prs.mjs --repo .repos/<nazwa> [--ref origin/HEAD] [--since 365]
  *        [--max-files 12] [--max-lines 800] [--limit 30] [--all] [--json]
  *   node mine-prs.mjs --repo .repos/<nazwa> show <sha> [--json]
  *   node mine-prs.mjs --repo .repos/<nazwa> emit <sha> --out <dir>
@@ -68,9 +70,9 @@ const tryGit = (...a) => {
 };
 
 // --- klasyfikacja plików ------------------------------------------------------
-const TEST = [/(^|\/)(test|tests|__tests__|spec|specs|e2e)\//i, /\.(test|spec)\.[cm]?[jt]sx?$/i, /_test\.(go|py|rb)$/, /(^|\/)test_[^/]+\.py$/, /Tests?\.(java|kt|cs)$/];
+const TEST = [/(^|\/)(test|tests|__tests__|__snapshots__|spec|specs|e2e)\//i, /\.snap$/i, /\.(test|spec)\.[cm]?[jt]sx?$/i, /_test\.(go|py|rb)$/, /(^|\/)test_[^/]+\.py$/, /Tests?\.(java|kt|cs)$/];
 const DOCS = [/\.(md|mdx|rst|txt|adoc)$/i, /(^|\/)docs?\//i, /(^|\/)(LICENSE|CHANGELOG|CODEOWNERS)/i];
-const NOISE = [/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|poetry\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/, /\.(snap|svg|png|jpe?g|gif|ico|lock)$/i, /(^|\/)(dist|build|vendor|generated)\//];
+const NOISE = [/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|poetry\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/, /\.(svg|png|jpe?g|gif|ico|lock)$/i, /(^|\/)(dist|build|vendor|generated)\//];
 const kindOf = (path) =>
   TEST.some((r) => r.test(path)) ? "test" : NOISE.some((r) => r.test(path)) ? "noise" : DOCS.some((r) => r.test(path)) ? "docs" : "src";
 
@@ -110,7 +112,8 @@ function describe(sha) {
   const subject = bodyLines[3];
   const body = (bodyLines[4] ?? "").trim();
   const pin = parents[0];
-  if (!pin) return null;
+  // Granica płytkiego klonu: rodzica nie ma lokalnie — zmiany nie da się porównać.
+  if (!pin || tryGit("cat-file", "-e", `${pin}^{commit}`) === null) return null;
   const pr = subject.match(/Merge pull request #(\d+)/)?.[1] ?? subject.match(/\(#(\d+)\)\s*$/)?.[1] ?? null;
   // Commity gałęzi PR-a (tylko dla merge commita): czas pracy nad zmianą.
   let branchSpanHours = null;
@@ -194,15 +197,22 @@ function describe(sha) {
 
 // --- tryby -----------------------------------------------------------------------
 if (mode === "scan") {
-  if (git("rev-parse", "--is-shallow-repository").trim() === "true") {
-    console.error(
-      `mine-prs: ${repo} to klon płytki — historia potrzebna do kopania. Pogłęb go raz (orkiestrator, nie subagent):\n` +
-        `  git -C ${repo} fetch --deepen=500   (albo --unshallow)`,
-    );
-    process.exit(3);
-  }
-  const ref = flag("--ref", "HEAD");
+  // Domyślnie tip remote'a: `git fetch origin` nie przesuwa lokalnego HEAD
+  // klonu, a piny muszą istnieć na remote (first-parent gałęzi domyślnej).
+  const ref = flag("--ref", tryGit("rev-parse", "--verify", "-q", "origin/HEAD") ? "origin/HEAD" : "HEAD");
   const since = Number(flag("--since", "365"));
+  if (git("rev-parse", "--is-shallow-repository").trim() === "true") {
+    // Płytki klon wystarcza, o ile historia pokrywa okno --since; inaczej
+    // kopiemy to, co jest, i mówimy, czego brakuje.
+    const dates = git("log", "--first-parent", "--format=%cI", ref).split("\n").filter(Boolean);
+    const oldest = dates.length ? Date.parse(dates[dates.length - 1]) : Date.now();
+    if (oldest > Date.now() - since * 86_400_000) {
+      console.error(
+        `mine-prs: klon płytki — historia sięga ${new Date(oldest).toISOString().slice(0, 10)}, okno --since ${since} dni sięga dalej. ` +
+          `Pogłęb raz (orkiestrator, nie subagent):\n  git -C ${repo} fetch --shallow-since="${since} days ago" origin   (albo --unshallow)`,
+      );
+    }
+  }
   const maxFiles = Number(flag("--max-files", "12"));
   const maxLines = Number(flag("--max-lines", "800"));
   const limit = Number(flag("--limit", "30"));
@@ -265,7 +275,12 @@ if (mode === "scan") {
   const c = describe(target);
   if (!c.test_files.length) throw new Error(`${target}: zmiana bez testów — nie ma czego użyć jako guard fail-to-pass`);
   mkdirSync(out, { recursive: true });
-  const nonTest = [...c.src_files, ...c.other_files];
+  // Referencja = rozwiązanie: kod (z manifestami i lockfile'ami — bez nich
+  // instalacja zależności dodanych przez zmianę by padła). Bez dokumentacji
+  // i plików instrukcji agentów: start workspace'u bywa przepisany przez
+  // wyrównanie AGENTS.md/CLAUDE.md, a docs nie są częścią dowodu.
+  const CONTEXT = /(^|\/)(AGENTS|CLAUDE|CLAUDE\.local|GEMINI)\.md$/;
+  const nonTest = [...c.src_files, ...c.other_files.filter((p) => kindOf(p) === "noise")].filter((p) => !CONTEXT.test(p));
   writeFileSync(join(out, "reference.diff"), nonTest.length ? git("diff", "--binary", "--no-renames", c.pin, c.sha, "--", ...nonTest) : "");
   writeFileSync(join(out, "tests.diff"), git("diff", "--binary", "--no-renames", c.pin, c.sha, "--", ...c.test_files));
   const snapshots = [];

@@ -66,7 +66,14 @@ export interface Group {
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const IMPACT_RANK: Record<Impact, number> = { neutral: 0, data: 1, era: 2, blocked: 3 };
 /** Pola configu wchodzące do stempli ery (result.json) — ich zmiana zamyka erę. */
-const ERA_CONFIG_FIELDS = ["judge.model", "judge.rubric_version", "resources.memory_mb"];
+const ERA_CONFIG_FIELDS = [
+  "judge.model",
+  "judge.rubric_version",
+  "judge.mode",
+  "defaults.pass_threshold",
+  "defaults.context_files",
+  "resources.memory_mb",
+];
 
 class Git {
   readonly root: string;
@@ -266,9 +273,18 @@ export function planChanges(root: string, base: string): { base: string; groups:
       continue;
     }
     if (type === "judge") {
-      const before = parseRubric(git.showAtBase(entryPath) ?? "").version;
+      // Rubryka bez `version` stempluje się wersją zapasową z configu
+      // (judge.rubric_version) — tak samo liczymy ją tutaj.
+      let fallbackVersion: string | undefined;
+      try {
+        const cfg = parseYaml(readFileSync(join(root, "bench.config.yaml"), "utf8")) as { judge?: { rubric_version?: unknown } };
+        if (cfg?.judge?.rubric_version !== undefined) fallbackVersion = String(cfg.judge.rubric_version);
+      } catch {
+        // config nieczytelny — validate powie dlaczego
+      }
+      const before = parseRubric(git.showAtBase(entryPath) ?? "").version ?? fallbackVersion ?? null;
       const deleted = !existsSync(join(root, entryPath));
-      const after = deleted ? null : parseRubric(readFileSync(join(root, entryPath), "utf8")).version;
+      const after = deleted ? null : (parseRubric(readFileSync(join(root, entryPath), "utf8")).version ?? fallbackVersion ?? null);
       const stamped = stamps.filter((s) => String(s.stamps.rubric_version ?? "").split("+").includes(`${name}@${before}`));
       const g = group(`rubric:${name}`, {
         title: deleted
