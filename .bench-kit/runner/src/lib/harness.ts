@@ -80,6 +80,25 @@ export function unknownHarnessPrefix(id: string): string | null {
   return (HARNESSES as readonly string[]).includes(match[1] as string) ? null : (match[1] as string);
 }
 
+/**
+ * Tożsamość modelu niezależna od harnessu i routingu — `<vendor>/<model>`
+ * (`claude-code:claude-opus-5`, `openrouter/anthropic/claude-opus-5`
+ * i `anthropic/claude-opus-5` to ten sam model). Do porównań sędzia ↔
+ * oceniane modele: sędzia oceniający samego siebie przez inny prefiks to
+ * nadal ten sam sędzia. null = nie da się ustalić dostawcy.
+ */
+export function underlyingModel(id: string): string | null {
+  const { harness, route, cliModel } = parseModelId(id);
+  const slug = (s: string) => s.toLowerCase().replace(/-\d{8}$/, "").replace(/(\d)-(\d)/g, "$1.$2");
+  if (route === "openrouter") {
+    const rest = harness === "opencode" ? cliModel.slice("openrouter/".length) : cliModel;
+    return rest.includes("/") ? slug(rest) : null;
+  }
+  if (harness === "claude-code") return `anthropic/${slug(cliModel)}`;
+  if (harness === "codex") return `openai/${slug(cliModel)}`;
+  return cliModel.includes("/") ? slug(cliModel) : null;
+}
+
 /** Pin wersji CLI harnessu (`.bench-kit/docker/<harness>.version`). */
 export function harnessVersion(root: string, harness: HarnessName): string {
   return readFileSync(join(root, ".bench-kit", "docker", `${harness}.version`), "utf8").trim();

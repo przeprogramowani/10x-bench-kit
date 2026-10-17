@@ -71,6 +71,14 @@ nie nowa definicja starych.
 - **Wykrywanie awarii providera** dla harnessów JSONL patrzy tylko w pola
   błędów (`result.is_error`, `turn.failed`, `error`) i stderr, nie w całą
   treść. Agent czytający kod o rate limitach to nie awaria.
+- **Sędzia ≠ oceniany po tożsamości modelu, nie po stringu.** Z
+  prefiksami harnessów `claude-code:openrouter/anthropic/claude-opus-5`
+  przechodził porównanie stringów z sędzią
+  `openrouter/anthropic/claude-opus-5`. Teraz `bench validate`
+  normalizuje oba do `<vendor>/<model>` (`lib/harness.ts →
+  underlyingModel`): ten sam model to błąd, ten sam dostawca to
+  ostrzeżenie (ryzyko faworyzowania własnej rodziny). Domyślny config
+  template'u (Opus ocenia Sonneta) dostaje to ostrzeżenie celowo.
 - **Bramka/proxy firmy:** `BENCH_OPENROUTER_BASE_URL` jest przekazywane
   do próby i podmienia endpoint OpenRouter dla Claude Code i Codexa.
   Celowo NIE są przekazywane `ANTHROPIC_*` / `CLAUDE_*` hosta: operator

@@ -37,7 +37,7 @@ import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.t
 import { CheckFileSchema } from "../schemas/check.ts";
 import { parseRubric } from "../lib/judge.ts";
 import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
-import { HARNESSES, parseModelId, unknownHarnessPrefix } from "../lib/harness.ts";
+import { HARNESSES, parseModelId, underlyingModel, unknownHarnessPrefix } from "../lib/harness.ts";
 import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 
@@ -188,12 +188,27 @@ export async function validateCommand(args: string[]): Promise<number> {
     report({ level: "error", where: "bench.config.yaml", message: `niepoprawny YAML: ${String(err)}` });
   }
 
-  if (config && config.defaults.models.includes(config.judge.model)) {
-    report({
-      level: "error",
-      where: "bench.config.yaml",
-      message: `model sędziego (${config.judge.model}) jest na liście modeli ocenianych — sędzia musi być innym modelem`,
-    });
+  // Porównanie po tożsamości modelu, nie po stringu: prefiks harnessu
+  // (`claude-code:…`) czy routing (`openrouter/…`) nie czyni sędziego
+  // innym modelem. Ten sam dostawca to ostrzeżenie — sędzia z tej samej
+  // rodziny co oceniany model ma udokumentowaną skłonność do faworyzowania
+  // "swoich" odpowiedzi.
+  const judgeIdentity = config ? underlyingModel(config.judge.model) : null;
+  for (const model of config?.defaults.models ?? []) {
+    const identity = underlyingModel(model);
+    if (model === config?.judge.model || (identity && identity === judgeIdentity)) {
+      report({
+        level: "error",
+        where: "bench.config.yaml",
+        message: `model sędziego (${config?.judge.model}) to ten sam model co oceniany "${model}" — sędzia musi być innym modelem`,
+      });
+    } else if (identity && judgeIdentity && identity.split("/")[0] === judgeIdentity.split("/")[0]) {
+      report({
+        level: "warn",
+        where: "bench.config.yaml",
+        message: `sędzia (${config?.judge.model}) i oceniany "${model}" są od tego samego dostawcy — ryzyko faworyzowania własnej rodziny; rozważ sędziego innego dostawcy albo kalibrację bench-rubric`,
+      });
+    }
   }
 
   for (const model of config?.defaults.models ?? []) {
