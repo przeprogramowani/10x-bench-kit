@@ -44,6 +44,8 @@ jobs:
         run: npm run typecheck --prefix .bench-kit/runner
       - name: testy bootstrapu (kontrakt init/update/repair)
         run: node --test .github/tests/bootstrap.test.mjs
+      - name: testy jednostkowe (harness, wycena, ery, statystyka decyzji)
+        run: node --experimental-strip-types --test .github/tests/units.test.mjs
       - name: bench validate --offline (template z placeholderami)
         run: npm run bench --prefix .bench-kit/runner --silent -- validate --offline --root "$GITHUB_WORKSPACE"
 

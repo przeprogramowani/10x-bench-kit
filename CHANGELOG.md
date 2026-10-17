@@ -6,13 +6,20 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
-## 0.35.0 — 2026-10-17 [scoring-breaking]
+## 0.33.0 — 2026-10-17 [scoring-breaking]
+
+Jeden release obejmuje trzy części, rozwijane na jednej gałęzi:
+**(A)** trzy koncepty, kopanie PR-ów i bramka zaliczenia — niżej;
+**(B)** Claude Code i Codex CLI jako harnessy; **(C)** stan wyprowadzany
+z dysku i przegląd intencji (`bench backlog`, `bench changes`).
+
+### (A) Trzy koncepty, kopanie PR-ów, bramka zaliczenia
 
 **Trzy koncepty (define → measure → decide), kopanie PR-ów jako źródło
 zadań, zaliczenie jako bramka.** `SCORING_VERSION` 2 → 3: wyniki
 sprzed tego release'u to osobna era.
 
-### Dlaczego
+#### Dlaczego
 
 Instancja zwykle kończy na 5–15 ręcznie budowanych zadaniach. Dwa
 modele porównane na tych samych zadaniach (test znaków) dają się
@@ -22,7 +29,7 @@ mierzy pojedyncze zadanie. Do tego zaliczenie było progiem ważonej sumy,
 więc czerwony guard dało się nadrobić hojnym werdyktem, a werdykt z
 pliku nie miał autora.
 
-### Zmiany
+#### Zmiany
 
 - **Kopanie PR-ów** (`bench-define/MINING.md`, `mine-prs.mjs`).
   Zmergowana zmiana z testami staje się zadaniem: pin = rodzic zmiany,
@@ -99,7 +106,7 @@ pliku nie miał autora.
 - **CI:** e2e-gate sprawdza kontrakt `passed` / `pass_reason` /
   `judge_mode`.
 
-### Poprawki z niezależnego przeglądu (przed wydaniem)
+#### Poprawki z niezależnego przeglądu (przed wydaniem)
 
 Trzech recenzentów ze świeżym kontekstem: kod runnera, spójność
 procedur skilli, statystyka i kopanie na prawdziwych repo (JS, Python,
@@ -155,9 +162,9 @@ Go). Każde znalezisko odtworzone przed poprawką.
   dla ukrytych testów PR-a, brak gita w odświeżaniu oraz rozgraniczenie
   pól zlecenia wykopanego.
 
-### Migracja
+#### Migracja
 
-1. **Wyniki sprzed 0.35.0** są w erze scoringu 2. `bench status` pokaże
+1. **Wyniki sprzed 0.33.0** są w erze scoringu 2. `bench status` pokaże
    je jako „ocenione w innej erze". Re-ocena zachowanych prób
    (`bench evaluate`, sędzia z narzędziami przez bench-measure) wnosi
    je do ery 3 bez nowego biegu.
@@ -171,7 +178,7 @@ Go). Każde znalezisko odtworzone przed poprawką.
 5. **Nowe pola** `pricing`, `context_files`, pola backlogu i pola
    result.json są opcjonalne; stare pliki dalej się parsują.
 
-## 0.34.0 — 2026-10-16 (neutralny)
+### (B) Claude Code i Codex CLI jako harnessy prób obok OpenCode
 
 **Claude Code i Codex CLI jako harnessy prób obok OpenCode.** Bez
 `[scoring-breaking]`: dotychczasowe id modeli (bez prefiksu) dalej
@@ -265,7 +272,7 @@ zmiany w workspace:
 Nie zrobione: e2e w CI dalej mierzy tylko OpenCode. Płatna próba Claude
 Code / Codexa w CI to decyzja o koszcie, nie o kodzie.
 
-## 0.33.0 — 2026-10-16 (neutralny)
+### (C) Stan wyprowadzany z dysku, przegląd intencji zamiast linii
 
 **Stan się wyprowadza, a przegląd dotyczy intencji, nie linii.** Zmiana
 procedur i dwie nowe komendy tylko do odczytu. Schematy (`task.yaml`,

@@ -483,7 +483,7 @@ first run").
 
 ### 5. Weights
 
-Since 0.35.0, pass is a **gate**. Every guard with weight > 0 must score
+Since 0.33.0, pass is a **gate**. Every guard with weight > 0 must score
 **1** and the judge must reach `pass_threshold` on its own; the weights
 shape only `total`, the quality score. A `fraction`-scored guard (e.g. 4
 of 5 test commands green) therefore never lets a trial pass partially.
