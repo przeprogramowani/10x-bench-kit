@@ -80,6 +80,10 @@ if (check(existsSync(judgePath), "brak judge.json obok zachowanej próby")) {
 // --- 3. ocena: deterministyczny guard = faktyczny rezultat zadania -----
 check(result.scores?.static === 1, `scores.static = ${result.scores?.static} (oczekiwano 1 — guard static/demo-readme-section sprawdza rezultat prompt.md)`);
 check(Number.isFinite(result.total) && result.total >= 0 && result.total <= 1, `total = ${result.total} (oczekiwano liczby w [0,1])`);
+// Bramka zaliczenia jest kontraktem potoku (pole istnieje i ma powód),
+// jej wartość zależy od sędziego — więc sprawdzamy kształt, nie wynik.
+check(typeof result.passed === "boolean", `passed = ${result.passed} (oczekiwano boolean — bramka zaliczenia z bench evaluate)`);
+check(typeof result.pass_reason === "string" && result.pass_reason.length > 0, "pass_reason pusty");
 
 // --- 4. stemple ery: kompletne i zgodne z wiringiem CI ------------------
 const version = readFileSync(join(instance, ".bench-kit/VERSION"), "utf8").trim();
@@ -89,6 +93,7 @@ check(typeof s.scoring_version === "string" && s.scoring_version.length > 0, "st
 check(/^[0-9a-f]{64}$/.test(s.task_hash ?? ""), `stamps.task_hash nie wygląda na sha256: ${s.task_hash}`);
 check(s.judge_model === process.env.JUDGE_MODEL, `stamps.judge_model = ${s.judge_model} != JUDGE_MODEL (${process.env.JUDGE_MODEL}) — wiring demo nie trafił`);
 check(typeof s.rubric_version === "string" && s.rubric_version.length > 0, "stamps.rubric_version pusty");
+check(s.judge_mode === "api", `stamps.judge_mode = ${s.judge_mode} (oczekiwano "api" — CI ocenia sędzią API)`);
 check(Number.isFinite(s.memory_limit_mb), `stamps.memory_limit_mb = ${s.memory_limit_mb} (oczekiwano liczby)`);
 
 console.log(

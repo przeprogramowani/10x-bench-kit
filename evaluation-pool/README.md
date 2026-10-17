@@ -32,6 +32,15 @@ realne testy nowego zachowania), ocenia sędzia (`judge/`) w języku
 naturalnym — code review bez nitpickingu. Ukryte testy behawioralne
 szyte pod zadanie to konwencja wycofana.
 
+**Jedyny wyjątek: testy wykopane z historii** (`tests/<zadanie>-pr`,
+bench-define → MINING.md). To nie testy szyte przez autora zadania,
+tylko testy, które prawdziwy developer napisał do prawdziwej zmiany.
+Są dopuszczone wyłącznie wtedy, gdy dotykają interfejsu istniejącego
+na pinie albo nazw, które prompt podaje dosłownie (pole "Coupled
+names" zlecenia). Dowód w obie strony jest obowiązkowy: czerwone na
+pinie z właściwego powodu i zielone z kodem zmiany (`bench assert
+--patch reference.diff`).
+
 Konwencje szczegółowe — w README każdego typu. Pula jest wypełniana
 skillem podczas customizacji instancji, ale zmiany przechodzą przez PR:
 zmiana asercji używanej przez zadanie zmienia wynik oceny, więc podlega

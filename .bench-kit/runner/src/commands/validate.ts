@@ -206,7 +206,7 @@ export async function validateCommand(args: string[]): Promise<number> {
       report({
         level: "warn",
         where: "bench.config.yaml",
-        message: `sędzia (${config?.judge.model}) i oceniany "${model}" są od tego samego dostawcy — ryzyko faworyzowania własnej rodziny; rozważ sędziego innego dostawcy albo kalibrację bench-rubric`,
+        message: `sędzia (${config?.judge.model}) i oceniany "${model}" są od tego samego dostawcy — ryzyko faworyzowania własnej rodziny; rozważ sędziego innego dostawcy albo diagnostykę sędziego (bench-measure)`,
       });
     }
   }
@@ -465,7 +465,7 @@ export async function validateCommand(args: string[]): Promise<number> {
           if (refs.length === 0) continue;
           console.log(`info:  [${assertDone}/${declared.length}] tasks/${name}: stan startowy ${task.repo}@${task.commit.slice(0, 12)}… (${refs.length} asercji)`);
           const overlay = join(root, "tasks", name, "overlay");
-          const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null);
+          const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null, config.defaults.context_files);
           try {
             const outcomes = runAssertions(engine, root, image, workspace, refs, null, {
               depsCache: config.evaluation.deps_cache,

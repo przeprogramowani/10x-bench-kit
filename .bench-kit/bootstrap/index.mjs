@@ -56,6 +56,7 @@ import {
   isTemplateOnly,
   materialize,
   relPosix,
+  removeRetiredSkills,
   syncDir,
   syncFile,
   templateSkillSource,
@@ -394,6 +395,14 @@ function runUpdate(request) {
   const skills = syncDir(join(templateDir, skillSource), join(targetDir, tool.skillRoot), {
     overwrite: true,
   });
+  const retiredSkills = removeRetiredSkills(join(templateDir, skillSource), join(targetDir, tool.skillRoot));
+  skills.removed = retiredSkills.length;
+  if (retiredSkills.length > 0) {
+    warnings.push(
+      `Wycofane skille usunięte (procedury przeniesione do bench-define / bench-measure / bench-decide): ${retiredSkills.join(", ")}. ` +
+        "Lokalne dostosowania tych skilli są w historii gita — przenieś je do nowych plików procedur, jeśli były.",
+    );
+  }
 
   const shared = { added: 0, updated: 0, unchanged: 0 };
   for (const file of SHARED_ROOT_FILES) {

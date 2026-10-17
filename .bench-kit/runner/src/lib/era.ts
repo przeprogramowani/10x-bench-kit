@@ -3,7 +3,7 @@
  * (stemplowanie wyników) i report/leaderboard (grupowanie).
  *
  * Klucz ery to krotka (scoring_version, task_hash, judge_model,
- * rubric_version). Era OCENY jest odklejona od ery wykonania —
+ * rubric_version, judge_mode). Era OCENY jest odklejona od ery wykonania —
  * zmiana rubryki wersjonuje wyniki (re-ocena zachowanych prób),
  * nie unieważnia samych prób.
  */
@@ -64,13 +64,16 @@ export function rubricVersionStamp(root: string, judgeRefs: string[], fallback: 
  * template_version, więc historyczne ery się nie przetasowują.
  */
 export function eraKey(
-  stamps: Pick<Result["stamps"], "template_version" | "scoring_version" | "task_hash" | "judge_model" | "rubric_version">,
+  stamps: Pick<Result["stamps"], "template_version" | "scoring_version" | "task_hash" | "judge_model" | "rubric_version" | "judge_mode">,
 ): string {
   return JSON.stringify([
     stamps.scoring_version ?? stamps.template_version,
     stamps.task_hash,
     stamps.judge_model,
     stamps.rubric_version,
+    // Wyniki legacy (bez judge_mode) dostają null — między sobą dalej
+    // jedna era, od nowych oddzielone i tak przez scoring_version.
+    stamps.judge_mode ?? null,
   ]);
 }
 

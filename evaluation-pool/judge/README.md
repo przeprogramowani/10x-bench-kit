@@ -35,11 +35,11 @@ Zasady:
 - zmiana rubryki = podbicie `version` w jej frontmatterze → nowa era
   porównywalności **zadań, które jej używają** (stempel jest per
   rubryka); zmiana modelu sędziego (`judge_model`) zamyka erę globalnie,
-- rubrykę zadania pisze bench-build (subagent z repo otwartym na pinie,
+- rubrykę zadania pisze bench-define (subagent z repo otwartym na pinie,
   wg RUBRIC_AUTHORING.md) jako `judge/<zadanie>-rubric` — jedna na
   zadanie, bez współdzielenia; kalibruje ją pierwszy realny bieg
   (poprawka = edycja + bump `version` + re-ocena zachowanych prób);
-  stabilność sędziego mierzy bench-rubric na zachowanych próbach
+  stabilność sędziego mierzy judge diagnostics (bench-measure) na zachowanych próbach
   (`bench calibrate`); zmiany przez PR,
 - szczegóły promptowania sędziego są świadomie odłożone (patrz DESIGN);
   wiążący jest format odpowiedzi.

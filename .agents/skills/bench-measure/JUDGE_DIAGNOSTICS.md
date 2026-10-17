@@ -1,25 +1,14 @@
----
-name: bench-rubric
-description: >-
-  Thin proxy over `bench calibrate`: measures how stably a task's rubric
-  is read by the API judge — or compares two judge models on it — using
-  REAL preserved attempts as the calibration set (plus the empty diff).
-  Requires attempts in `attempts/<task>/`; does not write rubrics (that
-  is bench-build's RUBRIC_AUTHORING.md) and fabricates no synthetic
-  diffs. Use when judge verdicts on similar diffs look unstable, when
-  choosing or changing the judge model, or when the user says
-  "calibrate the judge / compare judges".
----
+<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
 
-# bench-rubric — judge calibration on real attempts
+# judge diagnostics (bench-measure) — judge calibration on real attempts
 
 This skill answers one question: **is the measuring instrument stable?**
-Not "is the rubric right" — the rubric is written by bench-build
+Not "is the rubric right" — the rubric is written by bench-define
 (RUBRIC_AUTHORING.md) and corrected by reading real attempts against
 it — but "given this rubric, does the judge return the same verdict on
 the same diff, and do two judges rank the diffs the same way?". It is
 a diagnostic, not a phase of the pipeline: a new task goes
-bench-build → bench-measure without passing through here.
+bench-define → bench-measure without passing through here.
 
 The tool is `bench calibrate --task <name> --set <dir>` (from the
 instance root: `node --experimental-strip-types
@@ -32,7 +21,7 @@ the judge model for the round; `--label` names the round in the set's
 
 **What this measures and what it does not.** `bench calibrate` drives
 the text-only API judge. On real tasks the leaderboard verdicts come
-from **rate-attempt** — the judge with tools. Stability measured here
+from **rate-attempt** (bench-measure) — the judge with tools. Stability measured here
 transfers to rate-attempt only to the extent the rubric text is the
 common factor: a rubric the API judge reads consistently is a rubric
 rate-attempt reads consistently; a rubric with 0.3 spread on the API
@@ -62,7 +51,7 @@ present a calibration number as a property of the leaderboard's judge.
    Successive rounds on the same rubric use **the same set**.
 4. **No rubric edits here.** If the measurement shows the rubric is
    *wrong* (ranking disagrees with your `expected.md`), the fix is a
-   rubric edit per bench-build's RUBRIC_AUTHORING.md — name the
+   rubric edit per bench-define's RUBRIC_AUTHORING.md — name the
    criterion and the anchor in your summary and hand it over; a bump
    of `version` is due if results were computed with the rubric, and
    the follow-up is re-evaluating the preserved attempts, never a
@@ -86,7 +75,7 @@ present a calibration number as a property of the leaderboard's judge.
 Two shapes, and you ask which if the invocation does not say:
 
 - **Stability of one judge** on the task's rubric (the default when
-  bench-measure or bench-explain-results sent you here because
+  bench-measure or bench-decide (explain) sent you here because
   verdicts on similar diffs diverged).
 - **Comparison of judge models** — the user names two (or more)
   `provider/model` ids, or asks you to propose a cheaper candidate
@@ -163,5 +152,5 @@ decision. Typical transitions:
   `version` if results exist, re-evaluate preserved attempts via
   rate-attempt — list the tasks whose era closes.
 - **judge comparison favours a switch** → `judge.model` change through
-  the config PR (bench-wiring's era rules), then re-evaluation of
+  the config PR (bench-measure (preflight)'s era rules), then re-evaluation of
   preserved attempts under the new judge — a human decision.

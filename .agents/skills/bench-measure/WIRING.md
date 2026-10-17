@@ -1,19 +1,6 @@
----
-name: bench-wiring
-description: >-
-  Takes a fresh bench-kit instance from `bench-kit init` to a green
-  `bench validate` and the first measured attempt ON THE OPERATOR'S
-  MACHINE. First a check that the instance holds together (filling gaps
-  left by init + `bench validate`, within a minute), then the first
-  local run: container engine, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate` that cleans up after itself;
-  optionally the publication path (instance repo on GitHub, readiness + leaderboard
-  workflows). Use when the user has a fresh benchmark instance to
-  configure, wants to hook up a base repo or models, or says "wiring /
-  configure the benchmark / hook up the benchmark".
----
+<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
 
-# bench-wiring — from init to the first measured attempt
+# bench-measure (preflight) — from init to the first measured attempt
 
 You close out the decisions that `bench-kit init` deliberately does not
 make. Two divisions of labor shape the entire procedure:
@@ -51,7 +38,7 @@ from the runner (`bench` output) — never eyeball it.
 
 1. **Output via PR.** Wiring changes `bench.config.yaml` (which affects
    scoring: models, judge, rubric versions) — branch
-   `bench-wiring/<description>` + PR per [PR_TEMPLATE.md](PR_TEMPLATE.md);
+   `bench-wiring/<description>` + PR per [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md);
    a human merges. Exception: the first configuration of a fresh
    instance whose master is still just the template skeleton — there a
    commit to master is acceptable with the user's explicit consent
@@ -124,7 +111,7 @@ git.
   `.bench-kit/ATTEMPT_FORMAT.md`). `--smoke` = 1 trial, first model.
 - `bench evaluate` — evaluation of preserved attempts; writes
   `result.json` into `results/<task>/<model>/trial-N/` in the repo.
-  (For real tasks the judge-with-tools path is the rate-attempt skill;
+  (For real tasks the judge-with-tools path is the rate-attempt procedure (bench-measure);
   for the demo smoke the built-in API judge is enough.)
 
 ## Phase A — first check (budget: one minute, no containers)
@@ -303,7 +290,7 @@ For a fresh instance the wiring went to master (rule 1) — there is no
 PR, but leave a summary with the same content in the instance README /
 first commit description. For **changes** to existing wiring: branch
 `bench-wiring/<description>`, description per
-[PR_TEMPLATE.md](PR_TEMPLATE.md): decisions ("template defaults" is
+[WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md): decisions ("template defaults" is
 also a decision) with justification, the environment checklist with
 status, proofs (`validate` output, the smoke's total and cost, the
 committed result path), a "Comparability impact" section (the first
@@ -313,7 +300,7 @@ future).
 ## Deferred decisions — they do not block wiring
 
 The template ships defaults for environment policy; return to them only
-when the first real task touches them (usually in bench-build), and
+when the first real task touches them (usually in bench-define), and
 drive changes via PR like any config change:
 
 - **Assertion dependency cache**: default `evaluation.deps_cache: true`
@@ -328,7 +315,7 @@ drive changes via PR like any config change:
   the model's fault.
 - **Verification policy in prompts** (whether the agent should run the
   project to verify): set by the task author in `prompt.md` — the
-  bench-build skill's contract, not wiring's.
+  bench-define skill's contract, not wiring's.
 - **VPS / scheduled runs**: a VPS is just a bigger operator machine
   with the same DX — defer until nightly matrix runs are actually
   wanted.
@@ -388,7 +375,7 @@ let alternatives dilute the final ask.
 
 Name everything by what it delivers (rule 8): after a green `validate`
 the natural recommendation is "the first measurement on this machine";
-after a committed smoke result — **bench-new-task** (commissions for
-the backlog), then **bench-build**, because an instance without tasks
+after a committed smoke result — **bench-define** (interview) (commissions for
+the backlog), then **bench-define** (build), because an instance without tasks
 measures nothing; once tasks exist, every measurement runs through
 **bench-measure**.

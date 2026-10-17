@@ -1,7 +1,7 @@
 /**
  * bench assert — pojedyncze asercje nie-LLM-owe z puli na wskazanej
  * referencji, bez pełnego cyklu próby. Enabler zasady "testuj na
- * referencji, zanim zaproponujesz" (bench-task / bench-refresh-task) oraz
+ * referencji, zanim zaproponujesz" (bench-define: budowa i odświeżanie) oraz
  * weryfikacji referencyjnej w `bench validate --assert`.
  *
  * Referencja = stan startowy zbudowany na hoście (repo@pin + overlay
@@ -150,7 +150,7 @@ export async function assertCommand(args: string[]): Promise<number> {
     const image = ensureBaseImage(engine, root);
     const patchNote = opts.patches.length === 1 ? " + patch" : opts.patches.length > 1 ? ` + ${opts.patches.length} patchy (wsad)` : "";
     progress(`assert: stan startowy ${repoName}@${commit.slice(0, 12)}…${overlay ? " + overlay" : ""}${patchNote}`);
-    const workspace = buildStartWorkspace(repoUrl, commit, overlay);
+    const workspace = buildStartWorkspace(repoUrl, commit, overlay, config.defaults.context_files);
     try {
       const printOutcomes = (outcomes: Record<string, AssertionOutcome>, indent: string): boolean => {
         let allPass = true;

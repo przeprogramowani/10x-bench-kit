@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Schemat attempt.json — metadane ZACHOWANEJ PRÓBY, jedyny punkt styku
  * między wykonaniem (`bench attempt`) a oceną (`bench evaluate` /
- * skill rate-attempt). Pełny kontrakt katalogu próby (pliki, gwarancje,
+ * procedura rate-attempt skilla bench-measure). Pełny kontrakt katalogu próby (pliki, gwarancje,
  * wersjonowanie): .bench-kit/ATTEMPT_FORMAT.md.
  *
  * Katalog próby: attempts/<zadanie>/<model-sanitized>/trial-<n>/
@@ -40,6 +40,15 @@ export const AttemptSchema = z.object({
       version: z.string().min(1),
       route: z.enum(["native", "openrouter"]),
     })
+    .optional(),
+  /**
+   * Pliki instrukcji projektu zastane przez agenta (AGENTS.md, CLAUDE.md…)
+   * i polityka wyrównania (defaults.context_files). null = trial.sh nie
+   * zapisał listy; brak pola = próba sprzed wprowadzenia.
+   */
+  context_files: z
+    .object({ present: z.array(z.string()), policy: z.enum(["unified", "native"]) })
+    .nullable()
     .optional(),
   /** Numer próby, licząc od 1. */
   trial: z.number().int().positive(),

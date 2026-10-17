@@ -7,7 +7,7 @@
  * z pełnym cyklem), a komenda liczy arytmetykę, którą dotąd robiło się
  * pętlą w bashu: min/med/max per diff, mediany per kryterium, rozrzut.
  *
- * Osąd zostaje w skillu bench-rubric (projekt zbioru, ocena rankingu
+ * Osąd zostaje w diagnostyce sędziego skilla bench-measure (projekt zbioru, ocena rankingu
  * i separacji, decyzja o iteracji kryteriów) — runner przejmuje liczenie.
  *
  * Wyniki dopisywane do results.json zbioru jako runda `--label`

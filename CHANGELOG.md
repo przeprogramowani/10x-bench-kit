@@ -6,6 +6,115 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.35.0 — 2026-10-17 [scoring-breaking]
+
+**Trzy koncepty (define → measure → decide), kopanie PR-ów jako źródło
+zadań, zaliczenie jako bramka.** `SCORING_VERSION` 2 → 3: wyniki
+sprzed tego release'u to osobna era.
+
+### Dlaczego
+
+Instancja zwykle kończy na 5–15 ręcznie budowanych zadaniach. Dwa
+modele porównane na tych samych zadaniach (test znaków) dają się
+rozróżnić dopiero przy wielu zadaniach: **10 zadań rozstrzyga różnicę
+~70 pp, 40 zadań ~26 pp.** Więcej prób tego nie zmienia, liczba prób
+mierzy pojedyncze zadanie. Do tego zaliczenie było progiem ważonej sumy,
+więc czerwony guard dało się nadrobić hojnym werdyktem, a werdykt z
+pliku nie miał autora.
+
+### Zmiany
+
+- **Kopanie PR-ów** (`bench-define/MINING.md`, `mine-prs.mjs`).
+  Zmergowana zmiana z testami staje się zadaniem: pin = rodzic zmiany,
+  testy zmiany = ukryty guard `tests/<zadanie>-pr` (pliki po merge'u
+  nadpisują workspace, potem repo-natywna komenda testów), kod zmiany =
+  dowód wykonalności, którego agent nie widzi.
+  - **Skrypt** czyta tylko lokalnego gita i ma tryby scan / show / emit.
+    Wykrywa **sprzężenie**: identyfikatory, nazwy kontraktu (pola,
+    klucze) i nowe pliki, które zmiana wprowadza, a jej testy używają.
+    Testy sprzężone są dopuszczone tylko wtedy, gdy prompt podaje te
+    nazwy dosłownie (istniejący wyjątek zasady neutralności kształtu).
+    Testy sprzężone ze strukturą wewnętrzną odpadają.
+  - **Dowód w obie strony** jest obowiązkowy: pusty diff → 0, `--patch
+    reference.diff` → 1, czerwień z właściwego powodu.
+  - **Repo publiczne** to tylko kotwice (`Class: anchor`), nigdy
+    decyzja routingu.
+  - Sprawdzone na prawdziwej historii tego repo. Kandydat 3fcf331: na
+    pinie 17 testów zielonych i 3 nowe czerwone, z referencją 1.00;
+    sprzężenie `deepClone` wykryte. 055049e oznaczony jako mocno
+    sprzężony (nowy moduł).
+- **Trzy skille zamiast dziewięciu.**
+  - **bench-define**: MINING, INTERVIEW, REFRESH, BUILD →
+    TASK_AUTHORING + RUBRIC_AUTHORING, BACKLOG_TEMPLATE,
+    REPORT_TEMPLATE.
+  - **bench-measure**: preflight WIRING, RATE_ATTEMPT,
+    JUDGE_DIAGNOSTICS, nowa procedura „wyszedł nowy model".
+  - **bench-decide**: summarize.mjs + analytics.mjs, EXPLAIN.
+  - Procedury to pliki obok SKILL.md, ładowane dopiero, gdy krok ich
+    potrzebuje. `bench-kit update` usuwa z instancji osiem wycofanych
+    skilli (`RETIRED_SKILLS`, tylko te, których template już nie
+    wysyła). Kasowanie widać w `git diff` i ostrzeżeniu, a lokalne
+    dostosowania zostają w historii.
+- **Zaliczenie = bramka** [scoring-breaking]. `passed` w result.json
+  jest prawdą, gdy każdy guard z wagą > 0 = 1 ORAZ judge ≥
+  `pass_threshold`; `pass_reason` mówi, co zawiodło. `total` zostaje
+  miarą jakości. Czytają to `bench report` (pass@k, nowe pass^k),
+  leaderboard i bench-decide. Wyniki legacy bez pola liczą się po
+  staremu.
+- **Werdykt ma autora** [scoring-breaking]. `bench evaluate --verdict`
+  wymaga `--judge-mode agent --judge-model <id>` albo `--judge-mode
+  human`. Werdykt agenta z modelu innego niż sędzia instancji jest
+  odrzucany (porównanie po tożsamości modelu). `stamps.judge_mode`
+  (api / agent / human / none) jest częścią klucza ery, więc ścieżki
+  oceny już się nie mieszają. Autor trafia do `judge.json →
+  declared_by`.
+- **bench-decide: statystyka decyzji** (`analytics.mjs`, deterministyczna):
+  - **bieżąca era per zadanie:** wcześniej `summarize.mjs` mieszał
+    ery w komórce, teraz pozostałe wyniki są liczone jako
+    `other_era_trials`;
+  - **wykluczone próby:** infra i kill są widoczne, z ostrzeżeniem
+    przy >20%;
+  - **pass^k** (τ-bench);
+  - **koszt nieznany jako nieznany**, nie $0;
+  - **klasa × model po ZADANIACH** (bootstrap), z flagą `hypothesis`
+    poniżej 5 zadań;
+  - **porównania parowe** na wspólnych zadaniach (dokładny test
+    znaków);
+  - **rozdzielczość:** ile zadań na jaką różnicę;
+  - **horyzont czasowy** (METR) z nowego pola backlogu **Human time**.
+  - `bench backlog` drukuje rozdzielczość per klasa, zanim cokolwiek
+    zostanie wydane.
+- **Pliki instrukcji wyrównane między harnessami.** Claude Code czyta
+  CLAUDE.md, a Codex i OpenCode AGENTS.md. `defaults.context_files:
+  unified` (domyślnie) dokłada brakujący z pary przed commitem
+  startowym: CLAUDE.md = `@AGENTS.md`, AGENTS.md = symlink. Działa w
+  obrazie próby i w stanie referencyjnym asercji. `attempt.json →
+  context_files` zapisuje, co agent zastał.
+- **Czas API** (`metrics.json → api_duration_s`, Claude Code) odróżnia
+  timeout „model myślał" od „provider dławił".
+- **Backlog:** nowe pola Source, Human time, oraz dla zleceń `pr`: Pin,
+  Reference, Hidden tests, Coupled names.
+- **Pula oceny:** README dopuszcza jedyny wyjątek od wycofanych ukrytych
+  testów, czyli testy PR-a w opisanych warunkach.
+- **CI:** e2e-gate sprawdza kontrakt `passed` / `pass_reason` /
+  `judge_mode`.
+
+### Migracja
+
+1. **Wyniki sprzed 0.35.0** są w erze scoringu 2. `bench status` pokaże
+   je jako „ocenione w innej erze". Re-ocena zachowanych prób
+   (`bench evaluate`, sędzia z narzędziami przez bench-measure) wnosi
+   je do ery 3 bez nowego biegu.
+2. **Skrypty i notatki wołające `bench evaluate --verdict`** muszą dodać
+   `--judge-mode`.
+3. **Instancje z dostosowanymi skillami** (np. własny bench-build):
+   update je usunie. Przenieś zmiany do odpowiedniego pliku procedury
+   (np. `bench-define/BUILD.md`). Treść jest w historii gita.
+4. **Pliki instrukcji:** kto chce zachować workspace bez dokładania
+   pliku z pary, ustawia `defaults.context_files: native`.
+5. **Nowe pola** `pricing`, `context_files`, pola backlogu i pola
+   result.json są opcjonalne; stare pliki dalej się parsują.
+
 ## 0.34.0 — 2026-10-16 (neutralny)
 
 **Claude Code i Codex CLI jako harnessy prób obok OpenCode.** Bez

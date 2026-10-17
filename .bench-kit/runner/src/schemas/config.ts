@@ -68,6 +68,14 @@ export const BenchConfigSchema = z.object({
      * 1 = zachowanie sekwencyjne (default).
      */
     parallel: z.number().int().positive().default(1),
+    /**
+     * Pliki instrukcji projektu (AGENTS.md / CLAUDE.md) w workspace'ie
+     * próby: "unified" = gdy repo ma tylko jeden z pary, drugi jest
+     * dokładany przed commitem startowym, żeby każdy harness czytał te
+     * same instrukcje (lib/context-files.ts); "native" = repo bez zmian.
+     * Zmienia to, co widzi agent → część definicji pomiaru.
+     */
+    context_files: z.enum(["unified", "native"]).default("unified"),
   }),
   /**
    * Polityka środowiska oceny (decyzja wiringu instancji).

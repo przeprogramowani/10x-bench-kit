@@ -59,6 +59,9 @@ if (result && result.modelUsage && typeof result.total_cost_usd === "number") {
       cache_write: sum("cacheCreationInputTokens"),
     },
     duration_s: typeof result.duration_ms === "number" ? Math.round(result.duration_ms / 100) / 10 : wall,
+    // Czas w API modelu (bez narzędzi i czekania lokalnego) — odróżnia
+    // timeout "model myślał długo" od "provider dławił / rate limit".
+    api_duration_s: typeof result.duration_api_ms === "number" ? Math.round(result.duration_api_ms / 100) / 10 : null,
     models: Object.fromEntries(models.map(([name, u]) => [name, { cost_usd: u.costUSD ?? null, cost_basis: u.costBasis ?? null }])),
     turns: result.num_turns ?? null,
     result_subtype: result.subtype ?? null,

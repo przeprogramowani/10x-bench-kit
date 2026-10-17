@@ -1,19 +1,32 @@
 ---
 name: bench-measure
 description: >-
-  Runs a measurement of the benchmark matrix on this machine: scopes
-  models × tasks × trials, projects the cost against the run budget,
-  executes `bench attempt` (preserved attempts, top-up semantics),
-  drives evaluation (rate-attempt per attempt, or the API judge for
-  small/smoke runs) and hands the user a reliability-first results
-  table (pass rate with interval, cost as a column) plus the
-  `results/` paths to commit. Use when the user says "run the
-  benchmark / measure model X / benchmark task Y / add a new model to
-  the leaderboard", or after bench-build when tasks are ready to
-  measure.
+  Measures models on the benchmark's tasks on this machine — preflight
+  (instance wiring, engine, keys: WIRING.md), the matrix run (models ×
+  tasks × trials, cost projection vs budget, `bench attempt` with
+  preserved attempts and top-up), evaluation (the judge with tools per
+  attempt: RATE_ATTEMPT.md; judge stability: JUDGE_DIAGNOSTICS.md) and
+  a reliability-first handover with the `bench changes` commit plan.
+  Use when the user says "set up / wire the instance", "run the
+  benchmark / measure model X / a new model came out / re-evaluate",
+  or after bench-define when tasks are ready.
 ---
 
 # bench-measure — the measurement loop
+
+The second of the benchmark's three concepts:
+
+1. **define**: what we measure (bench-define);
+2. **measure**: run models on it (this skill);
+3. **decide**: what the results mean (bench-decide).
+
+The procedures live next to this file:
+
+| Need | Procedure |
+|---|---|
+| Fresh instance, wiring change, `bench doctor` red | [WIRING.md](WIRING.md) (preflight; PR template [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md)) |
+| Judge one preserved attempt with tools (one subagent per attempt) | [RATE_ATTEMPT.md](RATE_ATTEMPT.md) |
+| Verdicts on similar diffs look unstable, or choosing a judge model | [JUDGE_DIAGNOSTICS.md](JUDGE_DIAGNOSTICS.md) |
 
 You are the operator's hands for a matrix run. The user's surface is
 consent, the config, and git — **never `bench …` commands**: you run
@@ -74,14 +87,14 @@ evaluated.
    built-in retry) is a diagnosis first (`agent.log`,
    `container.log`, `signal.json`), a re-run second — a blind re-run
    repeats the same failure and the same invoice. Surprising *scores*
-   go to bench-explain-results, not to another run.
+   go to bench-decide (explain), not to another run.
 6. **You never commit or push.** Results land in
    `results/<task>/<model>/trial-N/` — reviewing and committing them
    is the user's move, and only committed results feed the leaderboard.
 7. **Do not touch scoring while measuring.** No edits to tasks,
    rubrics, weights, or the config mid-run — that would fork the era
    between trials of the same run. Config changes go through
-   bench-wiring, rubric edits through bench-build's RUBRIC_AUTHORING.md
+   bench-measure (preflight), rubric edits through bench-define's RUBRIC_AUTHORING.md
    (version bump + re-evaluation) — before or after a measurement.
    `bench status` treats an evaluation from another era (a changed
    task, rubric version, judge or scoring version) as not evaluated and
@@ -113,6 +126,14 @@ evaluated.
    routinely flips the recommendation.
 
 ## Procedure
+
+### 0. Preflight
+
+`bench doctor` and `bench validate`. Green means go on to step 1. Red
+on wiring (no engine, missing keys, placeholder pins, a base repo not
+in `base_repos`) means following WIRING.md first; the user's surface
+there is config, environment and git. A fresh instance always starts
+in WIRING.md, which ends with its own smoke attempt.
 
 ### 1. Scope
 
@@ -200,17 +221,39 @@ enough trials to act on is a worse use of the same ceiling.
 Evaluate what `bench status` shows as preserved without a fresh
 evaluation — this can start while other cells are still running.
 
-- **Default (real tasks): rate-attempt per attempt** — the
-  judge-with-tools; launch it per the rate-attempt skill (subagent per
-  attempt where available, verdicts independent). It runs guards
-  (`bench evaluate --skip-judge`), investigates the preserved
+- **Default (real tasks): rate-attempt per attempt.** This is the
+  judge with tools. Launch one subagent per attempt with
+  RATE_ATTEMPT.md as its procedure; verdicts stay independent. It runs
+  the guards (`bench evaluate --skip-judge`), investigates the preserved
   workspace in a container (`bench shell`), and folds its verdict via
-  `bench evaluate --verdict`.
-- **Smoke / demo / explicitly cheap runs**: plain `bench evaluate`
-  (API judge) is acceptable — say which judge path produced the
-  numbers, because they are not interchangeable in interpretation.
+  `bench evaluate --verdict <file> --judge-mode agent --judge-model <id>`.
+- **Smoke / demo / explicitly cheap runs:** plain `bench evaluate` (the
+  API judge on the diff) is acceptable.
+
+The two paths are separate eras by construction (`judge_mode` is part of
+the stamps), so they never mix in a table. Still say which one produced
+the numbers you hand over. Pass is a gate: every guard with weight > 0
+green **and** the judge ≥ `pass_threshold`. A red guard is a fail
+however good the verdict.
 
 Skipped attempts (infra flags) are listed with their reason — rule 4.
+
+### A new model came out
+
+This is the benchmark's recurring job, and the cheapest one to run:
+
+1. Add the model id to the run's `--models` (and to `defaults.models`
+   through the wiring PR of WIRING.md, if it should stay).
+2. `bench attempt --models <new>`. It runs every task and tops up only
+   that model's cells; existing models' preserved attempts are untouched.
+3. Evaluate its attempts on the same judge path as the incumbents
+   (same era), then hand over to **bench-decide**. Its paired comparison
+   is on shared tasks, so the new model is compared with the incumbent
+   on exactly the work the incumbent was measured on.
+
+The question to answer is "does it beat what we route this class to
+today, by a margin these tasks can resolve?", not "where does it
+rank". `bench backlog` shows the resolution per class before you spend.
 
 ### 5. Hand over
 
@@ -246,17 +289,17 @@ Close with:
 - **which guard components discriminated nothing**, if any — a
   component scoring identically across every attempt of the run told
   you nothing at its weight, and that is a finding about the task
-  (bench-build rule 10), not about the models;
+  (BUILD.md rule 10), not about the models;
 - **which comparisons this sample cannot support** — name them. Cells
   under 3 trials (rule 10), pairs whose intervals overlap, and any
   side of the matrix that got fewer trials than the other. This is the
   part an operator cannot reconstruct from the numbers and the part
   they will otherwise assume away;
-- next step: **bench-summary** when the question behind the run was
+- next step: **bench-decide** when the question behind the run was
   "which model do we use for this work" — it computes the economics
   deterministically (cost per acceptable result, ties reported as
-  ties) and renders the one-page verdict; bench-explain-results for
-  surprises; bench-rubric if judge verdicts on similar diffs look
+  ties) and renders the one-page verdict; bench-decide (explain) for
+  surprises; judge diagnostics (bench-measure) if judge verdicts on similar diffs look
   unstable (it calibrates on the attempts just preserved); more trials
   on the cheap models when a pass rate is still thin (step 3); or
   nothing — a clean measurement is a finished job.

@@ -15,8 +15,8 @@ wszystkich pól: `demo-hello-bench/task.yaml`.
 
 ## Backlog zleceń — `tasks/backlog.md`
 
-Dokument decyzji: skill **bench-new-task** dopisuje do niego
-zlecenia zadań po krótkim wywiadzie, skill **bench-build** zamienia
+Dokument decyzji: skill **bench-define** (interview) dopisuje do niego
+zlecenia zadań po krótkim wywiadzie, skill **bench-define** (build) zamienia
 oczekujące zlecenia w prawdziwe zadania (subagent per zlecenie).
 Status zlecenia to wyłącznie decyzja (`pending` / `dropped`). Etap
 (ordered → building → built → ready → measuring → measured) wylicza
@@ -32,10 +32,10 @@ zarządza użytkownik.
   wyłącznie referencje `evaluation: [...]` do `evaluation-pool/`.
   Izolacja z konstrukcji, nie ze starannego wycinania.
 - Zadania powstają i są odświeżane skillami, ale skille nie dotykają
-  gita. Nowe zadania bench-build zostawia jako pliki w drzewie
+  gita. Nowe zadania bench-define zostawia jako pliki w drzewie
   roboczym z raportem dowodów ze stanu startowego per zadanie — commit, PR
-  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-refresh-task)
-  i rubryki (bench-rubric) przechodzą przez PR.
+  czy odrzucenie to decyzja użytkownika. Odświeżenia (bench-define (refresh))
+  i rubryki (judge diagnostics (bench-measure)) przechodzą przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,
   aktualizacja asercji) otwiera nową erę dla tego zadania.

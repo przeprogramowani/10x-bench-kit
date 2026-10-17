@@ -1,18 +1,31 @@
 ---
-name: bench-summary
+name: bench-decide
 description: >-
-  Executive snapshot of the instance's current results: computes the
-  economics deterministically (pass rate with a confidence interval,
-  cost per ACCEPTABLE result including retries, review burden) with
-  summarize.mjs over the tracked `results/` tree, renders a
-  self-contained one-page HTML verdict, and writes a short narrative
-  the operator can act on. Answers "which model should I route this
-  work to, and what will it cost me" — not "who tops the leaderboard".
-  Use after a measurement, when picking a model for a class of work,
-  or when the user asks "summarize the results / what do we use".
+  Turns results into a decision: which model (and which tool — Claude
+  Code, Codex, OpenCode) gets which class of work, at what cost per
+  acceptable result, with how much confidence. Computes everything
+  deterministically with summarize.mjs over the tracked results/ tree —
+  per task: pass rate with interval, pass^k, cost per acceptable
+  result, review burden, excluded attempts; across tasks: class × model
+  (tasks as the unit), paired comparisons on shared tasks (sign test),
+  how big a difference the task set can resolve, and the time horizon
+  ("reliably handles N-minute tasks"). Renders a one-page HTML verdict
+  and a short narrative; explains surprising results from preserved
+  attempts (EXPLAIN.md). Use after a measurement, when a new model is
+  compared with the incumbent, or when the user asks "summarize / what
+  do we use / why did X fail".
 ---
 
-# bench-summary — the one-peek answer
+# bench-decide — the one-peek answer
+
+The third of the benchmark's three concepts:
+
+1. **define**: what we measure (bench-define);
+2. **measure**: run models on it (bench-measure);
+3. **decide**: what the results mean (this skill).
+
+A surprising single result is explained from its preserved attempt with
+[EXPLAIN.md](EXPLAIN.md) (template: [EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md)).
 
 The leaderboard exists to compare models in public. This skill exists
 to settle an internal decision: **which model gets this class of work,
@@ -37,8 +50,8 @@ as a large one.
    exactly what this skill exists to prevent.
 2. **You never change scoring.** No edits to `results/`, `attempts/`,
    tasks, rubrics or `bench.config.yaml`. This skill reads and
-   renders. A wrong score is bench-explain-results (one anomaly) or
-   bench-rubric (unstable verdicts); a missing cell is bench-measure.
+   renders. A wrong score is EXPLAIN.md's job (one anomaly) or bench-measure's
+   JUDGE_DIAGNOSTICS.md (unstable verdicts); a missing cell is bench-measure.
 3. **Reliability first, price second — and ties are reported as ties.**
    Ranking runs on the LOWER bound of the pass-rate interval, never on
    the median score and never on price alone: a small sample is itself
@@ -48,10 +61,11 @@ as a large one.
    When intervals overlap, say the difference is unresolved and that
    the honest response is more trials — not "so take the cheaper one".
    This is the single most common way a summary misleads.
-4. **Eras are not mixed.** `summarize.mjs` collects the stamps tuple
-   (`task_hash`, `judge_model`, `rubric_version`). If more than one
-   era appears, say so and do not aggregate across them — the numbers
-   answer different questions.
+4. **Eras are not mixed.** `summarize.mjs` keeps only each task's
+   current era (highest scoring version) and counts the rest per cell
+   as `other_era_trials`. Those are results from an older rubric, judge,
+   judge path or scoring rule. Say how many were left out; re-evaluating
+   the preserved attempts brings them back.
 5. **An unmeasured cell is not a zero.** A model absent from
    `results/`, or present only through `infra_failure` /
    `provider_error`, is reported as **unmeasured, with the reason**.
@@ -64,6 +78,24 @@ as a large one.
    about the operator's time. The moment it is weighted it becomes an
    axis models are optimized against, and it stops being an honest
    observation.
+
+8. **Class claims rest on tasks, not trials.** Five trials of one task
+   measure that task. A statement about "bugfixes" needs bugfix
+   *tasks*. `classes[].claim` is `class` only from 5 tasks up;
+   below that it is a `hypothesis`, and you say so in those words.
+   Model A "beats" model B only when the paired comparison on their
+   shared tasks is `resolved` (exact sign test, p < 0.05). Otherwise
+   the difference is unresolved, and you name the gap the current
+   task count *can* resolve (`resolvable_gap_pp`) and how many tasks a
+   smaller gap needs (`power.tasks_needed`). More tasks, which are
+   cheap to mine (bench-define), is usually the honest next step.
+9. **Excluded attempts are visible.** Infrastructure failures and
+   resource kills do not enter `n`. When a model has a high exclusion
+   rate (a caveat in the JSON), its pass rate may be flattering it, and
+   that goes into the narrative.
+10. **Anchors are not decisions.** Tasks in class `anchor` (mined from
+    public repos, MINING.md) check the setup against published numbers.
+    Report them apart; never route work on them.
 
 ## Tools
 
@@ -113,12 +145,28 @@ on how far the run got. Say plainly what is missing.
 
 ### 2. Compute
 
-Run `summarize.mjs`. Read the JSON: per task × model it gives trials,
-passes, pass rate with a 95% Wilson interval, mean and total cost,
-expected cost per acceptable result, median total, duration, and the
-average diff size. The `recommendation` block already applies rule 3 —
-cheapest expected cost among models that pass, plus everyone whose
-interval overlaps it.
+Run `summarize.mjs` and read the JSON.
+
+**Per task × model:** trials and passes (by the result's gate, not the
+total), pass rate with a 95% Wilson interval, `pass_hat_k` (the chance
+that k runs in a row all pass, i.e. "can this run unattended"), mean
+and total cost, expected cost per acceptable result (null when any
+trial's cost is unknown), median total, duration, diff size, excluded
+attempts, and other-era trials left out. The `recommendation` block
+already applies rule 3.
+
+**Across tasks:**
+
+- `classes`: class × model, the mean of per-task pass rates with a
+  bootstrap interval over tasks, and the claim level;
+- `paired`: every model pair on shared tasks, overall and per class,
+  with wins/ties/losses, mean difference, sign-test p and `resolved`;
+- `power`: what the task set can resolve and what a smaller gap needs;
+- `horizons`: per model, the human-minutes length of task it passes
+  50% / 80% of the time. It is fitted from each order's **Human time**,
+  needs ≥5 tasks spanning ≥4×, and is otherwise null with a reason.
+
+Class and Human time come from `tasks/backlog.md`.
 
 ### 3. Ask for the header
 
@@ -161,9 +209,16 @@ The page carries the numbers; your text carries what the numbers do not
 say. Keep it to a few lines and include, when true:
 
 - **the decision**: route this class of work to X at $N per acceptable
-  result;
+  result. It is a *class* decision only when the class view says
+  `class` and the paired comparison is `resolved`; otherwise it is a
+  per-task observation, and you say so;
+- **the horizon**, when computed: "X reliably (80%) handles tasks of
+  about N developer-minutes here". This is the sentence an engineering
+  leader repeats upward, so give it only when it was computed;
+- **the resolution**: what difference these tasks can tell apart, and
+  how many more tasks a closer call would need;
 - **what the failures were**, if any model failed — one sentence of
-  cause from the preserved attempts (bench-explain-results does the
+  cause from the preserved attempts (bench-decide (explain) does the
   deep version; do not duplicate it here);
 - **the confidence**: trial counts, and which comparisons the sample
   cannot support;
@@ -181,10 +236,10 @@ the user's choice.
 
 ## What this skill is not
 
-- Not a diagnosis. A surprising score goes to **bench-explain-results**
+- Not a diagnosis. A surprising score goes to **bench-decide** (explain)
   (one chain, one fault class, evidence from the attempt).
 - Not judge calibration. Unstable verdicts on similar diffs go to
-  **bench-rubric**.
+  **bench-measure** (judge diagnostics).
 - Not a measurement. Missing cells and thin trial counts go back to
   **bench-measure** — and "buy more trials on the cheap models" is
   frequently the right recommendation to end on, because pass rate is

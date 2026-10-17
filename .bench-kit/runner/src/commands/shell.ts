@@ -1,7 +1,7 @@
 /**
  * bench shell — jednorazowy kontener sędziego na ZACHOWANEJ PRÓBIE.
  *
- * Sędzia-z-narzędziami (skill rate-attempt) bada workspace po pracy
+ * Sędzia-z-narzędziami (procedura rate-attempt skilla bench-measure) bada workspace po pracy
  * agenta: build, testy, uruchomienie aplikacji. Ten kod jest cudzy
  * (wyprodukowany przez oceniany model) — nie wykonuje się go na hoście
  * operatora, tylko w kontenerze z obrazu zadania, tak jak guardy

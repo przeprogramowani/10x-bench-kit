@@ -169,4 +169,41 @@ export function installWorkflows(targetDir, opts) {
   return counts;
 }
 
+/**
+ * Skille wycofane przez konsolidację w trzy koncepty (define / measure /
+ * decide): ich procedury żyją dziś jako pliki w bench-define/,
+ * bench-measure/ i bench-decide/. syncDir nigdy nie kasuje, więc bez tej
+ * listy instancja po update miałaby jedenaście skilli — trzy nowe i osiem
+ * duchów z nieaktualnymi procedurami.
+ */
+export const RETIRED_SKILLS = [
+  "bench-new-task",
+  "bench-build",
+  "bench-refresh-task",
+  "bench-wiring",
+  "rate-attempt",
+  "bench-rubric",
+  "bench-summary",
+  "bench-explain-results",
+];
+
+/**
+ * Usuwa z instancji skille wycofane — tylko te, których BIEŻĄCY template
+ * już nie wysyła (gdyby wrócił, przestaje być wycofany). Kasowanie jest
+ * częścią propozycji update'u: widać je w `git diff` i przechodzi przez
+ * PR jak każda zmiana strefy współdzielonej, więc lokalne dostosowania
+ * zostają w historii gita. Zwraca nazwy usuniętych skilli.
+ */
+export function removeRetiredSkills(templateSkillDir, instanceSkillDir) {
+  const removed = [];
+  for (const name of RETIRED_SKILLS) {
+    if (existsSync(join(templateSkillDir, name))) continue;
+    const dir = join(instanceSkillDir, name);
+    if (!existsSync(dir)) continue;
+    rmSync(dir, { recursive: true, force: true });
+    removed.push(name);
+  }
+  return removed;
+}
+
 export const relPosix = (rel) => rel.split(sep).join("/");

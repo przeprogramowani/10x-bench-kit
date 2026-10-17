@@ -6,14 +6,14 @@
  * „Batch gate", zachowane próby i świeże oceny. Komenda tylko czyta.
  *
  * Etapy (kolejno):
- *   ordered    — zlecenie bez katalogu zadania (czeka na bench-build)
+ *   ordered    — zlecenie bez katalogu zadania (czeka na bench-define)
  *   building   — tasks/<nazwa>/todo.md istnieje (subagent pracuje)
  *   built      — task.yaml jest, raport bez wypełnionej bramki partii
  *   ready      — raport z bramką partii; brak prób (czeka na bench-measure)
  *   measuring  — są próby, ale nie każda komórka (model z defaults.models)
  *                ma defaults.trials świeżo ocenionych prób
  *   measured   — każda komórka ma cel prób ocenionych w bieżącej erze
- *                (materiał dla bench-summary)
+ *                (materiał dla bench-decide)
  *   dropped    — zlecenie porzucone (decyzja, Status: dropped)
  *
  * Statusy legacy (in-progress / built / done) są czytane jako deklaracje;
@@ -26,6 +26,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig } from "../lib/instance.ts";
 import { cellStatus, currentEvalEra } from "../lib/matrix.ts";
+import { resolvableGap, tasksNeeded } from "../lib/power.ts";
 
 interface Options {
   root: string;
@@ -149,7 +150,7 @@ export function backlogStates(root: string): { orders: OrderState[]; unordered: 
     if (entry.statusLines > 1) notes.push(`${entry.statusLines} linie Status — scal ręcznie (artefakt merge'a?)`);
     const decision = entry.fields.get("decision") ?? null;
     if (declared !== "dropped" && (!decision || decision.startsWith("<"))) {
-      notes.push("brak Decision — bench-build tego nie zbuduje (reguła 7 bench-new-task)");
+      notes.push("brak Decision — bench-define tego nie zbuduje");
     }
 
     const taskDir = join(root, "tasks", name);
@@ -233,7 +234,7 @@ export async function backlogCommand(args: string[]): Promise<number> {
       return problems.length > 0 ? 1 : 0;
     }
     if (!existsSync(join(root, "tasks", "backlog.md"))) {
-      console.log("bench backlog: brak tasks/backlog.md — zlecenia tworzy skill bench-new-task");
+      console.log("bench backlog: brak tasks/backlog.md — zlecenia tworzy skill bench-define");
       return 0;
     }
 
@@ -265,11 +266,22 @@ export async function backlogCommand(args: string[]): Promise<number> {
       byClass.set(key, [...(byClass.get(key) ?? []), o.stage]);
     }
     if (byClass.size > 0) {
-      console.log("\nklasy pracy:");
+      console.log("\nklasy pracy (rozdzielczość: porównanie parowe modeli na zadaniach klasy):");
       for (const [klass, stages] of byClass) {
         const measured = stages.filter((s) => s === "measured").length;
-        console.log(`  ${klass}: zlecenia ${stages.length}, zmierzone ${measured}${measured === 0 ? " — klasa jeszcze bez odpowiedzi" : ""}`);
+        // Zadania, które da się mierzyć (zbudowane i dalej) — to one, nie
+        // zlecenia, wyznaczają, jaką różnicę między modelami klasa rozstrzygnie.
+        const usable = stages.filter((s) => s !== "ordered" && s !== "building").length;
+        const gap = resolvableGap(usable);
+        const resolution = gap === null ? "żadna różnica jeszcze nierozstrzygalna" : `rozstrzyga różnice ≥${gap} pp`;
+        console.log(
+          `  ${klass}: zlecenia ${stages.length}, zadania ${usable}, zmierzone ${measured} — ${resolution}` +
+            `${measured === 0 ? "; klasa jeszcze bez odpowiedzi" : ""}`,
+        );
       }
+      console.log(
+        `  (na różnicę 30 pp potrzeba ~${tasksNeeded(0.3)} zadań, na 50 pp ~${tasksNeeded(0.5)} — źródło tanich zadań: kopanie PR-ów, bench-define)`,
+      );
     }
     if (unordered.length > 0) console.log(`\nzadania bez zlecenia w backlogu: ${unordered.join(", ")}`);
     for (const problem of problems) console.log(`\nproblem: ${problem}`);
@@ -280,12 +292,12 @@ export async function backlogCommand(args: string[]): Promise<number> {
     const undecided = count("ordered") - buildable;
     const reevaluate = orders.reduce((acc, o) => acc + o.reevaluate, 0);
     const steps = [
-      buildable ? `${buildable} do zbudowania → bench-build` : "",
-      undecided ? `${undecided} bez Decision → uzupełnij (bench-new-task)` : "",
-      count("built") ? `${count("built")} czeka na bramkę partii (bench-build krok 5)` : "",
+      buildable ? `${buildable} do zbudowania → bench-define (budowa)` : "",
+      undecided ? `${undecided} bez Decision → uzupełnij (bench-define)` : "",
+      count("built") ? `${count("built")} czeka na bramkę partii (bench-define, budowa)` : "",
       count("ready") + count("measuring") ? `${count("ready") + count("measuring")} do pomiaru → bench-measure` : "",
-      reevaluate ? `${reevaluate} zachowanych prób ocenionych w innej erze → re-ocena (rate-attempt)` : "",
-      count("measured") ? `${count("measured")} zmierzone → bench-summary` : "",
+      reevaluate ? `${reevaluate} zachowanych prób ocenionych w innej erze → re-ocena (bench-measure)` : "",
+      count("measured") ? `${count("measured")} zmierzone → bench-decide` : "",
       uncommitted ? `${uncommitted} z plikami poza commitem → bench changes (plan commitów)` : "",
     ].filter(Boolean);
     console.log(`\nnastępny krok: ${steps.length ? steps.join("; ") : "nic nie czeka"}`);

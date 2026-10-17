@@ -26,6 +26,15 @@ openrouter_api="${BENCH_OPENROUTER_BASE_URL:-https://openrouter.ai/api}"
 
 cd /workspace
 
+# Pliki instrukcji projektu, które agent ZASTAŁ (przed startem) — różne
+# CLI czytają różne pliki, więc to część kontekstu próby (attempt.json →
+# context_files; wyrównanie: defaults.context_files, lib/context-files.ts).
+find . -maxdepth 3 \( -name node_modules -o -name .git \) -prune -o -type f \
+  \( -name AGENTS.md -o -name CLAUDE.md -o -name CLAUDE.local.md -o -name GEMINI.md \
+     -o -name .cursorrules -o -path ./.github/copilot-instructions.md \) -print \
+  -o -type l \( -name AGENTS.md -o -name CLAUDE.md \) -print 2>/dev/null |
+  sed 's|^\./||' | sort >"$out/context-files.txt"
+
 # Wykonanie agenta pod twardym timeoutem. OpenCode: SIGTERM (jak dotąd).
 # Claude Code i Codex dostają SIGINT — przerwanie tury zostawia na dysku
 # zdarzenia i transkrypt do tej chwili (SIGTERM gubi bufor stdout Claude

@@ -33,6 +33,12 @@ export const EraStamps = z.object({
   task_hash: z.string().regex(/^[0-9a-f]{64}$/, "SHA-256 hex"),
   judge_model: z.string().min(1),
   /**
+   * Ścieżka oceny składowej judge: "api" (sędzia API na diffie), "agent"
+   * (sędzia z narzędziami, werdykt z pliku), "human", "none" (zadanie bez
+   * sędziego). Część klucza ery. Brak pola = wynik sprzed wprowadzenia.
+   */
+  judge_mode: z.enum(["api", "agent", "human", "none"]).optional(),
+  /**
    * Wersje rubryk użytych przez zadanie: `<rubryka>@<wersja>` (sortowane,
    * łączone "+"), "none" dla zadań bez składowej judge — kalibracja
    * rubryki otwiera nową erę tylko zadaniom, które jej używają.
@@ -56,9 +62,23 @@ export const ResultSchema = z.object({
   /** Numer próby, licząc od 1. */
   trial: z.number().int().positive(),
   scores: Scores,
-  /** Ważona suma scores wg wag z task.yaml. */
+  /** Ważona suma scores wg wag z task.yaml — miara jakości, nie zaliczenie. */
   total: z.number().min(0).max(1),
+  /**
+   * Zaliczenie jako BRAMKA (scoring 3+): każdy guard z wagą > 0 = 1 ORAZ
+   * judge ≥ defaults.pass_threshold. Brak pola = wynik sprzed bramki
+   * (konsumenci liczą wtedy legacy: total ≥ pass_threshold).
+   */
+  passed: z.boolean().optional(),
+  /** Uzasadnienie werdyktu bramki (czerwone guardy / judge poniżej progu). */
+  pass_reason: z.string().optional(),
   cost_usd: z.number().min(0),
+  /**
+   * Skąd koszt: "harness" / "config" / "openrouter:<slug>" (wycena runnera);
+   * null = koszt NIEZNANY (cost_usd = 0 tylko z kontraktu). Brak pola =
+   * wynik sprzed wprowadzenia (koszt z harnessu).
+   */
+  cost_source: z.string().nullable().optional(),
   /**
    * Koszt wywołań sędziego dla tej próby — osobno od cost_usd (kosztu
    * modelu ocenianego), żeby nie zakłamywać kosztu na leaderboardzie.

@@ -1,4 +1,4 @@
-# Task report template (bench-build)
+# Task report template (bench-define)
 
 The task remains as **files in the working tree** — the subagent does
 nothing in git. The report takes over the role of a change description:
@@ -66,7 +66,16 @@ suspect-harness here, not counted against models.>
 confirmation it encodes no implementation shape (no paths, symbols,
 grep discovery, copied-in test files, forced environments — paths the
 prompt fixes verbatim are the only exception); how pre-existing repo
-problems are not punished; dependency self-install.>
+problems are not punished; dependency self-install.
+
+For a mined order's `tests/<task>-pr`, instead:
+- the source change (SHA, PR number) and its pin;
+- the coupling decision: which names the tests assert that the change
+  introduced, and where the prompt states them;
+- the two-direction proof: `bench assert` output with the empty diff
+  at 0 and `reference.diff` at 1;
+- the red log excerpt showing the change's own assertions are what
+  fails at the pin.>
 
 ## Rubric
 

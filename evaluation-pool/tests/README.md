@@ -19,6 +19,18 @@ To, co taki test próbował mierzyć, wyraża dziś rubryka sędziego
 (`evaluation-pool/judge/`) językiem naturalnym — opisem dobrych
 i złych implementacji.
 
+## Wyjątek: testy PR-a (`tests/<zadanie>-pr`)
+
+Zadanie wykopane z historii (bench-define → MINING.md) niesie testy
+zmiany, z której powstało. Pliki testów w wersji po merge'u leżą
+w `files/`, a `check.yaml` kopiuje je na workspace (zmiany agenta
+w tych samych plikach przegrywają, jak w SWE-bench) i uruchamia
+repo-natywną komendę testów dla tych plików. Warunki dopuszczenia:
+testy dotykają wyłącznie interfejsu istniejącego na pinie albo nazw
+podanych dosłownie w prompcie; czerwone na pinie z właściwego powodu
+(asercje zmiany, nie crash ani brak modułu); zielone z kodem zmiany.
+Wzorzec: TASK_AUTHORING.md → "Mined orders".
+
 ## Konwencje
 
 - wyłącznie komendy zdefiniowane przez repo bazowe; detekcja package

@@ -73,7 +73,7 @@ const ofUnit = (k, n, unit) => k + " z " + n + " " + unit;
 
 // Koszt jednego UŻYTECZNEGO wyniku = koszt prób ÷ liczba udanych. Gdy wejście
 // policzyło go dokładnie (suma faktycznych kosztów prób — tak robi
-// bench-summary), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
+// bench-decide), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
 // kosztu, więc tam jest to przybliżenie. Przy zerowym pass rate liczba nie
 // istnieje i musi zostać pokazana jako "brak" — to też informacja.
 const costPerPass = r => (r.passed > 0
@@ -107,7 +107,7 @@ function reliabilityCell(r) {
     '<span class="thin">' + fmt.score(r.w.lo) + "–" + fmt.score(r.w.hi) + '</span></div>';
 }
 
-// Wniosek liczony TU, z wierszy — zeby leaderboard i bench-summary nie mogly
+// Wniosek liczony TU, z wierszy — zeby leaderboard i bench-decide nie mogly
 // pokazac dwoch roznych rekomendacji z tych samych danych.
 function verdictHtml(rows, taskName) {
   const ranked = rankRows(rows);
@@ -369,7 +369,9 @@ function overallRows() {
       acc.sumCost += r.median_cost_usd;
       acc.sumLo += wilson(r.passed, r.trials).lo;
       acc.trials += r.trials;
-      if (r.median_total >= DATA.pass_threshold) acc.passed++;
+      // Zadanie "rozwiązane" = większość prób zaliczona wg bramki (passed),
+      // nie mediana sumy — suma jest miarą jakości, nie zaliczeniem.
+      if (r.trials > 0 && r.passed / r.trials >= 0.5) acc.passed++;
       perModel.set(r.model, acc);
     }
   }
@@ -469,7 +471,7 @@ function howToRead() {
 }
 
 // NAGŁÓWEK — treść pochodzi z danych (DATA.heading), nie z kodu: ten sam
-// szablon obsługuje publiczny leaderboard i wewnętrzny raport bench-summary,
+// szablon obsługuje publiczny leaderboard i wewnętrzny raport bench-decide,
 // a te dwie strony mówią do innych czytelników. Kod trzyma tylko domyślne
 // teksty — mechanika benchmarku jest opisana niżej, w "jak to czytać",
 // więc nagłówek ma prawo być zwykłym wstępem.

@@ -1,15 +1,6 @@
----
-name: bench-refresh-task
-description: >-
-  Refreshes an expired benchmark task: new pinned commit of the base
-  repo, re-verification of the overlay, assertions, and reference
-  declarations on the new starting state, updated expires — finalized
-  with a PR that opens a new era for the task. Use after an `expires`
-  warning from bench validate, when the base repo has drifted from the
-  pin, or when the user says "refresh the task / the task has expired".
----
+<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
 
-# bench-refresh-task — task aging
+# Refresh — task aging
 
 The task is pinned to a months-old commit while the base repo keeps
 moving. A refresh is not a SHA swap: it is a full re-pass of the
@@ -23,8 +14,8 @@ rescuing it artificially.
 
 ## Hard rules
 
-1. **Output exclusively via PR.** Branch `bench-refresh-task/<name>` +
-   PR per [PR_TEMPLATE.md](PR_TEMPLATE.md); a human merges. Never
+1. **Output exclusively via PR.** Branch `bench-refresh/<name>` +
+   PR per [REFRESH_PR_TEMPLATE.md](REFRESH_PR_TEMPLATE.md); a human merges. Never
    commit to the instance's master.
 2. **Refresh = a new era for the task.** Any change to the task
    directory changes the `task_hash`. The PR has a "Comparability
@@ -35,22 +26,22 @@ rescuing it artificially.
    `reference` declaration, or overlay makes it into the PR "because it
    worked on the old pin" — re-run every proof on the new pin via
    `bench assert` / `bench validate --assert`. The shape-neutrality
-   rule from bench-build's TASK_AUTHORING.md applies unchanged —
+   rule from bench-define's TASK_AUTHORING.md applies unchanged —
    scripted assertions run only the repo's own commands, and a refresh
    is a fresh chance for the repo to have renamed those commands or
    moved its toolchain.
 4. **A refresh preserves intent.** Adapt the prompt/overlay/assertions
    to the new code minimally; changing WHAT the task measures is a new
-   task (commissioned via bench-new-task, built via bench-build), not a
+   task (ordered via INTERVIEW.md or MINING.md, built via BUILD.md), not a
    refresh.
 5. **Never modify shared assertions in place.** A pooled assertion used
    by other tasks changes their scoring without a trace in the stamps
    (`task_hash` covers only the task directory). If an assertion needs
    changing and someone else uses it: create a new version in the pool
    (e.g. `tests/<name>-v2`) and swap it in this task's `evaluation[]`.
-6. **Isolation of evaluation materials.** As in bench-build: nothing
+6. **Isolation of evaluation materials.** As in bench-define: nothing
    from `evaluation-pool/` goes into `tasks/<name>/`; the task's
-   rubric and any calibration set (bench-rubric, from preserved
+   rubric and any calibration set (judge diagnostics (bench-measure), from preserved
    attempts) live under `evaluation-pool/judge/`, never in `tasks/`.
 7. **Do not touch `.bench-kit/`** or other people's tasks.
 8. **Budget instead of a consent ritual.** Costs are guarded by
@@ -91,7 +82,7 @@ Read before changing anything:
 - related materials: the task's rubric
   `evaluation-pool/judge/<task>-rubric.md` — its judge-facing context
   names mechanisms of the old pin; a calibration set in
-  `evaluation-pool/judge/<task>-calibration/`, if bench-rubric built
+  `evaluation-pool/judge/<task>-calibration/`, if judge diagnostics (bench-measure) built
   one, holds old-era attempt diffs,
 - the task's most recent results (results/<task>/ in the repo) — after the
   refresh they stop being comparable; it is worth knowing what you are
@@ -157,7 +148,7 @@ overlay file against its counterpart on the new pin: the overlay must
 differ from the new pin's file **solely by the bug seed**. If the repo
 file has drifted — port the bug seed onto its new version.
 
-Then redo the observability proof from scratch, as in bench-build
+Then redo the observability proof from scratch, as in bench-define
 (TASK_AUTHORING.md, step 2):
 
 - guard-observed seed: on the starting state (new pin + overlay) the
@@ -183,7 +174,7 @@ Then redo the observability proof from scratch, as in bench-build
 - **Shared assertions**: changes only via a new version in the pool
   (rule 5).
 - **Judge**: re-read the rubric against the new pin. The context it
-  gives the judge (mechanisms, surfaces, asymmetries — see bench-build's
+  gives the judge (mechanisms, surfaces, asymmetries — see bench-define's
   RUBRIC_AUTHORING.md) may have drifted: a wording update that keeps
   every criterion's meaning is part of the refresh (say so in the PR);
   a change of criteria, anchors or weights is a rubric change — a
@@ -212,15 +203,15 @@ collect the results together. In order, each must pass:
    scores low; for a guard-observed bug seed, the red guard at the
    start is additional evidence.
 3. Trial `bench attempt --smoke` + `evaluate` on one cheap model (the
-   instance budget guards costs — rule 8). As in bench-build, the
+   instance budget guards costs — rule 8). As in bench-define, the
    smoke run doubles as the solvability probe on the new pin: an
    assertion no attempt greens is suspect-harness — diagnose it before
    the PR, do not ship it.
 
 ### 8. PR
 
-Branch `bench-refresh-task/<name>`, description per
-[PR_TEMPLATE.md](PR_TEMPLATE.md): old → new pin with what happened
+Branch `bench-refresh/<name>`, description per
+[REFRESH_PR_TEMPLATE.md](REFRESH_PR_TEMPLATE.md): old → new pin with what happened
 between them; adaptations with justification; the full set of proofs
 from the new starting state; a "this opens a new era for this task"
 section;

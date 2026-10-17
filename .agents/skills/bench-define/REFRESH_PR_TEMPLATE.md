@@ -1,6 +1,6 @@
-# Task refresh PR template (bench-refresh-task)
+# Task refresh PR template (bench-define (refresh))
 
-Title: `bench-refresh-task: <task-name>`
+Title: `bench-define (refresh): <task-name>`
 
 ```markdown
 ## Reason for the refresh

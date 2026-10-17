@@ -1,18 +1,6 @@
----
-name: bench-build
-description: >-
-  Builds benchmark tasks from pending orders in the backlog
-  (`tasks/backlog.md`): fans the orders out to subagents — each does
-  the authoring as text work (pin, overlay, prompt, assertions,
-  rubric, weights), containers only where its own files need proof — then
-  proves the whole batch once at the batch gate (`bench validate
-  --assert` + smoke) and leaves finished files in the working tree
-  with an evidence report — no git.
-  Use when the user wants to build tasks from the backlog or says
-  "bench-build / build the tasks / process the backlog".
----
+<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
 
-# bench-build — building tasks from the backlog
+# Build — tasks from the backlog's orders
 
 You orchestrate task construction: you read `pending` orders from
 `tasks/backlog.md`, fan them out to subagents, keep statuses accurate,
@@ -33,7 +21,7 @@ no per-task smoke, no waves throttled by container contention.
 
 **Empty backlog**: if `tasks/backlog.md` does not exist or has no
 `pending` entries, tell the user that orders are created first with the
-**bench-new-task** skill (short interview → backlog entry), and stop —
+interview (INTERVIEW.md) or PR mining (MINING.md), and stop —
 do not invent tasks yourself.
 
 ## Hard rules
@@ -43,9 +31,9 @@ do not invent tasks yourself.
    TASK_AUTHORING.md. Your job: scoping, preparing shared resources,
    fan-out, statuses, the aggregate report.
 2. **The order is a contract.** A subagent builds what the backlog
-   entry says — the design decisions were made in bench-new-task. Do
+   entry says — the design decisions were made when the order was written (INTERVIEW.md / MINING.md). Do
    not patch gaps in an entry with guesses: an incomplete order goes
-   back to the user (or to bench-new-task), not into the build.
+   back to the user (or to the interview), not into the build.
 3. **Zero git — files and reports, nothing more.** Neither you nor the
    subagents commit, branch, or push. The output of a batch is finished
    `tasks/<name>/` directories (+ new assertions in the pool) in the
@@ -175,10 +163,10 @@ Run `bench backlog` and take the orders at stage `ordered` (name + one
 sentence from the entry). By default you build all of them; if the user
 named a subset in the invocation, build those. Read its notes before
 fanning out: an order flagged without a Decision is not built (rule 7
-of bench-new-task), and a `building` order whose todo.md has gone stale
+of bench-define), and a `building` order whose todo.md has gone stale
 is a dead session. Tell the user about it; do not overwrite it with a
 second subagent. Orders incomplete against the entry
-schema (BACKLOG_TEMPLATE.md in bench-new-task) get set aside with a
+schema (BACKLOG_TEMPLATE.md in bench-define) get set aside with a
 list of gaps — for completion, not for building.
 
 ### 2. Preparation
@@ -214,12 +202,17 @@ no status to switch: the subagent's first action, `tasks/<name>/todo.md`,
 is the claim `bench backlog` reads as `building`. Pass in its prompt:
 
 - the full backlog entry for the order, verbatim;
-- the pin candidate for the order's base repo: SHA + proof of green CI
+- for a **mined order** (`Source: pr`): its own **Pin** from the entry,
+  not the batch candidate, and the instruction to follow the "Mined
+  orders" path of TASK_AUTHORING.md, which extracts the tests and
+  reference with `mine-prs.mjs emit` and proves both directions. The
+  clone must already be deep enough to contain the pin (rule 6);
+- otherwise, the pin candidate for the order's base repo: SHA + proof of green CI
   (step 2) and the deviation rule — the candidate is the default, the
   subagent verifies that its order makes sense on that commit, and any
   deviation requires a justification in the report;
 - an instruction to read and follow
-  `.agents/skills/bench-build/TASK_AUTHORING.md` (path per the
+  `.agents/skills/bench-define/TASK_AUTHORING.md` (path per the
   instance's skills directory) — that is its procedure, with the hard
   rules and the report template;
 - the instance root and a reminder: zero git, no fetching in
@@ -319,7 +312,7 @@ subagents deliberately skipped (rule 9).
    **Read the smoke's judge verdict per criterion, not just the total.**
    The judge call is already paid for, and the smoke diff is the only
    real wrong-but-competent attempt the batch will see before the
-   matrix (bench-rubric calibrates on real attempts and fabricates no
+   matrix (judge diagnostics (bench-measure) calibrates on real attempts and fabricates no
    synthetic ones, so there is no other source). Open `judge.json`,
    read each criterion's score and justification against the diff, and
    ask the one question the total hides: **does a diff that fails the
@@ -392,11 +385,11 @@ use it) is yours to fix before handing over. Typical transitions:
 - **A task with a judge component** → straight to **bench-measure**;
   the rubric is calibrated by the first real attempts (the report names
   the criterion to spot-check first). A rubric fix after that run
-  re-evaluates preserved attempts, never re-runs them. bench-rubric is
+  re-evaluates preserved attempts, never re-runs them. judge diagnostics (bench-measure) is
   not a step here — it is a diagnostic for judge stability / judge
   comparison once attempts exist.
 - **Orders are back at `ordered`** (refused, gate red) → complete the entries
-  (bench-new-task) or re-run bench-build on the subset.
+  (bench-define) or re-run bench-define on the subset.
 - **The batch gate deferred its smoke (no secrets in the session)** →
   after the user accepts the files, one `bench attempt --smoke` on all
   of the batch's new tasks at once, in a session with keys — you run

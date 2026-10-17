@@ -24,6 +24,8 @@ export const ReportRowSchema = z.object({
   passed: z.number().int().min(0),
   pass_at_1: z.number().min(0).max(1),
   pass_at_k: z.number().min(0).max(1),
+  /** pass^k: wszystkie k prób zaliczone (τ-bench); brak = raport sprzed pola. */
+  pass_hat_k: z.number().min(0).max(1).optional(),
 });
 
 export const ReportSchema = z.object({

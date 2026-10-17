@@ -2,7 +2,7 @@
  * bench attempt — LOKALNE wykonanie prób macierzy model × zadanie × próba,
  * produkujące ZACHOWANE PRÓBY (kontrakt: .bench-kit/ATTEMPT_FORMAT.md).
  * Wykonanie nie wie nic o rubrykach — ocena to osobny proces
- * (`bench evaluate` / skill rate-attempt), uruchamialny wielokrotnie.
+ * (`bench evaluate` / procedura rate-attempt skilla bench-measure), uruchamialny wielokrotnie.
  *
  * Przebieg:
  * 1. Plan: docelowa liczba prób per komórka (model × zadanie); istniejące
@@ -384,7 +384,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     // --- harnessy i ceny: ustalone PRZED wydaniem pieniędzy ---
     // Model, którego kosztu nie da się policzyć, nie startuje: koszt
-    // nieznany to budżet, który nie działa, i $0 w ekonomii bench-summary.
+    // nieznany to budżet, który nie działa, i $0 w ekonomii bench-decide.
     const harnessSpecs = new Map<string, HarnessModel>();
     for (const model of new Set(plan.filter((c) => c.numbers.length > 0).map((c) => c.model))) {
       harnessSpecs.set(model, parseModelId(model));
@@ -627,6 +627,13 @@ export async function attemptCommand(args: string[]): Promise<number> {
         break;
       }
 
+      // Pliki instrukcji, które agent zastał (trial.sh) → attempt.json.
+      const contextList = join(trialDir, "context-files.txt");
+      const contextFiles = existsSync(contextList)
+        ? readFileSync(contextList, "utf8").split("\n").filter(Boolean)
+        : null;
+      rmSync(contextList, { force: true });
+
       // Koszt wg polityki harnessu (lib/pricing.ts): wycena z tokenów tam,
       // gdzie harness nie daje wiarygodnego kosztu — ze źródłem w metrics.json.
       const metricsFile = join(trialDir, "metrics.json");
@@ -647,6 +654,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
             task: name,
             model,
             harness: { name: harness.harness, version: harnessVersion(root, harness.harness), route: harness.route },
+            context_files: contextFiles === null ? null : { present: contextFiles, policy: config.defaults.context_files },
             trial,
             image,
             start_sha: startSha,

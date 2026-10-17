@@ -82,4 +82,4 @@ resources:
 # Workspace każdej próby jest ZAWSZE zachowywany na dysku
 # (attempts/<zadanie>/<model>/trial-<n>/workspace/, poza gitem) —
 # to część kontraktu zachowanej próby (.bench-kit/ATTEMPT_FORMAT.md),
-# surowiec dla sędziego-z-narzędziami (skill rate-attempt).
+# surowiec dla sędziego-z-narzędziami (procedura rate-attempt (bench-measure)).

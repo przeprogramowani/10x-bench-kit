@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * bench-summary: deterministyczna ekonomia biegu.
+ * bench-decide: deterministyczna ekonomia i statystyka decyzji.
  *
  * Czyta WYŁĄCZNIE drzewa śledzone przez gita — `results/**\/result.json`
  * (wynik, koszt, czas, stemple) oraz `attempts/**\/patch.diff` (koszt
@@ -8,6 +8,14 @@
  *
  * Nic tu nie ocenia i nic nie pisze do results/ — liczby mają być
  * powtarzalne, a nie wyprowadzane w czacie na nowo przy każdym pytaniu.
+ *
+ * Per zadanie × model: zaliczenia wg bramki z result.json (`passed`),
+ * TYLKO z bieżącej ery zadania (inne ery liczone osobno, nigdy mieszane),
+ * pass^k, wykluczone próby (awarie infrastruktury — widoczne, nie
+ * przemilczane), koszt nieznany jako nieznany. Ponad zadaniami
+ * (analytics.mjs): widok klasa × model z jednostką = zadanie, porównania
+ * parowe modeli na wspólnych zadaniach, rozdzielczość (ile zadań na jaką
+ * różnicę), horyzont czasowy z pola Human time backlogu.
  *
  *   node summarize.mjs --root <instancja> [--task <slug>] [--out <plik.json>] [--html <plik.html>]
  *
@@ -18,6 +26,7 @@
  */
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { classView, pairedComparisons, parseBacklogMeta, passHatK, resolvableGap, tasksNeeded, timeHorizon } from "./analytics.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback = null) => {
@@ -77,6 +86,37 @@ function reviewBurden(attemptDir) {
 }
 
 const threshold = passThreshold();
+
+/** Klucz ery jak w runnerze (lib/era.ts → eraKey). */
+const eraKeyOf = (s = {}) =>
+  JSON.stringify([s.scoring_version ?? s.template_version, s.task_hash, s.judge_model, s.rubric_version, s.judge_mode ?? null]);
+/** Bieżąca era zadania: najwyższa wersja scoringu, przy remisie — najliczniejsza. */
+function currentEra(results) {
+  const byKey = new Map();
+  for (const r of results) {
+    const key = eraKeyOf(r.stamps);
+    const entry = byKey.get(key) ?? { key, scoring: Number(r.stamps?.scoring_version ?? 0), count: 0 };
+    entry.count++;
+    byKey.set(key, entry);
+  }
+  return [...byKey.values()].sort((a, b) => b.scoring - a.scoring || b.count - a.count)[0]?.key ?? null;
+}
+/** Próby wyłączone z oceny (awaria infrastruktury / kill zasobowy) — z attempts/. */
+function excludedAttempts(cellDir) {
+  let excluded = 0;
+  for (const trialDir of dirs(cellDir)) {
+    if (!/^trial-\d+$/.test(trialDir)) continue;
+    const f = join(cellDir, trialDir, "attempt.json");
+    if (!existsSync(f)) continue;
+    try {
+      if (JSON.parse(readFileSync(f, "utf8")).infra_failure === true) excluded++;
+    } catch {
+      // nieczytelny attempt.json nie zmienia rachunku
+    }
+  }
+  return excluded;
+}
+const taskRates = new Map();
 const resultsRoot = join(root, "results");
 const attemptsRoot = join(root, "attempts");
 const tasks = [];
@@ -85,27 +125,38 @@ const eras = new Set();
 for (const task of dirs(resultsRoot)) {
   if (onlyTask && task !== onlyTask) continue;
   const models = [];
-  let rawStamps = null;
 
+  // Najpierw wszystkie wyniki zadania — bieżąca era wybierana nad całością,
+  // żeby żaden model nie liczył się w innej erze niż reszta.
+  const all = [];
   for (const modelDir of dirs(join(resultsRoot, task))) {
-    const trials = [];
-    let modelId = modelDir;
     for (const trialDir of dirs(join(resultsRoot, task, modelDir))) {
       const f = join(resultsRoot, task, modelDir, trialDir, "result.json");
-      if (!existsSync(f)) continue;
-      const r = JSON.parse(readFileSync(f, "utf8"));
+      if (existsSync(f)) all.push({ modelDir, trialDir, r: JSON.parse(readFileSync(f, "utf8")) });
+    }
+  }
+  const era = currentEra(all.map((x) => x.r));
+  const rawStamps = all.find((x) => eraKeyOf(x.r.stamps) === era)?.r.stamps ?? null;
+  if (rawStamps) eras.add([rawStamps.task_hash?.slice(0, 12), rawStamps.judge_model, rawStamps.rubric_version, rawStamps.judge_mode ?? "?"].join(" / "));
+
+  for (const modelDir of [...new Set(all.map((x) => x.modelDir))]) {
+    const trials = [];
+    let modelId = modelDir;
+    let otherEra = 0;
+    for (const { trialDir, r } of all.filter((x) => x.modelDir === modelDir)) {
       if (r.model) modelId = r.model;
-      if (r.stamps && !rawStamps) rawStamps = r.stamps;
-      if (r.stamps) {
-        eras.add(
-          [r.stamps.task_hash?.slice(0, 12), r.stamps.judge_model, r.stamps.rubric_version].join(" / "),
-        );
+      if (eraKeyOf(r.stamps) !== era) {
+        otherEra++;
+        continue;
       }
       trials.push({
         trial: r.trial,
         total: r.total,
-        passed: r.total >= threshold,
+        // Bramka z runnera (guardy zielone + judge ≥ próg); wyniki sprzed
+        // bramki — legacy próg sumy.
+        passed: r.passed ?? r.total >= threshold,
         cost_usd: r.cost_usd ?? 0,
+        cost_known: r.cost_source !== null,
         duration_s: r.duration_s ?? null,
         scores: r.scores ?? {},
         review: reviewBurden(join(attemptsRoot, task, modelDir, trialDir)),
@@ -116,9 +167,15 @@ for (const task of dirs(resultsRoot)) {
     const n = trials.length;
     const passes = trials.filter((t) => t.passed).length;
     const rate = passes / n;
+    const costUnknown = trials.filter((t) => !t.cost_known).length;
     const spend = trials.reduce((s, t) => s + t.cost_usd, 0);
     const meanCost = spend / n;
     const reviews = trials.map((t) => t.review).filter(Boolean);
+    const excluded = excludedAttempts(join(attemptsRoot, task, modelDir));
+    const k = Math.min(n, 3);
+
+    if (!taskRates.has(task)) taskRates.set(task, new Map());
+    taskRates.get(task).set(modelId, { passes, trials: n, outcomes: trials.map((t) => t.passed) });
 
     models.push({
       model_id: modelId,
@@ -127,10 +184,20 @@ for (const task of dirs(resultsRoot)) {
       passes,
       pass_rate: rate,
       interval: wilson(passes, n),
+      // pass^k: szansa, że k prób Z RZĘDU zaliczy — "czy da się to puścić
+      // bez nadzoru", ostrzejsze niż pass rate.
+      pass_hat_k: { k, value: passHatK(n, passes, k) },
+      // Wykluczone (infra/kill) nie wchodzą do n — ale są widoczne: model,
+      // który częściej wywraca środowisko, nie może na tym zyskać.
+      excluded,
+      exclusion_rate: excluded / (n + excluded),
+      other_era_trials: otherEra,
       spend_usd: spend,
+      cost_unknown_trials: costUnknown,
       mean_cost_usd: meanCost,
       // TA liczba jest decyzją: ile kosztuje JEDEN akceptowalny wynik, z ponowieniami.
-      expected_cost_per_pass: passes > 0 ? meanCost / rate : null,
+      // Nieznany koszt którejkolwiek próby = nieznany wynik, nie zaniżony.
+      expected_cost_per_pass: passes > 0 && costUnknown === 0 ? meanCost / rate : null,
       median_total: median(trials.map((t) => t.total)),
       mean_duration_s: median(trials.map((t) => t.duration_s).filter((d) => d != null)),
       review_burden: reviews.length
@@ -189,11 +256,23 @@ for (const task of dirs(resultsRoot)) {
         `${pick.model_id} zawodzi w ${pick.trials - pick.passes} z ${pick.trials} prób — koszt na akceptowalny wynik zakłada, że ponowienie jest darmowe poza tokenami`,
       );
     }
+    if (pick.cost_unknown_trials > 0) {
+      caveats.push(`${pick.model_id}: koszt nieznany w ${pick.cost_unknown_trials} próbach — brak ceny modelu; koszt na wynik nie jest policzalny`);
+    }
     const thin = candidates.filter((m) => m.trials < 3 && m !== pick);
     if (thin.length) {
       caveats.push(
         `porównanie asymetryczne: ${thin.map((m) => `${m.model_id} (n=${m.trials})`).join(", ")} zmierzone słabiej niż ${pick.model_id} (n=${pick.trials})`,
       );
+    }
+  }
+
+  for (const m of models) {
+    if (m.exclusion_rate > 0.2 && m.excluded >= 2) {
+      caveats.push(`${m.model_id}: ${m.excluded} prób wykluczonych (awarie/kill — ${Math.round(m.exclusion_rate * 100)}%) — pass rate liczony bez nich może być zawyżony`);
+    }
+    if (m.other_era_trials > 0) {
+      caveats.push(`${m.model_id}: ${m.other_era_trials} wynik(ów) z innej ery pominięte — re-ocena zachowanych prób włączy je do bieżącej`);
     }
   }
 
@@ -215,6 +294,7 @@ for (const task of dirs(resultsRoot)) {
     passed: m.passes,
     pass_at_1: m.pass_rate,
     pass_at_k: m.passes > 0 ? 1 : 0,
+    pass_hat_k: m.pass_hat_k.value,
   }));
 
   tasks.push({
@@ -247,19 +327,57 @@ for (const task of dirs(resultsRoot)) {
   });
 }
 
+// --- ponad zadaniami: klasy, porównania parowe, rozdzielczość, horyzont ---
+const backlogPath = join(root, "tasks", "backlog.md");
+const backlogMeta = existsSync(backlogPath) ? parseBacklogMeta(readFileSync(backlogPath, "utf8")) : new Map();
+const classOf = new Map([...taskRates.keys()].map((t) => [t, backlogMeta.get(t)?.class ?? null]).filter(([, c]) => c));
+const classes = classView(taskRates, classOf);
+const paired = {
+  all: pairedComparisons(taskRates),
+  by_class: Object.fromEntries(
+    classes
+      .filter((c) => c.tasks >= 2)
+      .map((c) => [c.class, pairedComparisons(taskRates, new Set([...taskRates.keys()].filter((t) => (classOf.get(t) ?? "(bez klasy)") === c.class)))]),
+  ),
+};
+const horizonModels = [...new Set([...taskRates.values()].flatMap((m) => [...m.keys()]))];
+const horizons = Object.fromEntries(
+  horizonModels.map((model) => {
+    const obs = [];
+    for (const [task, m] of taskRates) {
+      const minutes = backlogMeta.get(task)?.human_minutes;
+      const cell = m.get(model);
+      if (!minutes || !cell) continue;
+      for (const passed of cell.outcomes) obs.push({ task, minutes, passed });
+    }
+    return [model, timeHorizon(obs)];
+  }),
+);
+
 const out = {
   generated_at: new Date().toISOString(),
   root,
   pass_threshold: threshold,
   eras: [...eras],
   tasks,
+  classes,
+  paired,
+  horizons,
+  // Rozdzielczość: jaką różnicę między modelami ten zbiór zadań w ogóle
+  // potrafi rozstrzygnąć — i ile zadań trzeba na mniejszą.
+  power: {
+    tasks_measured: taskRates.size,
+    resolvable_gap_pp: resolvableGap(taskRates.size),
+    tasks_needed: { "20pp": tasksNeeded(0.2), "30pp": tasksNeeded(0.3), "50pp": tasksNeeded(0.5) },
+    assumption: "porównanie parowe na wspólnych zadaniach, α=0.05, moc 0.8, rozbieżność modeli ψ=δ+0.1",
+  },
   total_spend_usd: tasks.reduce((s, t) => s + t.spend_usd, 0),
 };
 
 const json = JSON.stringify(out, null, 2);
 if (outPath) {
   writeFileSync(outPath, json + "\n");
-  console.error(`bench-summary: ${tasks.length} zadań, ${[...eras].length} er(y) → ${outPath}`);
+  console.error(`bench-decide: ${tasks.length} zadań, ${[...eras].length} er(y) → ${outPath}`);
 } else if (!htmlPath) {
   process.stdout.write(json + "\n");
 }
@@ -275,7 +393,7 @@ if (htmlPath) {
     console.error(`error: brak wspólnego szablonu w ${assets} — uruchom z --root wskazującym instancję benchmarku`);
     process.exit(1);
   }
-  const title = headTitle ?? (onlyTask ? `bench-summary — ${onlyTask}` : "bench-summary — który model do tej pracy");
+  const title = headTitle ?? (onlyTask ? `bench-decide — ${onlyTask}` : "bench-decide — który model do tej pracy");
   const escHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // Kształt SiteData leaderboardu: jeden run, jedna era per zadanie.
@@ -312,5 +430,5 @@ if (htmlPath) {
       .split("__DATA__").join(JSON.stringify(site).replace(/</g, "\\u003c"))
       .split("/*__APP__*/").join(asset("app.js").trimEnd()),
   );
-  console.error(`bench-summary: → ${htmlPath}`);
+  console.error(`bench-decide: → ${htmlPath}`);
 }

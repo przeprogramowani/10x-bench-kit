@@ -201,7 +201,7 @@ export function planChanges(root: string, base: string): { base: string; groups:
       else g.messages.push("nowe zadanie otwiera własną erę — nie zamyka żadnej istniejącej");
       if (existsSync(join(root, "tasks", name, "todo.md"))) {
         // brak raportu to normalny stan w trakcie budowy — powód blokady podaje todo.md
-      } else if (!existsSync(report)) g.messages.push(`brak reports/${name}-build.md — zadanie bez dowodów ze stanu startowego (bench-build)`);
+      } else if (!existsSync(report)) g.messages.push(`brak reports/${name}-build.md — zadanie bez dowodów ze stanu startowego (bench-define)`);
       else if (!gateFilled(readFileSync(report, "utf8"))) g.messages.push("raport bez sekcji Batch gate — stan startowy nieudowodniony na bramce partii");
     } else {
       const results = stamps.filter((s) => s.task === name);

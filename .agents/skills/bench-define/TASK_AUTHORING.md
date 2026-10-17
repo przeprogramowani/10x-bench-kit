@@ -1,6 +1,6 @@
-# TASK_AUTHORING — bench-build subagent procedure
+# TASK_AUTHORING — build subagent procedure (bench-define)
 
-You are a bench-build subagent. You received an **order** — an entry
+You are a bench-define build subagent. You received an **order** — an entry
 from `tasks/backlog.md` with the design decisions already made (type,
 base repo, guidance level, difficulty/time limit, description, notes).
 The order states the time limit in **minutes** — convert it to
@@ -47,7 +47,7 @@ task built on guesses.
    reference; what happens to them next (commit, PR, review) is the
    user's decision. The task's own rubric
    (`evaluation-pool/judge/<name>-rubric.md`) IS your scope; other
-   rubrics and `bench.config.yaml` are not (bench-wiring). You do not
+   rubrics and `bench.config.yaml` are not (bench-measure (preflight)). You do not
    touch the backlog (`tasks/backlog.md`) at all. Your progress is
    read from your own files (`todo.md`, then `task.yaml` and the
    report) by `bench backlog`; nobody records it by hand.
@@ -149,6 +149,68 @@ zone, and your fix would race with neighbors building in parallel.
   your tools — the orchestrator runs them once for the whole batch at
   the batch gate.
 
+## Mined orders (`Source: pr`)
+
+An order mined from history (MINING.md) arrives with facts the
+interview path has to establish. Pin, solution and tests already exist,
+which changes four steps; everything else, including the rubric, the
+todo.md progress file and the report, stays as below.
+
+- **Step 1, pin:** the order's **Pin**, the parent of the mined change.
+  No CI hunt: it is a commit of the default branch's first-parent
+  history. Do not take the orchestrator's batch pin candidate for a
+  mined order.
+- **Step 2, overlay:** none. The change's code is absent at the pin by
+  construction; that *is* the task.
+- **Step 3, prompt:** reverse-engineered from the order's intent (PR
+  description, issue, commit message) at its guidance level.
+  - Write it as the request a developer would have received: the
+    problem or goal, the observable behaviour wanted, the boundaries.
+  - **The order's Coupled names appear verbatim**, as stated
+    requirements, because the hidden tests assert them.
+  - **Nothing else from the reference diff may appear:** no other new
+    identifiers, file names, line numbers or test names. Check it
+    mechanically against `meta.json` → `new_identifiers`: any of them
+    in `prompt.md` that is not in Coupled names is a leak.
+- **Step 4, assertions:** the hidden guard `tests/<task>-pr`.
+  1. `node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> emit
+     <sha> --out <scratch>` writes `reference.diff`, `files/` (the
+     test files after the merge) and `meta.json`.
+  2. Copy `files/` to `evaluation-pool/tests/<task>-pr/files/`, and
+     drop any test file you decided not to use (Coupled names: internal
+     structure).
+  3. Write `check.yaml`. Copy the files over the workspace (the
+     agent's edits to those same files lose, as in SWE-bench), install
+     dependencies the way the repo does, and run the repo's own test
+     command **for those files**:
+     ```yaml
+     score: binary
+     checks:
+       - name: pr-tests
+         run: |
+           cp -r "$ASSERTION_DIR/files/." .
+           <repo-native install, lockfile-detected as in static/lint>
+           <repo-native test command for the copied files>
+     ```
+  4. Declare `reference: { tests/<task>-pr: fail }` in task.yaml.
+  5. **Prove both directions** with one batch call: `bench assert
+     tests/<task>-pr --task <task> --patch <empty.diff> --patch
+     <scratch>/reference.diff`. The empty diff must score 0 and the
+     reference 1.
+  6. Read the red log: the change's new assertions must be what fails,
+     while the pre-existing tests in those files pass. A crash, an
+     import error or a missing module at the pin is the wrong reason.
+     It means the tests reach for something the change created, so go
+     back to the coupling decision.
+  7. Paste both outputs into the report, together with the reference
+     SHA. The reference diff itself stays in your scratch dir and is
+     deleted at handoff; history keeps it.
+- **Step 5, weights:** the hidden tests carry correctness, so they
+  usually take the larger weight (e.g. tests 0.6, judge 0.4). The
+  rubric then focuses on what tests cannot see: scope, quality, the
+  order's evaluation axis. Pass is a gate (guards green and judge ≥
+  threshold), so the weights shape the quality score, not who passes.
+
 ## Procedure
 
 ### 0. Work plan — todo.md
@@ -187,6 +249,8 @@ they would enter the next build's `task_hash`. Everything meant to
 survive belongs in the final report.
 
 ### 1. Pin
+
+(Mined order: the order's Pin — see "Mined orders" above.)
 
 The orchestrator gave you a **pin candidate** in the prompt (SHA +
 proof of green CI) for the base repo — do not repeat its work: do not
@@ -244,6 +308,8 @@ a bug seed, not a project rebuild.
 
 ### 3. prompt.md
 
+(Mined order: reverse-engineered from intent, Coupled names verbatim — see "Mined orders" above.)
+
 Write it like a brief for a human: goal, context, boundaries ("change
 nothing beyond…") — at the guidance level **declared in the order**:
 *product-level* describes only the symptom/goal, *directional* may name
@@ -275,6 +341,8 @@ the project — you end up measuring temperament, not skill.
 
 ### 4. Assertions
 
+(Mined order: the hidden guard `tests/<task>-pr`, proven in both directions — see "Mined orders" above.)
+
 The grading layers divide cleanly, and the division is binding:
 
 - **Execution guards** (`static/`, `tests/`, `e2e/`) — scripted checks
@@ -300,7 +368,13 @@ environments. Litmus test: **any two correct implementations must
 score identically on every scripted assertion.** The moment you feel
 the need for grep, dynamic discovery, copied-in tests, or environment
 forcing, the thing you are checking is review-visible — move it into
-the review criteria. Bespoke hidden behavioural tests (the previous
+the review criteria. **One exception:** a mined order's tests
+(`tests/<task>-pr`, "Mined orders" above). They are not bespoke; they
+are the tests a real developer wrote for the real change. They are
+admitted only when they touch interfaces that exist at the pin, or
+names the prompt states verbatim. The litmus test still holds for
+them: two correct implementations of the *stated* request pass them
+alike. Bespoke hidden behavioural tests (the previous
 convention) are retired for exactly this reason: they measured
 "was it coded the way the author imagined", not the work.
 
@@ -392,7 +466,8 @@ In order, each must pass before you move on:
    shape-neutrality rule of step 4 — repo-native commands only; a
    scan of the assertion scripts for path/symbol literals, grep
    discovery, or copied-in test files must come back empty (paths the
-   prompt fixes verbatim are the only exception). Record the result
+   prompt fixes verbatim, and a mined order's `tests/<task>-pr` within
+   its Coupled names, are the only exceptions). Record the result
    in the report.
 2. `bench validate --offline` — green (schemas, `evaluation[]` vs the
    pool, weights, rubric format; no containers). The gate covers the
