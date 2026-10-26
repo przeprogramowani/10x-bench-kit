@@ -225,7 +225,7 @@ function runInit(request) {
       log(`zarejestrowałem repo bazowe ${repo.name} (${repo.url})`);
       demoTasksPinned = pinPlaceholderTasks(yaml, join(targetDir, "tasks"), repo);
       if (demoTasksPinned > 0) {
-        log(`zapinowałem ${demoTasksPinned} zadanie/zadania-demo na ${repo.headCommit.slice(0, 12)}`);
+        log(`zapinowałem ${demoTasksPinned} zadanie/zadania-placeholdery na ${repo.headCommit.slice(0, 12)}`);
       }
     }
     if (baseRepo !== null) {

@@ -33,10 +33,20 @@ Init registers the product repository as the first base repo and leaves
 its working clone in `.repos/`. Open the generated `my-bench` directory
 in the AI coding tool you selected during init, then ask:
 
-> Use bench-wiring to check this instance and run the first local smoke measurement.
+> Use bench-wiring to check this instance and get this machine ready to measure.
 
-The skill checks configuration, container access, and credentials, then
-proves that execution and evaluation work locally. Publication is optional.
+The skill checks configuration, container access, and credentials.
+The template ships no demo task: the first attempt this machine runs is
+on your own work, in the build gate of your first real task. Publication
+is optional.
+
+In any later session, start with:
+
+> Use bench-status to check where this instance stands and what to do next.
+
+It checks the environment and the state of your tasks, attempts, and
+results without spending or changing anything, and names the one next
+step that is relevant now.
 
 **Init and update are the user-facing CLI operations.** All benchmark
 work goes through skills. The agent invokes the internal runner and
@@ -70,6 +80,7 @@ in every measurement.
 
 | Skill | When to use it | Example prompt |
 |---|---|---|
+| [bench-status](.agents/skills/bench-status/SKILL.md) | Start of a session, after init or update, or whenever you are unsure what comes next. | “Use bench-status to check whether the benchmark is ready and what to do next.” |
 | [bench-wiring](.agents/skills/bench-wiring/SKILL.md) | Initial setup or changes to instance wiring. | “Use bench-wiring to check this instance's local setup.” |
 | [rate-attempt](.agents/skills/rate-attempt/SKILL.md) | Judge a preserved attempt with tools, or re-evaluate it after a rubric change. Also used by bench-measure. | “Use rate-attempt to evaluate the completed attempts for this task.” |
 | [bench-explain-results](.agents/skills/bench-explain-results/SKILL.md) | A result is surprising, a trial failed, or a model regressed. | “Use bench-explain-results to explain this model's failures from the preserved evidence.” |

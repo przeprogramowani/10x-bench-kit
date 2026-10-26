@@ -199,7 +199,7 @@ evaluation — this can start while other cells are still running.
   (`bench evaluate --skip-judge`), investigates the preserved
   workspace in a container (`bench shell`), and folds its verdict via
   `bench evaluate --verdict`.
-- **Smoke / demo / explicitly cheap runs**: plain `bench evaluate`
+- **Smoke / explicitly cheap runs**: plain `bench evaluate`
   (API judge) is acceptable — say which judge path produced the
   numbers, because they are not interchangeable in interpretation.
 

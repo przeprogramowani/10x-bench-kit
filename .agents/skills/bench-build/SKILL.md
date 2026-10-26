@@ -105,8 +105,7 @@ do not invent tasks yourself.
      subagent's prompt — reuse should be a decision based on facts, not
      each agent's own scan. Rubrics (`judge/`) are outside this
      decision: each task writes its own `judge/<task>-rubric`, never
-     shared, so there is nothing to deduplicate — `default-rubric` is
-     the demo's, not a fallback for real tasks.
+     shared, so there is nothing to deduplicate.
    - **Cross-check it against the order notes**: backlog notes say
      which assertions an order needs. Spot pairs of orders targeting
      the same thing — for execution guards this is the norm: two tasks

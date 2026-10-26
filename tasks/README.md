@@ -10,8 +10,12 @@ Strefa nietykalna przy `bench-kit update`.
 | `task.yaml` | repo bazowe + pinowany commit, timeout, dobór asercji z puli, wagi |
 | `overlay/` | opcjonalne pliki nakładane na repo bazowe (np. seed buga) |
 
-Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Przykład
-wszystkich pól: `demo-hello-bench/task.yaml`.
+Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Template
+nie zawiera zadania-demo — instancja mierzy wyłącznie realną pracę
+firmy; pierwsze zadanie powstaje przez **bench-new-task** →
+**bench-build** (procedura i opis pól: TASK_AUTHORING.md skilla
+bench-build). Na czym stoi instancja i co dalej — skill
+**bench-status**.
 
 ## Backlog zleceń — `tasks/backlog.md`
 

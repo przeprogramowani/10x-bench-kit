@@ -1,6 +1,6 @@
 /**
  * Semantyka treści instancji: placeholdery, rejestracja repo bazowego,
- * pinowanie zadań-demo, .gitignore.
+ * pinowanie zadań-placeholderów, .gitignore.
  *
  * Chirurgia na yamlu wymaga pakietu `yaml` — bootstrap nie ma własnych
  * zależności, więc pożycza go z `.bench-kit/runner/node_modules`
@@ -15,7 +15,11 @@ import { join } from "node:path";
 /** Placeholderowe repo bazowe z template'u, które init może podmienić. */
 export const PLACEHOLDER_BASE_REPO = "demo-app";
 
-/** Commit z samych zer, którym template pinuje zadanie-demo. */
+/**
+ * Commit z samych zer — placeholder pinu. Template od 0.33.0 nie ma
+ * zadania-demo, ale zadanie wskazujące placeholder (starsza instancja,
+ * fixture e2e) nadal dostaje pin przy init.
+ */
 export const PLACEHOLDER_COMMIT = /^0{40}$/;
 
 /** Lokalne klony rep bazowych: `.repos/<nazwa>` (gitignorowane, konwencja z AGENTS.md). */

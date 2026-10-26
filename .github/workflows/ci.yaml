@@ -1,10 +1,16 @@
 # CI template'u — readiness kitu on change mastera: testuje go
 # end-to-end: materializacja instancji (jak `bench-kit init`, bez
-# historii gita) → wiring demo na publiczne repo bazowe → pełne
-# `bench validate` → smoke `bench attempt` zadania-demo na tanim
+# historii gita) + zadanie-demo z fixture'a → wiring demo na publiczne
+# repo bazowe → pełne `bench validate` → smoke `bench attempt`
+# zadania-demo na tanim
 # modelu → `bench evaluate` (zachowana próba → results/) z bramką
 # na wynik. To jedyne miejsce, gdzie GHA wykonuje płatną próbę —
 # benchmark instancji pracuje lokalnie.
+#
+# Zadanie-demo żyje WYŁĄCZNIE w `.github/fixtures/e2e/` (template-only,
+# nie trafia do instancji): instancje mierzą tylko realną pracę firmy,
+# a gotowość środowiska sprawdza skill bench-status. Fixture jest tu
+# po to, żeby CI miało na czym przepchnąć cały potok.
 #
 # Init z prawdziwego 10x-cli testują testy 10x-cli; tu testujemy kontrakt
 # template'u na BIEŻĄCYM commicie (przed tagiem), więc materializacja to
@@ -72,6 +78,7 @@ jobs:
           INSTANCE="$RUNNER_TEMP/instance"
           mkdir -p "$INSTANCE"
           rsync -a --exclude .git --exclude .github --exclude node_modules ./ "$INSTANCE/"
+          rsync -a .github/fixtures/e2e/ "$INSTANCE/"
           git -C "$INSTANCE" init -q && git -C "$INSTANCE" add -A
           git -C "$INSTANCE" -c user.email=ci@bench -c user.name=ci commit -qm init
       - name: wiring demo

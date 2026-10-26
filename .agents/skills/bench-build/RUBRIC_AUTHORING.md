@@ -20,8 +20,8 @@ can verify what the diff claims, not for a text-only reader.
 `evaluation-pool/judge/<task-name>-rubric.md`, referenced from the
 task's `evaluation[]` as `judge/<task-name>-rubric`. One rubric per
 task — rubrics are not shared across tasks (the axes are the task's),
-so there is no reuse decision to make; `default-rubric` in the pool is
-the demo's generic rubric, not a fallback for real tasks.
+so there is no reuse decision to make and no generic fallback rubric
+in the pool.
 
 ## Format contract (checked by `bench validate`)
 

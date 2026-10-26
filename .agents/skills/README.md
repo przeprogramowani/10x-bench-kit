@@ -15,11 +15,21 @@ readiness CI and leaderboard publication.
 
 Target set (concept: SKILLS_DESIGN in the project repo):
 
+- **bench-status** *(available)* — read-only health check and router:
+  what varies per machine and session (`bench doctor`: engine running,
+  keys exported, base repos reachable; `.repos/` clones), `validate`
+  only when content could have drifted from the template, plus the
+  workload (tasks, backlog, expired tasks, attempts/evaluations via the
+  runner's `bench status`, uncommitted output) → exactly one next
+  step. Spends nothing, changes nothing. The template ships no demo
+  task, so this is how a fresh instance gets pointed at the company's
+  real work.
 - **bench-wiring** *(available)* — from a fresh `init` to a green
-  `validate` and the first measured attempt on the operator's machine:
-  base repo, models, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate`, committed results; optionally the
-  publication path (remote repo, readiness + leaderboard workflows).
+  `validate` and a machine ready to measure: base repo, models, API
+  keys in the environment, closed by the bench-status checks (no demo
+  attempt — the first paid attempt is the first real task's batch
+  gate); optionally the publication path (remote repo, readiness +
+  leaderboard workflows).
 - **bench-new-task** *(available)* — a short interview → a new task
   request in the stateful backlog `tasks/backlog.md`; a single session
   can define 5–10 requests without building anything.

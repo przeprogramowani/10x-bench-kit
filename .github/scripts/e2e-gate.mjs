@@ -1,7 +1,7 @@
 // Bramka e2e — kontrakt potoku, nie opinia sędziego.
 //
 // Dotąd e2e gatowało na `total >= 0.7`, czyli na ocenie LLM-a. Przy
-// wagach demo (judge: 1) i rubryce (correctness 0.6) pojedyncza
+// wagach demo (fixture .github/fixtures/e2e/; wtedy judge: 1) i rubryce (correctness 0.6) pojedyncza
 // halucynacja sędziego dawała total 0.40 i czerwone CI bez żadnej
 // regresji — ten sam patch w powtórce dostał 1.00. Prawdopodobieństwo
 // zielonego CI było iloczynem dwóch losowań LLM, a nie funkcją stanu repo.

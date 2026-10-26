@@ -1,4 +1,6 @@
-# Zadanie-demo (smoke test struktury i cyklu próby).
+# Zadanie-demo (smoke test struktury i cyklu próby) — WYŁĄCZNIE fixture
+# e2e CI template'u (.github/ jest template-only, nie trafia do
+# instancji). CI kopiuje .github/fixtures/e2e/ na korzeń instancji.
 # Schemat: .bench-kit/runner/src/schemas/task.ts
 
 # Identyfikator repo bazowego z bench.config.yaml (base_repos[].name).

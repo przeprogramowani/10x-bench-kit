@@ -44,5 +44,5 @@ Zasady:
 - szczegóły promptowania sędziego są świadomie odłożone (patrz DESIGN);
   wiążący jest format odpowiedzi.
 
-Przykład: `default-rubric.md` (używana przez zadanie-demo jako
-`judge/default-rubric`).
+Template nie zawiera rubryki ogólnej — każda rubryka powstaje dla
+konkretnego zadania (bench-build, RUBRIC_AUTHORING.md).

@@ -2,12 +2,13 @@
 name: bench-wiring
 description: >-
   Takes a fresh bench-kit instance from `bench-kit init` to a green
-  `bench validate` and the first measured attempt ON THE OPERATOR'S
+  `bench validate` and a machine READY to measure ON THE OPERATOR'S
   MACHINE. First a check that the instance holds together (filling gaps
-  left by init + `bench validate`, within a minute), then the first
-  local run: container engine, API keys in the environment, a smoke
-  `bench attempt` + `bench evaluate` that cleans up after itself;
-  optionally the publication path (instance repo on GitHub, readiness + leaderboard
+  left by init + `bench validate`, within a minute), then machine
+  readiness: container engine, API keys in the environment, base repo
+  cloned — closed by a bench-status check, with no demo attempt (the
+  first paid attempt is the first real task's); optionally the
+  publication path (instance repo on GitHub, readiness + leaderboard
   workflows). Use when the user has a fresh benchmark instance to
   configure, wants to hook up a base repo or models, or says "wiring /
   configure the benchmark / hook up the benchmark".
@@ -20,8 +21,7 @@ make. Two divisions of labor shape the entire procedure:
 
 - **What init already did is not wiring work.** Init launched from
   inside a product repo detects it, registers it in `base_repos`
-  (https instead of SSH when it responds), pins the demo tasks to its
-  HEAD, and clones the repo into `.repos/<name>/` (shallow — HEAD only
+  (https instead of SSH when it responds) and clones the repo into `.repos/<name>/` (shallow — HEAD only
   — unless init ran with `--deep`). Wiring reads that
   and fills the gaps — it does not repeat it.
 - **The benchmark runs LOCALLY.** The operator's machine (or a VPS —
@@ -38,10 +38,13 @@ you use in conversation** (rule 8):
 - **Phase A — first check (budget: one minute, no containers).** Proof
   that the instance holds together: gaps left by init filled,
   `bench validate` green.
-- **Phase B — first measurement (local).** Container engine alive, API
-  keys in the environment, a smoke attempt on the demo task, its
-  evaluation, results committed to `results/`. Optionally: publication
-  (remote repo, leaderboard).
+- **Phase B — machine readiness (local).** Container engine alive, API
+  keys in the environment, base repo cloned, confirmed by the
+  **bench-status** checks. No attempt is run here: the template ships
+  no demo task, because an attempt on anything but the company's own
+  work measures nothing and only leaves debt in `results/`. The first
+  paid attempt is the batch-gate smoke of the first real task
+  (bench-build). Optionally: publication (remote repo, leaderboard).
 
 The decision-split principle: **whatever has a good default in the
 template is not a conversation**. Confirm every "done" state with proof
@@ -55,10 +58,7 @@ from the runner (`bench` output) — never eyeball it.
    a human merges. Exception: the first configuration of a fresh
    instance whose master is still just the template skeleton — there a
    commit to master is acceptable with the user's explicit consent
-   (there are no results yet that the change could invalidate). The
-   exception **also covers re-pinning the demo task** from the
-   placeholder to a real pin: formally that is a `task_hash` change,
-   but a task with no results has no era to invalidate.
+   (there are no results yet that the change could invalidate).
 2. **You never touch secrets.** You generate a checklist of variable
    NAMES and verify mere presence (`[ -n "$VAR" ]`; for optional repo
    secrets: `gh secret list`) — you never read, print, or store values.
@@ -67,9 +67,10 @@ from the runner (`bench` output) — never eyeball it.
    base Dockerfile; report runner gaps (as an issue), do not work
    around them.
 4. **The runner is your instrument.** Configuration is confirmed by
-   `bench validate`; execution by a completed smoke `bench attempt` +
-   `bench evaluate` with a result in `results/`. Never eyeball that
-   something will work.
+   `bench validate`; machine readiness by `bench doctor` (via the
+   bench-status checks). Execution end to end is proven later, by the
+   bench-build batch gate on a real task — never claim it here. Never
+   eyeball that something will work.
 5. **Judge ≠ evaluated models.** A hard rule (validate enforces it);
    the judge is a fixed, strong model — changing the judge or the
    rubric version (frontmatter `version` in the rubric) closes the
@@ -119,13 +120,10 @@ git.
   per repo. `--offline` skips the network (for iterating on schema
   errors), `--assert` requires containers — in wiring it is only needed
   when existing tasks have `reference` declarations.
-- `bench attempt` — local execution producing preserved attempts
-  (`attempts/<task>/<model>/trial-N/`, contract in
-  `.bench-kit/ATTEMPT_FORMAT.md`). `--smoke` = 1 trial, first model.
-- `bench evaluate` — evaluation of preserved attempts; writes
-  `result.json` into `results/<task>/<model>/trial-N/` in the repo.
-  (For real tasks the judge-with-tools path is the rate-attempt skill;
-  for the demo smoke the built-in API judge is enough.)
+
+Wiring runs no `bench attempt` / `bench evaluate` — there is no task to
+run them on yet. Those belong to bench-build (batch gate) and
+bench-measure.
 
 ## Phase A — first check (budget: one minute, no containers)
 
@@ -138,8 +136,7 @@ ls-remote/fetch, no decisions beyond those init did not make.
 
 - `.bench-kit/instance.json` — template version and `detectedBaseRepo`:
   init launched from inside a product repo has already registered the
-  repo in `base_repos`, pinned the demo tasks to its HEAD, and cloned
-  the working copy into `.repos/<name>/` (shallow by default; deepen
+  repo in `base_repos` and cloned the working copy into `.repos/<name>/` (shallow by default; deepen
   with `git fetch --unshallow` when history is needed).
 - `bench.config.yaml` — does `base_repos` have a real entry or a
   placeholder (`demo-app` / `example-org`)? Leave the defaults (models,
@@ -158,10 +155,10 @@ The norm: init did everything and this step is empty. Exceptions:
   has a placeholder): fill in `base_repos` (`name` + `url`, always
   `https://…`; public repos need no credentials, private ones → a
   single `BASE_REPO_TOKEN` env var per machine: fine-grained PAT,
-  contents:read), re-pin the demo task to a real SHA that exists on
-  the remote, and clone a working copy into `.repos/<name>/`.
+  contents:read), and clone a working copy into `.repos/<name>/`
+  (`--depth 1` unless history is needed).
 - **An additional base repo** beyond the detected one: add the entry +
-  clone as above. Do not re-pin the demo task — it is already pinned.
+  clone as above.
 
 The benchmark never modifies base repos — if the user proposes writing
 to them, that is a misunderstanding to straighten out.
@@ -172,14 +169,16 @@ to them, that is a misunderstanding to straighten out.
 schema errors with `--offline`. **A green validate concludes the first
 check** — tell the user so explicitly, in the language of the
 instance's state (rule 8): the configuration holds together, the
-template's settings are in effect, the next step is the first
-measurement on this machine.
+template's settings are in effect, the next step is making this
+machine ready to measure.
 
-## Phase B — first measurement (local)
+## Phase B — machine readiness (local)
 
-The message for the user: "one command from zero to an attempt, one to
-an evaluation; the results land as files you commit". Your job is to
-close out the conditions that make that sentence true.
+The message for the user: "this machine can run attempts and
+evaluations in containers, with the keys it needs; the first thing it
+will measure is your own work". Your job is to close out the
+conditions that make that sentence true — without spending anything on
+a task that measures nothing.
 
 ### B1. Machine readiness
 
@@ -215,64 +214,21 @@ Otherwise note "template defaults" and move on:
   verdict, too short a timeout measures speed, not quality. Raising the
   budget requires human consent (rule 6).
 
-### B4. Smoke: attempt + evaluate, locally
+### B4. Readiness check — bench-status
 
-The one-time base image build takes 2–4 min — start it by launching the
-smoke and telling the user what is happening:
+Do not re-run what this session already proved: doctor (B1–B2) and
+validate (A3) are fresh. What remains of the **bench-status** procedure
+is the workload read (its step 3) — on a fresh instance that is "no
+tasks, no backlog", which routes to **bench-new-task**. That routing is
+the point: the next session starts from the company's real work, not
+from setup leftovers. In later sessions, bench-status is the entry
+point and runs its own checks.
 
-```
-bench attempt --smoke --tasks demo-hello-bench --models <cheapest>
-bench evaluate
-```
+Tell the user one thing about cost and time up front: the one-time base
+image build (2–4 min) happens on the first `bench attempt`, i.e. in the
+bench-build batch gate of the first real task — not now.
 
-The attempt lands in `attempts/demo-hello-bench/<model>/trial-1/`
-(attempt.json + patch.diff + workspace/ on disk), the evaluation writes
-`results/demo-hello-bench/<model>/trial-1/result.json`. Read total,
-cost, and duration from the output and report them. A failed step = go
-back to the step the cause belongs to, with `agent.log` /
-`container.log` in hand (diagnosis is `ls` + `cat`, not artifact
-downloads).
-
-The smoke proves the results path end to end by **producing**
-`result.json` at its canonical path — not by keeping it. Read the
-numbers, then clean up (B5); the cycle those files belong to is
-attempts → rate-attempt/evaluate → commit results/ → leaderboard
-rebuild on push, and it starts with the first REAL task, not with the
-demo.
-
-### B5. Cleanup — the smoke leaves nothing behind
-
-**The smoke's proof is its numbers, not its files.** `demo-hello-bench`
-measures nothing about the company's code, so anything it leaves in the
-tree is debt that outlives the session:
-
-- a committed `results/demo-hello-bench/` becomes a permanent row for a
-  fake task in every future `bench report` / leaderboard rebuild — the
-  dashboard aggregates whatever sits in `results/`, and nothing there
-  marks the demo as not-a-measurement;
-- the preserved attempt under `attempts/demo-hello-bench/` keeps being
-  picked up by a bare `bench evaluate` (no arguments = every preserved
-  attempt), quietly re-creating the result you deleted, and its
-  `workspace/` is GB-scale on disk.
-
-So after reporting total, cost and duration, delete both:
-
-```
-rm -rf results/demo-hello-bench attempts/demo-hello-bench
-```
-
-This is the one deletion wiring performs, and it only removes what
-wiring itself created in this session — say so explicitly in "Done in
-this session". Never delete an attempt or a result belonging to a real
-task: those are paid measurements, and preserved attempts are the
-material for re-evaluation under a new rubric (rule: a paid attempt is
-never thrown away).
-
-Keep the demo task itself (`tasks/demo-hello-bench/`) — it stays as a
-cheap end-to-end probe for the next infrastructure change; it is only
-its RESULTS that must not accumulate.
-
-### B6. Publication path (optional, does not block measuring)
+### B5. Publication path (optional, does not block measuring)
 
 - **Remote instance repo** — needed to share results and publish the
   leaderboard, not to measure. If absent: the user creates it
@@ -286,7 +242,7 @@ its RESULTS that must not accumulate.
   GitHub Pages when the plan allows — otherwise the dashboard is
   always available as the `leaderboard-site` artifact).
 
-### B7. The "instance wiring" PR
+### B6. The "instance wiring" PR
 
 For a fresh instance the wiring went to master (rule 1) — there is no
 PR, but leave a summary with the same content in the instance README /
@@ -294,8 +250,7 @@ first commit description. For **changes** to existing wiring: branch
 `bench-wiring/<description>`, description per
 [PR_TEMPLATE.md](PR_TEMPLATE.md): decisions ("template defaults" is
 also a decision) with justification, the environment checklist with
-status, proofs (`validate` output, the smoke's total and cost, the
-committed result path), a "Comparability impact" section (the first
+status, proofs (`doctor` and `validate` output), a "Comparability impact" section (the first
 era: judge + rubric versions; what will re-version evaluations in the
 future).
 
@@ -337,9 +292,9 @@ do" without rereading prose. Three checklists, then one call to action:
 
 **1. Confirmed** — facts proven by the runner or by inspection, each
 with its proof in brackets. Examples: "config holds together
-(`bench validate`: 0 errors)", "demo task pinned to a real SHA
-(existence confirmed by fetch)", "smoke attempt evaluated (total 0.93,
-$0.04)". Never list anything here you merely expect to be true
+(`bench validate`: 0 errors)", "base repo reachable and cloned
+(`bench doctor`, `.repos/<name>` at HEAD)", "container engine and keys
+present (`bench doctor`: 0 MISSING)". Never list anything here you merely expect to be true
 (rule 4).
 
 **2. Done in this session** — every change you made to the instance,
@@ -359,25 +314,21 @@ from this standard set:
 - **Provider credit** — if any evaluated model or the judge is paid
   (e.g. via OpenRouter), remind the user to check/top up the account
   balance. Skip this line only when every configured model is free.
-- **Commit `results/`** — only once a REAL task has been measured: the
-  exact paths to review and commit. After the wiring smoke there is
-  nothing to commit here — the demo's attempt and result were deleted
-  in B5; report its total and cost as text under "Confirmed" instead.
 - **Publication (optional)** — `gh repo create …`, push consent,
   Cloudflare/Pages secrets if a hosted dashboard is wanted.
 - **Decisions awaiting a human** — push consent, budget raise, PR
   merge.
 
 **Call to action** — one closing sentence naming exactly what you need
-back to continue (e.g. "reply with consent to run the smoke on
-<model> — I'll run the attempt and its evaluation, and report total
-and cost"). One ask, not a menu. If you also want to give a
+back to continue (e.g. "tell me which recurring piece of work you
+want to compare models on — I'll turn it into the first task order"). One ask, not a menu. If you also want to give a
 recommendation with alternatives, do it *above* the checklists — never
 let alternatives dilute the final ask.
 
 Name everything by what it delivers (rule 8): after a green `validate`
-the natural recommendation is "the first measurement on this machine";
-after a committed smoke result — **bench-new-task** (commissions for
+the natural recommendation is "making this machine ready to measure";
+once bench-status confirms readiness — **bench-new-task** (orders for
 the backlog), then **bench-build**, because an instance without tasks
 measures nothing; once tasks exist, every measurement runs through
-**bench-measure**.
+**bench-measure**. In any later session, **bench-status** is the entry
+point that tells which of these is relevant.

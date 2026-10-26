@@ -6,6 +6,54 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.33.0 — 2026-10-26 (neutralny)
+
+**Bez zadania-demo — zamiast niego skill `bench-status`.** Schematy,
+scoring, `SCORING_VERSION` i era porównywalności bez zmian; istniejące
+wyniki ważne.
+
+Zadanie-demo (`demo-hello-bench`) niczego nie mierzyło w kodzie firmy,
+a i tak kosztowało: płatną próbę przy wiringu, sprzątanie
+`results/`/`attempts/` po niej (inaczej fałszywy wiersz w każdym
+leaderboardzie) i — przede wszystkim — sesję, która zamiast realnej
+pracy kręciła się wokół atrapy. Gotowość środowiska da się dowieść
+deterministycznie, a pierwszą płatną próbą i tak jest smoke bramki
+partii w bench-build — na prawdziwym zadaniu.
+
+- **Nowy skill `bench-status`** — kontrola tylko do odczytu tego, co
+  się zmienia między maszynami i sesjami: zawsze `bench doctor` (silnik
+  działa, pamięć, klucze w env, repo bazowe osiągalne z poświadczeniami
+  tej maszyny) + klony `.repos/` (gitignorowane — druga maszyna ich nie
+  ma); `bench validate` tylko, gdy treść mogła odjechać od template'u
+  (są zadania albo config/pula edytowane po init) — świeża instancja
+  jest poprawna z konstrukcji. Do tego stan pracy (zadania, backlog,
+  przeterminowane, próby i oceny z runnerowego `bench status`,
+  niezacommitowane `results/`/`reports/`) → **jeden** następny krok
+  z tabeli routingu (np. świeża instancja → bench-new-task). Nic nie
+  wydaje, niczego nie zmienia; to nie to samo co komenda runnera
+  `bench status` (tracker prób), z której korzysta.
+- **bench-wiring kończy się na gotowej maszynie**, nie na próbie: faza B
+  to silnik, klucze, klon repo bazowego, zamknięte sprawdzeniami
+  bench-status (bez ponownego doctor/validate — świeże z tej samej
+  sesji). Usunięte kroki smoke + sprzątanie wyników demo,
+  wyjątek reguły 1 dla re-pinu demo i linia „commit results/" w
+  checkliście; PR_TEMPLATE dowodzi `doctor` + `validate`.
+- **Template nie zawiera** `tasks/demo-hello-bench/`,
+  `evaluation-pool/static/demo-readme-section/` ani
+  `evaluation-pool/judge/default-rubric.md` — przeniesione do
+  `.github/fixtures/e2e/` (template-only); CI e2e kopiuje fixture na
+  instancję i dalej przepycha cały potok. README/AGENTS.md/README-y
+  puli i bench-build bez odwołań do demo.
+- **Bootstrap**: kontrakt bez zmian — `pinPlaceholderTasks` i pole
+  `demoTasksPinned` zostają (świeża instancja zwraca 0).
+
+**Migracja istniejących instancji:** `bench-kit update` nie rusza stref
+firmy, więc demo zostaje. Jeśli nie ma wyników, które go używają, można
+je usunąć ręcznie (`tasks/demo-hello-bench/`,
+`evaluation-pool/static/demo-readme-section/`,
+`evaluation-pool/judge/default-rubric.md`) — przy wynikach demo w
+`results/` usuń je razem z nimi.
+
 ## 0.32.0 — 2026-09-18 (neutralny)
 
 **Nagłówek strony jest treścią redakcyjną, nie kodem.** Zmiana wyłącznie
