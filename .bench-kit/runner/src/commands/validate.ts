@@ -25,7 +25,7 @@
  * Wyjście: lista `ok:` / `warn:` / `error:`; kod 0 gdy brak errorów
  * (warningi dopuszczalne), 1 gdy jakikolwiek error, 2 przy złym użyciu.
  */
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -283,6 +283,16 @@ export async function validateCommand(args: string[]): Promise<number> {
     const where = `tasks/${name}`;
     if (!existsSync(join(tasksDir, name, "prompt.md"))) {
       report({ level: "error", where, message: "brak prompt.md (jedynego wejścia agenta)" });
+    }
+    // Wszystko w katalogu zadania wchodzi do task_hash — notatka budowy
+    // (todo.md) zmienia hash i rozjeżdża erę z zachowanymi próbami.
+    const stray = readdirSync(join(tasksDir, name)).filter((entry) => !["task.yaml", "prompt.md", "overlay"].includes(entry));
+    if (stray.length > 0) {
+      report({
+        level: "warn",
+        where,
+        message: `poza task.yaml / prompt.md / overlay/: ${stray.join(", ")} — wchodzi do task_hash (każda zmiana = nowa era zadania); notatki trzymaj w reports/`,
+      });
     }
     const taskYamlPath = join(tasksDir, name, "task.yaml");
     if (!existsSync(taskYamlPath)) {

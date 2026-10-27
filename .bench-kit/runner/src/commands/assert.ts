@@ -188,11 +188,18 @@ export async function assertCommand(args: string[]): Promise<number> {
               : ` — WBREW deklaracji reference (${declared})`
             : "";
           progress(`${indent}assert: ${ref} → score ${outcome.score.toFixed(2)} (${outcome.passed}/${outcome.total} komend${timing})${verdict}`);
+          // Czas każdej komendy także na zielono (wybór guardów repo-level
+          // to decyzja o czasie); log tylko czerwonych, pełny w --json.
           for (const check of outcome.checks) {
+            const took = typeof check.duration_s === "number" ? `, ${check.duration_s} s` : "";
             if (check.exit !== 0) {
-              progress(`${indent}        ✗ ${check.name} (exit ${check.exit}${typeof check.duration_s === "number" ? `, ${check.duration_s} s` : ""})`);
-              const tail = check.log_tail.trim().split("\n").slice(-10).join(`\n${indent}        | `);
+              progress(`${indent}        ✗ ${check.name} (exit ${check.exit}${took})`);
+              const lines = check.log_tail.trim().split("\n");
+              const tail = lines.slice(-30).join(`\n${indent}        | `);
               if (tail) progress(`${indent}        | ${tail}`);
+              if (lines.length > 30) progress(`${indent}        | … (ostatnie 30 linii; całość: --json → log_tail)`);
+            } else if (outcome.checks.length > 1) {
+              progress(`${indent}        ✓ ${check.name} (${took.slice(2) || "ok"})`);
             }
           }
         }

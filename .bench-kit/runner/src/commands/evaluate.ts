@@ -356,6 +356,25 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           }
         }
       }
+      // Drugi fold werdyktu na tę samą próbę zastępuje poprzedni — legalne
+      // (poprawka werdyktu), ale nie po cichu: historię trzyma git.
+      if (opts.verdict && !opts.noWriteResults) {
+        const existing = join(resultsDir, meta.task, sanitize(meta.model), `trial-${meta.trial}`, "result.json");
+        if (existsSync(existing)) {
+          try {
+            const prev = JSON.parse(readFileSync(existing, "utf8"));
+            const mode = prev?.stamps?.judge_mode;
+            if (mode === "agent" || mode === "human") {
+              console.error(
+                `warn:  ${label} — zastępuję istniejący werdykt (${mode}, total ${typeof prev.total === "number" ? prev.total.toFixed(3) : "?"}); ` +
+                  "poprzedni zostaje w historii gita results/ — jeśli to pomyłka (drugi sędzia na tę samą próbę), cofnij plik",
+              );
+            }
+          } catch {
+            // nieczytelny wynik — ocena go zastąpi
+          }
+        }
+      }
       try {
         let cached = taskCache.get(meta.task);
         if (!cached) {
