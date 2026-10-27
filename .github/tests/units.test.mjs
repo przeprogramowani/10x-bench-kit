@@ -199,6 +199,37 @@ test("attempt/evaluate: pełny dysk i przerwany kontener mają nazwę, nie 'kode
   assert.match(containerFailureMessage({ status: 137, stderr: "x" }, 6144), /SIGKILL — prawdopodobnie OOM; limit: 6144 MiB/);
 });
 
+test("pin-source: pin z lokalnego klonu .repos/<repo> bez sieci; brak pina → null (remote)", async () => {
+  const { localPinClone, fetchPin } = await lib("pin-source.ts");
+  const root = tempDir("pin-");
+  const clone = join(root, ".repos", "app");
+  const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+  git("init", "-q", clone);
+  writeFileSync(join(clone, "a.txt"), "1\n");
+  git("-C", clone, "add", "-A");
+  git("-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one");
+  const pin = git("-C", clone, "rev-parse", "HEAD");
+  git("-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two");
+  assert.equal(localPinClone(root, "app", pin), clone);
+  assert.equal(localPinClone(root, "app", "0".repeat(40)), null);
+  assert.equal(localPinClone(root, "missing", pin), null);
+  const ws = join(root, "ws");
+  git("init", "-q", ws);
+  // Remote nieosiągalny: sukces dowodzi, że commit przyszedł z klonu.
+  fetchPin(ws, "https://invalid.example/none.git", pin, clone, "fetch");
+  git("-C", ws, "checkout", "-q", pin);
+  assert.equal(readFileSync(join(ws, "a.txt"), "utf8"), "1\n");
+});
+
+test("tmpdir: /tmp na tmpfs-ie bez TMPDIR → .bench-tmp instancji; jawny TMPDIR wygrywa", async () => {
+  const { chooseTmpdir } = await lib("tmpdir.ts");
+  assert.equal(chooseTmpdir(undefined, "/inst", true), "/inst/.bench-tmp");
+  assert.equal(chooseTmpdir("", "/inst", true), "/inst/.bench-tmp");
+  assert.equal(chooseTmpdir("/big/tmp", "/inst", true), null);
+  assert.equal(chooseTmpdir(undefined, "/inst", false), null);
+  assert.equal(chooseTmpdir(undefined, null, true), null);
+});
+
 test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-define", async () => {
   const { statusNextStep } = await command("status.ts");
   const empty = statusNextStep({ allTasks: ["demo-hello-bench"], preserved: 0, running: 0, toEvaluate: 0, missing: 3 });

@@ -11,7 +11,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { must, removeTree, sh } from "./containers.ts";
-import { gitAuthArgs } from "./git-auth.ts";
+import { fetchPin, localPinClone } from "./pin-source.ts";
 import { unifyContextFiles } from "./context-files.ts";
 import { loadConfig } from "./instance.ts";
 import type { Task } from "../schemas/task.ts";
@@ -33,9 +33,7 @@ export function prepareTaskImage(engine: string, root: string, baseImage: string
     const workspace = join(context, "workspace");
     mkdirSync(workspace);
     must("git", ["init", "-q", workspace], "git init workspace");
-    must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, task.commit], `fetch pinowanego commita ${name}`, {
-      timeout: 300_000,
-    });
+    fetchPin(workspace, repoUrl, task.commit, localPinClone(root, task.repo, task.commit), `fetch pinowanego commita ${name}`);
     must("git", ["-C", workspace, "checkout", "-q", task.commit], "checkout pinowanego commita");
 
     const overlay = join(root, "tasks", name, "overlay");

@@ -61,6 +61,14 @@ a remis w bench-decide polecał najdroższy model.
   jest usuwana (ucięta myliła `bench shell`), a `attempt.json` ma
   `workspace_preserved: false`. `workspace/` jest też bez głównego
   `.git` (−40% na próbę; `bench shell` bierze commit startowy z obrazu).
+- **Bez zapychania RAM-u i bez zbędnej sieci:** gdy /tmp jest tmpfs-em,
+  a TMPDIR nie jest ustawiony, katalogi tymczasowe runnera lądują
+  w `<instancja>/.bench-tmp/` (samoignorujący się) — na dysku attempts/,
+  nie w RAM-ie. Pin zadania pochodzi z lokalnego klonu `.repos/<repo>/`
+  (init klonuje go z pełną historią), gdy ten go zawiera: obraz zadania,
+  `bench assert` i `validate --assert` bez fetchu z sieci, a sprawdzenie
+  pinów w `bench validate` 25 s → 1.5 s. `task.prepare` w assert/validate
+  korzysta z cache'u zależności (`evaluation.deps_cache`) jak kontener oceny.
 - **Ocena:** przerwany kontener oceny (OOM hosta, padnięty silnik) mówi,
   co się stało i co dalej, zamiast „zakończony kodem null:" z pustym
   ogonem; podsumowanie `bench evaluate` wskazuje ponowną ocenę prób

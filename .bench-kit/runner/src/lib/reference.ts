@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { containerFailureMessage, depsCacheArgs, must, removeTree, resourceLimitArgs, sh } from "./containers.ts";
-import { gitAuthArgs } from "./git-auth.ts";
+import { fetchPin } from "./pin-source.ts";
 import { readYamlFile } from "./instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
 
@@ -48,10 +48,12 @@ export function buildStartWorkspace(
   commit: string,
   overlayDir: string | null,
   contextPolicy: ContextFilesPolicy = "unified",
+  /** `.repos/<repo>/` z pinem (localPinClone) — fetch bez sieci; null = remote. */
+  localClone: string | null = null,
 ): string {
   const workspace = mkdtempSync(join(tmpdir(), "bench-reference-"));
   try {
-    populateStartWorkspace(workspace, repoUrl, commit, overlayDir, contextPolicy);
+    populateStartWorkspace(workspace, repoUrl, commit, overlayDir, contextPolicy, localClone);
   } catch (err) {
     removeTree(workspace);
     throw err;
@@ -65,11 +67,10 @@ function populateStartWorkspace(
   commit: string,
   overlayDir: string | null,
   contextPolicy: ContextFilesPolicy,
+  localClone: string | null,
 ): void {
   must("git", ["init", "-q", workspace], "git init workspace referencyjnego");
-  must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, commit], `fetch pinowanego commita ${commit.slice(0, 12)}…`, {
-    timeout: 300_000,
-  });
+  fetchPin(workspace, repoUrl, commit, localClone, `fetch pinowanego commita ${commit.slice(0, 12)}…`);
   must("git", ["-C", workspace, "checkout", "-q", commit], "checkout pinowanego commita");
 
   if (overlayDir && existsSync(overlayDir)) {
@@ -102,6 +103,9 @@ export function applyPrepare(engine: string, image: string, workspace: string, p
       "-v",
       `${workspace}:/workspace`,
       ...resourceLimitArgs(opts.memoryMb ?? null, opts.pidsLimit ?? null),
+      // Cache zależności jak w kontenerze oceny: każdy assert/validate --assert
+      // pobierał całe drzewo pakietów od nowa (ten sam lockfile = ten sam wynik).
+      ...depsCacheArgs(opts.depsCache ?? false),
       image,
       "bash",
       "-c",

@@ -39,6 +39,7 @@ import { parseRubric } from "../lib/judge.ts";
 import { detectEngine, ensureBaseImage, removeTree } from "../lib/containers.ts";
 import { HARNESSES, parseModelId, underlyingModel, unknownHarnessPrefix } from "../lib/harness.ts";
 import { applyPrepare, buildStartWorkspace, runAssertions } from "../lib/reference.ts";
+import { localPinClone } from "../lib/pin-source.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
 import { fetchOpenRouterModelIds, openRouterCatalogId } from "../lib/pricing.ts";
 import { nearest } from "../lib/attempt-path.ts";
@@ -479,8 +480,12 @@ export async function validateCommand(args: string[]): Promise<number> {
           continue;
         }
         t0 = started(`tasks/${taskName} — pin ${task.commit.slice(0, 12)}…`);
-        const commitProblem = checkCommitExists(url, task.commit);
-        if (commitProblem) {
+        // Klon `.repos/<repo>/` z pinem = dowód bez fetchu (klon pochodzi z tego remote).
+        const inLocalClone = localPinClone(root, task.repo, task.commit) !== null;
+        const commitProblem = inLocalClone ? null : checkCommitExists(url, task.commit);
+        if (inLocalClone) {
+          finished(t0, `ok — istnieje (.repos/${task.repo})`);
+        } else if (commitProblem) {
           finished(t0, "BŁĄD");
           report({
             level: "error",
@@ -549,10 +554,11 @@ export async function validateCommand(args: string[]): Promise<number> {
           if (refs.length === 0) continue;
           console.log(`info:  [${assertDone}/${declared.length}] tasks/${name}: stan startowy ${task.repo}@${task.commit.slice(0, 12)}… (${refs.length} asercji)`);
           const overlay = join(root, "tasks", name, "overlay");
-          const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null, config.defaults.context_files);
+          const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null, config.defaults.context_files, localPinClone(root, task.repo, task.commit));
           try {
             if (task.prepare) {
               applyPrepare(engine, image, workspace, task.prepare, {
+                depsCache: config.evaluation.deps_cache,
                 memoryMb: task.memory_mb ?? config.resources.memory_mb ?? null,
                 pidsLimit: config.resources.pids_limit ?? null,
               });

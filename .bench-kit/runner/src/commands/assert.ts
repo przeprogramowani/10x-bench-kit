@@ -33,6 +33,7 @@ import { basename, join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { detectEngine, ensureBaseImage, removeTree } from "../lib/containers.ts";
 import { applyPrepare, buildStartWorkspace, runAssertions, runAssertionsBatch, type AssertionOutcome } from "../lib/reference.ts";
+import { localPinClone } from "../lib/pin-source.ts";
 
 interface Options {
   root: string;
@@ -155,7 +156,7 @@ export async function assertCommand(args: string[]): Promise<number> {
     const image = ensureBaseImage(engine, root);
     const patchNote = opts.patches.length === 1 ? " + patch" : opts.patches.length > 1 ? ` + ${opts.patches.length} patchy (wsad)` : "";
     progress(`assert: stan startowy ${repoName}@${commit.slice(0, 12)}…${overlay ? " + overlay" : ""}${patchNote}`);
-    const workspace = buildStartWorkspace(repoUrl, commit, overlay, config.defaults.context_files);
+    const workspace = buildStartWorkspace(repoUrl, commit, overlay, config.defaults.context_files, localPinClone(root, repoName, commit));
     try {
       if (prepare) {
         progress(`assert: task.prepare (jak w obrazie zadania)…`);
