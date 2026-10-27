@@ -19,8 +19,9 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 
 | Koncept | Skill | Przeznaczenie | Procedury |
 |---|---|---|---|
+| **status** — czy instancja jest gotowa | **bench-status** | Punkt wejścia: maszyna, klucze, repo bazowe, modele i sędzia, zielony `bench validate`, rozgrzanie obrazu bazowego w tle, jeden kolejny krok. Bez zadania-demo — pierwszym dowodem toru kontenerów jest pierwsze prawdziwe zadanie | `SKILL.md` |
 | **define** — co mierzymy | **bench-define** | Zadania z prawdziwej pracy firmy. Domyślne źródło to **kopanie PR-ów**: zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to dowód wykonalności, którego agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją, klasą i dzisiejszym kosztem pracy; budowa daje pliki zadań i raport `reports/<zadanie>-build.md` | `MINING.md` + `mine-prs.mjs`, `INTERVIEW.md` (praca bez historii), `REFRESH.md` (przeterminowane zadanie), `BUILD.md` → `TASK_AUTHORING.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
-| **measure** — uruchamiamy modele | **bench-measure** | Preflight (wiring, silnik, klucze), bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
+| **measure** — uruchamiamy modele | **bench-measure** | Zmiany wiringu na instancji z wynikami i publikacja, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
 | **decide** — co z tego wynika | **bench-decide** | Decyzja routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań, horyzont czasowy | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
@@ -124,11 +125,11 @@ Robocze klony rep bazowych żyją w `.repos/<nazwa>/` w korzeniu instancji
 (katalog jest w `.gitignore` — nigdy nie trafia do repo instancji).
 `10x bench-kit init` zwykle zostawia tam pierwszy klon wykrytego repo.
 
-- **Klon jest domyślnie płytki** (`--depth 1`, sam HEAD): instancja
-  startuje z pinem na HEAD, a skille autorskie czytają drzewo plików,
-  nie historię. `10x bench-kit init --deep` klonuje z pełną historią od
-  razu.
-- **Gdy potrzebujesz historii** (diff między pinami, worktree na starym
+- **Klon ma domyślnie pełną historię**: kopanie PR-ów (domyślne źródło
+  zadań) jej potrzebuje, a klon z lokalnej kopii roboczej to hardlinki —
+  sekundy. `10x bench-kit init --shallow` zostawia sam HEAD (tak też
+  wyglądają klony z init sprzed kitu 0.34.0).
+- **Gdy klon jest płytki, a potrzebujesz historii** (diff między pinami, worktree na starym
   pinie), dobierz ją na miejscu: `git fetch --unshallow` albo
   `git fetch --deepen=<n>`, a dla jednego commita
   `git fetch origin <sha>`. Objaw brakującej historii to

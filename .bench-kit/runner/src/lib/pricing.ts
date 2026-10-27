@@ -24,7 +24,7 @@
  * (overrides) nie są stosowane — wycena z sum tokenów to estymata.
  */
 import type { BenchConfig } from "../schemas/config.ts";
-import type { HarnessModel } from "./harness.ts";
+import { parseModelId, type HarnessModel } from "./harness.ts";
 
 /** Stawki w USD za 1M tokenów. */
 export interface Price {
@@ -54,6 +54,12 @@ export function costPolicy(spec: HarnessModel): CostPolicy {
  * (`sonnet`, `opus`) nie mają odpowiednika — wtedy null.
  */
 export function catalogSlugFor(spec: HarnessModel): string | null {
+  // OpenCode niesie pełne provider/model (`openrouter/x/y`, `anthropic/…`) —
+  // wyceny potrzebuje tylko szacunek projekcji (koszt próby daje harness).
+  if (spec.harness === "opencode") {
+    if (spec.route === "openrouter") return spec.cliModel.slice("openrouter/".length);
+    return spec.cliModel.includes("/") ? spec.cliModel : null;
+  }
   if (spec.route === "openrouter") return spec.cliModel;
   if (spec.harness === "codex") return `openai/${spec.cliModel}`;
   if (spec.harness === "claude-code") {
@@ -70,12 +76,41 @@ export type Catalog = Map<string, Price>;
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 
-/** Katalog cen OpenRouter (stawki per token → per 1M tokenów). */
-export async function fetchOpenRouterCatalog(): Promise<Catalog> {
+type CatalogModel = { id: string; pricing?: Record<string, string> };
+
+/** Surowa lista modeli publicznego katalogu OpenRouter (/api/v1/models, bez klucza). */
+async function fetchOpenRouterModels(): Promise<CatalogModel[]> {
   const url = process.env.BENCH_PRICING_CATALOG_URL || CATALOG_URL;
   const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`katalog cen ${url}: HTTP ${response.status}`);
-  const body = (await response.json()) as { data?: { id: string; pricing?: Record<string, string> }[] };
+  const body = (await response.json()) as { data?: CatalogModel[] };
+  return body.data ?? [];
+}
+
+/** Id wszystkich modeli katalogu OpenRouter (także bez cennika) — do walidacji id. */
+export async function fetchOpenRouterModelIds(): Promise<Set<string>> {
+  return new Set((await fetchOpenRouterModels()).map((m) => m.id));
+}
+
+/**
+ * Id w katalogu OpenRouter dla modelu routowanego przez OpenRouter
+ * (`openrouter/x/y`, `claude-code:openrouter/x/y`, `codex:openrouter/x/y`
+ * → `x/y`); null dla pozostałych (native — nie nasz katalog).
+ */
+export function openRouterCatalogId(id: string): string | null {
+  let spec: HarnessModel;
+  try {
+    spec = parseModelId(id);
+  } catch {
+    return null; // zły format id zgłasza validate osobno
+  }
+  if (spec.route !== "openrouter") return null;
+  return spec.harness === "opencode" ? spec.cliModel.slice("openrouter/".length) : spec.cliModel;
+}
+
+/** Katalog cen OpenRouter (stawki per token → per 1M tokenów). */
+export async function fetchOpenRouterCatalog(): Promise<Catalog> {
+  const body = { data: await fetchOpenRouterModels() };
   const perMtok = (value: string | undefined) => {
     const n = Number(value);
     return value !== undefined && Number.isFinite(n) && n >= 0 ? n * 1_000_000 : undefined;

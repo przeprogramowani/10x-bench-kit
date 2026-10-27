@@ -121,15 +121,6 @@ wall_s=$((end_epoch - start_epoch))
 git add -A
 git diff --cached --binary "$(cat /bench/start-sha)" >"$out/patch.diff"
 
-# Workspace po pracy agenta — ZAWSZE zachowywany (kontrakt zachowanej
-# próby, ATTEMPT_FORMAT.md): stan /workspace — także po timeoucie —
-# trafia do katalogu próby jako workspace/ (poza gitem, .gitignore).
-# To surowiec dla sędziego-z-narzędziami (rate-attempt): build, testy,
-# uruchomienie aplikacji na kopii tego katalogu.
-rm -rf "$out/workspace"
-cp -a /workspace "$out/workspace" ||
-  echo "bench: zachowanie workspace nie powiodło się (exit $?)" >>"$out/agent.log"
-
 # Metryki ze stanu harnessu tej próby (adapter per harness; kontrakt:
 # metrics-adapter/README.md). Koszt bez wiarygodnego źródła w harnessie
 # zostaje null — wycenia go runner (lib/pricing.ts), z zapisanym źródłem.
@@ -153,5 +144,26 @@ cat >"$out/execution.json" <<EOF
   "wall_duration_s": $wall_s
 }
 EOF
+
+# Workspace po pracy agenta — ZAWSZE zachowywany (kontrakt zachowanej
+# próby, ATTEMPT_FORMAT.md): stan /workspace — także po timeoucie —
+# trafia do katalogu próby jako workspace/ (poza gitem, .gitignore).
+# To surowiec dla sędziego-z-narzędziami (rate-attempt): build, testy,
+# uruchomienie aplikacji na kopii tego katalogu.
+# Bez node_modules i bez .git: próba biegnie offline, więc node_modules
+# pochodzi z obrazu zadania (task.prepare), a .git to commit startowy z obrazu
+# (zmiany agenta są w drzewie i w patch.diff) — setki MB na próbę, które
+# `bench shell` bierze z obrazu z powrotem. Kopia idzie PO metrics/execution.json:
+# pełny dysk nie może wyzerować plików, z których runner czyta wynik.
+rm -rf "$out/workspace"
+mkdir -p "$out/workspace"
+# Ucięta kopia jest gorsza niż żadna (0-bajtowy package.json myli `bench
+# shell` i sędziego) — usuwamy ją i zostawiamy znacznik, który runner
+# przenosi do attempt.json (workspace_preserved: false).
+if ! ( cd /workspace && tar --exclude=node_modules --exclude=./.git -cf - . ) | tar -xpf - -C "$out/workspace"; then
+  rm -rf "$out/workspace"
+  echo "bench: zachowanie workspace nie powiodło się — pełny dysk?" >>"$out/agent.log"
+  echo "zachowanie workspace nie powiodło się (pełny dysk?)" >"$out/workspace-incomplete.txt" || true
+fi
 
 exit 0

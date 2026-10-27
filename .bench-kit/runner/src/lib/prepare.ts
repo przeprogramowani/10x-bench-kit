@@ -7,10 +7,10 @@
  * Obraz `bench-task-<nazwa>` = obraz bazowy + repo@pin + overlay
  * + commit startowy (+ opcjonalny etap `prepare` z task.yaml).
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { must, sh } from "./containers.ts";
+import { must, removeTree, sh } from "./containers.ts";
 import { gitAuthArgs } from "./git-auth.ts";
 import { unifyContextFiles } from "./context-files.ts";
 import { loadConfig } from "./instance.ts";
@@ -88,7 +88,8 @@ export function prepareTaskImage(engine: string, root: string, baseImage: string
       : startSha;
     return { name, task, image, startSha: effectiveStartSha };
   } finally {
-    rmSync(context, { recursive: true, force: true });
+    // Kontekst budowy pisze tylko host (prepare biegnie w RUN obrazu) — bez fallbacku silnika.
+    removeTree(context);
   }
 }
 

@@ -19,7 +19,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
+import { resolveAttemptPath } from "../lib/attempt-path.ts";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { depsCacheArgs, detectEngine, ensureBaseImage, resourceLimitArgs } from "../lib/containers.ts";
 import { imageExists, prepareTaskImage } from "../lib/prepare.ts";
@@ -41,7 +42,7 @@ function parseArgs(args: string[]): Options | null {
     if (arg === "--") {
       opts.command = args.slice(i + 1);
       break;
-    } else if (arg === "--attempt") opts.attempt = resolve(value() ?? "");
+    } else if (arg === "--attempt") opts.attempt = value() ?? "";
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--no-deps-cache") opts.noDepsCache = true;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
@@ -63,13 +64,23 @@ export async function shellCommand(args: string[]): Promise<number> {
     return 1;
   }
   try {
-    const attemptDir = opts.attempt as string;
+    // Surowe id modelu w ścieżce → katalog sanitize; brak → lista istniejących prób.
+    const resolved = resolveAttemptPath(root, opts.attempt as string);
+    if (!resolved.ok) throw new Error(resolved.error);
+    const attemptDir = resolved.dir;
+    if (resolved.rewritten) console.error(`info:  --attempt → ${relative(root, attemptDir) || attemptDir} (id modelu → katalog komórki)`);
     const attemptJson = join(attemptDir, "attempt.json");
     if (!existsSync(attemptJson)) {
       throw new Error(`${attemptDir}: brak attempt.json — to nie jest zachowana próba (w toku? patrz bench status)`);
     }
     const meta = AttemptSchema.parse(JSON.parse(readFileSync(attemptJson, "utf8")));
     const workspace = join(attemptDir, "workspace");
+    if (meta.workspace_preserved === false) {
+      throw new Error(
+        `${attemptDir}: workspace/ nie został zachowany (kopia po próbie nie powiodła się — pełny dysk?). ` +
+          "patch.diff jest kompletny: `bench evaluate --attempt <próba>` (sędzia API, bez --verdict) ocenia go bez workspace; do oceny z narzędziami powtórz próbę po zwolnieniu miejsca",
+      );
+    }
     if (!existsSync(workspace)) {
       throw new Error(`${attemptDir}: brak workspace/ — próba wykonana na innej maszynie? Ocena z narzędziami biegnie tam, gdzie leży workspace`);
     }
@@ -86,9 +97,21 @@ export async function shellCommand(args: string[]): Promise<number> {
     const interactive = opts.command.length === 0;
     const tty = interactive && process.stdin.isTTY && process.stdout.isTTY;
     // Kopia wewnątrz kontenera: oryginał tylko do odczytu, nic nie ląduje
-    // na hoście, kontener z kopią znika po wyjściu (--rm).
-    const copyIn = "rm -rf /workspace && cp -a /bench/attempt-workspace /workspace && cd /workspace";
-    const script = interactive ? `${copyIn} && exec bash` : `${copyIn} && ${opts.command.join(" ")}`;
+    // na hoście, kontener z kopią znika po wyjściu (--rm). workspace/ próby
+    // nie zawiera node_modules (trial.sh) — te z obrazu zadania (task.prepare)
+    // przenosimy do kopii, więc sędzia startuje z zainstalowanymi zależnościami.
+    const copyIn = [
+      "mkdir /tmp/bench-ws && cp -a /bench/attempt-workspace/. /tmp/bench-ws/",
+      `(cd /workspace && find . -name node_modules -type d -prune | while read -r d; do [ -d "/tmp/bench-ws/$(dirname "$d")" ] && [ ! -e "/tmp/bench-ws/$d" ] && mv "$d" "/tmp/bench-ws/$d"; done)`,
+      // .git nie jest zachowywany (trial.sh) — commit startowy z obrazu: `git diff` pokazuje zmiany agenta.
+      "[ -e /tmp/bench-ws/.git ] || mv /workspace/.git /tmp/bench-ws/.git",
+      "rm -rf /workspace && mv /tmp/bench-ws /workspace && cd /workspace",
+    ].join(" && ");
+    // Jeden argument = skrypt powłoki (`-- "npm test | tail"`); kilka = argv,
+    // cytowane słowo po słowie (`-- sh -c 'a | b'` nie rozpada się na `sh -c a`).
+    const quote = (word: string) => (/^[A-Za-z0-9_./:=@%+-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`);
+    const userCommand = opts.command.length === 1 ? (opts.command[0] as string) : opts.command.map(quote).join(" ");
+    const script = interactive ? `${copyIn} && exec bash` : `${copyIn} && ${userCommand}`;
     const label = `${meta.task} × ${meta.model} × próba ${meta.trial}`;
     console.error(
       `bench shell: ${label} → kontener z obrazu ${meta.image} (kopia workspace/ w /workspace, oryginał :ro)${interactive ? " — wyjście: exit" : ""}`,

@@ -182,6 +182,13 @@ export function planChanges(root: string, base: string): { base: string; groups:
     if (IMPACT_RANK[impact] > IMPACT_RANK[g.impact]) g.impact = impact;
   };
   const stamps = resultStamps(root);
+  // Wyniki usunięte w drzewie roboczym nadal istniały w bazie — nie traktuj
+  // ich zniknięcia jako "świeżej instancji".
+  const removedResults = new Set(
+    changes.filter((c) => c.status === "D" && /^results\/[^/]+\/.+\/result\.json$/.test(c.path)).map((c) => c.path.split("/")[1] as string),
+  );
+  /** Brak jakichkolwiek wyników: zmiana pól ery otwiera PIERWSZĄ erę, niczego nie zamyka. */
+  const noResults = stamps.length === 0 && removedResults.size === 0;
   const claimed = new Set<string>();
 
   // 1. Zadania: nowe (era startowa) vs zmienione (zamknięcie ery).
@@ -210,6 +217,19 @@ export function planChanges(root: string, base: string): { base: string; groups:
         // brak raportu to normalny stan w trakcie budowy — powód blokady podaje todo.md
       } else if (!existsSync(report)) g.messages.push(`brak reports/${name}-build.md — zadanie bez dowodów ze stanu startowego (bench-define)`);
       else if (!gateFilled(readFileSync(report, "utf8"))) g.messages.push("raport bez sekcji Batch gate — stan startowy nieudowodniony na bramce partii");
+    } else if (exists && !stamps.some((s) => s.task === name) && !removedResults.has(name)) {
+      // Zadanie bez wyników (np. przepięcie demo z placeholdera, WIRING.md
+      // reguła 1): nowy task_hash nie ma z czym tracić porównywalności.
+      g = group(`task:${name}`, {
+        title: `zmiana zadania ${name} (bez wyników)`,
+        impact: "neutral",
+        needs_pr: false,
+        commit_message: `chore(tasks): ${name} — zmiana przed pierwszymi wynikami`,
+      });
+      g.messages.push("zadanie nie ma jeszcze wyników w results/ — zmiana otwiera jego pierwszą erę, żadnej nie zamyka");
+      if (isDir(join(root, "attempts", name))) {
+        g.messages.push("zachowane próby w attempts/ wykonano starą definicją — do pomiaru nowej potrzebne NOWE próby");
+      }
     } else {
       const results = stamps.filter((s) => s.task === name);
       const hash = exists ? hashTaskDir(join(root, "tasks", name)) : null;
@@ -416,12 +436,21 @@ export function planChanges(root: string, base: string): { base: string; groups:
     }
     const g = group("config", {
       title: "bench.config.yaml",
-      impact: eraChanged.length ? "era" : "neutral",
-      needs_pr: true,
-      commit_message: eraChanged.length ? `feat(config): ${eraChanged.join(", ")} — nowa era` : `chore(config): ${settingsChanged.join(", ")}`,
+      impact: eraChanged.length && !noResults ? "era" : "neutral",
+      // Świeża instancja (results/ puste): WIRING.md reguła 1 dopuszcza commit
+      // configu prosto na master za wyraźną zgodą użytkownika.
+      needs_pr: !noResults,
+      commit_message: eraChanged.length
+        ? `${noResults ? "chore" : "feat"}(config): ${eraChanged.join(", ")} — ${noResults ? "pierwsza era" : "nowa era"}`
+        : `chore(config): ${settingsChanged.join(", ")}`,
     });
-    if (eraChanged.length) {
+    if (eraChanged.length && noResults) {
+      g.messages.push(`zmienione pola ery: ${eraChanged.join(", ")} — results/ jest puste, więc zmiana otwiera pierwszą erę; nic nie traci porównywalności`);
+    } else if (eraChanged.length) {
       g.messages.push(`zmienione pola ery: ${eraChanged.join(", ")} — wszystkie dotychczasowe wyniki zostają w poprzedniej erze`);
+    }
+    if (noResults) {
+      g.messages.push("świeża instancja bez wyników — PR niewymagany; commit bezpośredni za wyraźną zgodą użytkownika (WIRING.md, reguła 1)");
     }
     if (settingsChanged.length) {
       g.messages.push(`ustawienia biegu/wiringu (${settingsChanged.join(", ")}) — bez wpływu na porównywalność`);

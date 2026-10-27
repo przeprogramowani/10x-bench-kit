@@ -74,8 +74,8 @@ do not invent tasks yourself.
 6. **Prepare shared resources once, before the fan-out.** Run
    `git fetch origin` in the `.repos/<name>/` clones of the base repos
    the batch needs (clone missing ones — convention from AGENTS.md) and
-   forbid subagents from fetching. The clones are shallow by default, so
-   if any order needs a commit outside the fetched tip (an old pin, a
+   forbid subagents from fetching. A clone may be shallow (older or
+   `--shallow` init), so if any order needs a commit outside the fetched tip (an old pin, a
    diff between pins), deepen the clone HERE — `git fetch --unshallow`
    or `git fetch origin <sha>` — never inside a subagent: parallel fetches in a single clone
    race for git locks. The same applies to `evaluation-pool/`: **you
@@ -102,7 +102,7 @@ do not invent tasks yourself.
      each agent's own scan. Rubrics (`judge/`) are outside this
      decision: each task writes its own `judge/<task>-rubric`, never
      shared, so there is nothing to deduplicate — `default-rubric` is
-     the demo's, not a fallback for real tasks.
+     a generic example, not a fallback for real tasks.
    - **Cross-check it against the order notes**: backlog notes say
      which assertions an order needs. Spot pairs of orders targeting
      the same thing — for execution guards this is the norm: two tasks
@@ -115,6 +115,13 @@ do not invent tasks yourself.
      order only after it, with an instruction to reuse the finished
      name; *new and disjoint* → each builds its own, and you impose a
      name prefix (the task name) so names do not collide.
+   - **Decide the repo's guard set and `prepare` once per base repo**
+     (TASK_AUTHORING.md, "Which repo-level guards a task gets" and
+     "`prepare`"). Typecheck and lint by default, and `prepare` when
+     a frozen install costs more than about a minute. Write the
+     decision into every prompt for that repo. A repo that already
+     has tasks keeps its existing decision: changing `prepare` on a
+     measured task opens a new era.
 
    If a duplicate only surfaces in the reports, do not merge it
    yourself (rule 1) — flag it to the user as debt to resolve.
@@ -142,7 +149,13 @@ do not invent tasks yourself.
     nothing. Every assertion therefore ships with a **counter-proof**:
     a concrete way it goes red for the right reason (step 5.3a).
     Where none exists, the honest move is weight 0 with a note, not a
-    guard that always passes.
+    guard that always passes. Weights are per component type, so when
+    only **one** guard of a type cannot go red (typecheck on a
+    Svelte-only change: `astro check` does not type-check `.svelte`),
+    leave that guard out of this task's `evaluation` and `reference`
+    and say why in the build report — the other guards of the type keep
+    their weight. A reused repo guard is **re-proven per task**: its
+    counter-proof on one task says nothing about files of another kind.
 
 ## Runner tools
 
@@ -177,9 +190,12 @@ list of gaps — for completion, not for building.
   anything — subagents will not be able to tell their own red from the
   pre-existing one.
 - Fresh `.repos/` clones for all base repos of the batch (rule 6).
-- **Pin candidate per base repo**: pick a fresh commit that exists on
-  the remote with proof of green CI (check statuses from the GitHub
-  API) — the SHA + proof go into the subagent prompts. The candidate is
+- **Pin candidate per base repo** (interview orders only — a mined
+  order's pin is the parent of its change, fixed by history; skip this
+  step for an all-mined batch): pick a fresh commit that exists on the
+  remote with proof of green CI (check statuses from the GitHub API, or
+  the user's word when there is no `gh`) — the SHA + proof go into the
+  subagent prompts. The candidate is
   a default, not binding: a subagent only verifies that **its** order
   makes sense on it, and may deviate with a justification in the
   report. Without this step, every subagent separately walks the
@@ -214,8 +230,9 @@ is the claim `bench backlog` reads as `building`. Pass in its prompt:
   subagent verifies that its order makes sense on that commit, and any
   deviation requires a justification in the report;
 - an instruction to read and follow
-  `.agents/skills/bench-define/TASK_AUTHORING.md` (path per the
-  instance's skills directory) — that is its procedure, with the hard
+  `<skills>/bench-define/TASK_AUTHORING.md` — `<skills>` is the
+  instance's skill root from `.bench-kit/instance.json` (e.g.
+  `.claude/skills`), spelled out in the prompt — that is its procedure, with the hard
   rules and the report template;
 - the instance root and a reminder: zero git, no fetching in
   `.repos/` (the clone is read-only; own state only via
@@ -304,7 +321,9 @@ subagents deliberately skipped (rule 9).
    <cheap-model>`, then for each smoke attempt it produced
    `bench evaluate --attempt <attempts/<task>/<model>/trial-N>
    --no-write-results` (one `--attempt` per smoke attempt; a bare
-   `bench evaluate` would take every preserved attempt). This is the
+   `bench evaluate` would take every preserved attempt). The smoke
+   attempt is a regular preserved attempt and counts as trial 1 of its
+   cell in the later matrix, so its cost is not wasted. This is the
    **solvability probe** (no reference implementation is written; only
    a mined order brings one, from history): an assertion that no smoke
    attempt greens is suspect-harness — back to the subagent for
@@ -320,8 +339,9 @@ subagents deliberately skipped (rule 9).
    The judge call is already paid for, and the smoke diff is the only
    real wrong-but-competent attempt the batch will see before the
    matrix (bench-measure's JUDGE_DIAGNOSTICS.md calibrates on real attempts and fabricates no
-   synthetic ones, so there is no other source). Open `judge.json`,
-   read each criterion's score and justification against the diff, and
+   synthetic ones, so there is no other source). With
+   `--no-write-results` nothing is written as a verdict; the `judge:`
+   lines of that evaluate output carry it. Read each criterion's score and justification against the diff, and
    ask the one question the total hides: **does a diff that fails the
    task's decisive axis still land near `pass_threshold`?** If it does,
    the rubric is not gating — fix it now, while no results exist and

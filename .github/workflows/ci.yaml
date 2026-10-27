@@ -44,6 +44,8 @@ jobs:
         run: npm run typecheck --prefix .bench-kit/runner
       - name: testy bootstrapu (kontrakt init/update/repair)
         run: node --test .github/tests/bootstrap.test.mjs
+      - name: testy kopania PR-ów (skan równoległy i cache = skan szeregowy)
+        run: node --test .github/tests/mining.test.mjs
       - name: testy jednostkowe (harness, wycena, ery, statystyka decyzji)
         run: node --experimental-strip-types --test .github/tests/units.test.mjs
       - name: bench validate --offline (template z placeholderami)
@@ -74,6 +76,10 @@ jobs:
           INSTANCE="$RUNNER_TEMP/instance"
           mkdir -p "$INSTANCE"
           rsync -a --exclude .git --exclude .github --exclude node_modules ./ "$INSTANCE/"
+          # Zadanie-demo żyje tylko w CI (instancje startują bez niego —
+          # bench-status prowadzi prosto do prawdziwych zadań).
+          cp -R .github/fixtures/tasks/. "$INSTANCE/tasks/"
+          cp -R .github/fixtures/evaluation-pool/. "$INSTANCE/evaluation-pool/"
           git -C "$INSTANCE" init -q && git -C "$INSTANCE" add -A
           git -C "$INSTANCE" -c user.email=ci@bench -c user.name=ci commit -qm init
       - name: wiring demo
@@ -91,8 +97,8 @@ jobs:
             sed -i "s|$pattern|$replacement|" "$file"
           }
           subst "https://github.com/example-org/demo-app.git" "$BASE_REPO_URL" bench.config.yaml
-          subst "openrouter/anthropic/claude-opus-5" "$JUDGE_MODEL" bench.config.yaml
-          subst "- openrouter/anthropic/claude-sonnet-5" "- $TRIAL_MODEL" bench.config.yaml
+          subst "model: openrouter/anthropic/claude-opus-5.5" "model: $JUDGE_MODEL" bench.config.yaml
+          subst "- openrouter/openai/gpt-6.1-sol" "- $TRIAL_MODEL" bench.config.yaml
           subst "\"0000000000000000000000000000000000000000\"" "\"$BASE_REPO_PIN\"" tasks/demo-hello-bench/task.yaml
       - run: npm ci --prefix "$INSTANCE/.bench-kit/runner"
       - name: bench validate (pełne, z siecią)

@@ -28,11 +28,11 @@
  *   (wspólne: [--json] [--no-deps-cache]; z --task bez refów: wszystkie
  *    asercje nie-LLM-owe z task.yaml)
  */
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
-import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
-import { buildStartWorkspace, runAssertions, runAssertionsBatch, type AssertionOutcome } from "../lib/reference.ts";
+import { detectEngine, ensureBaseImage, removeTree } from "../lib/containers.ts";
+import { applyPrepare, buildStartWorkspace, runAssertions, runAssertionsBatch, type AssertionOutcome } from "../lib/reference.ts";
 
 interface Options {
   root: string;
@@ -109,8 +109,13 @@ export async function assertCommand(args: string[]): Promise<number> {
 
     let repoName: string, commit: string, overlay: string | null, refs: string[];
     let taskMemoryMb: number | null = null;
+    let prepare: string | null = null;
+    // Deklaracje reference z task.yaml — dotyczą stanu startowego z overlayem.
+    let reference: Record<string, "pass" | "fail"> = {};
     if (opts.task) {
       const task = loadTask(root, opts.task);
+      prepare = task.prepare ?? null;
+      if (!opts.noOverlay) reference = task.reference ?? {};
       repoName = task.repo;
       commit = task.commit;
       taskMemoryMb = task.memory_mb ?? null;
@@ -152,16 +157,40 @@ export async function assertCommand(args: string[]): Promise<number> {
     progress(`assert: stan startowy ${repoName}@${commit.slice(0, 12)}…${overlay ? " + overlay" : ""}${patchNote}`);
     const workspace = buildStartWorkspace(repoUrl, commit, overlay, config.defaults.context_files);
     try {
-      const printOutcomes = (outcomes: Record<string, AssertionOutcome>, indent: string): boolean => {
+      if (prepare) {
+        progress(`assert: task.prepare (jak w obrazie zadania)…`);
+        applyPrepare(engine, image, workspace, prepare, runOpts);
+      }
+      // Czerwień na stanie startowym (brak patcha / pusty diff) bywa celem
+      // (asercja fail-to-pass) — z deklaracją reference w task.yaml widać,
+      // czy to oczekiwane. Kod wyjścia się nie zmienia (score < 1 → 1).
+      let unexpectedRed = false;
+      let startStateRed = false;
+      const printOutcomes = (outcomes: Record<string, AssertionOutcome>, indent: string, startState: boolean): boolean => {
         let allPass = true;
         for (const ref of refs) {
           const outcome = outcomes[ref];
           if (!outcome) throw new Error(`brak wyniku dla asercji ${ref} w checks.json`);
-          if (outcome.score < 1) allPass = false;
-          progress(`${indent}assert: ${ref} → score ${outcome.score.toFixed(2)} (${outcome.passed}/${outcome.total} komend)`);
+          const declared = startState ? reference[ref] : undefined;
+          if (outcome.score < 1) {
+            allPass = false;
+            if (startState) startStateRed = true;
+            if (declared !== "fail") unexpectedRed = true;
+          }
+          const durations = outcome.checks.map((c) => c.duration_s);
+          const timing = durations.every((d) => typeof d === "number")
+            ? `, ${Math.round(durations.reduce((a: number, d) => a + (d as number), 0))} s`
+            : "";
+          const passes = outcome.score >= 1;
+          const verdict = declared
+            ? (declared === "pass") === passes
+              ? ` — zgodnie z deklaracją reference (${declared})`
+              : ` — WBREW deklaracji reference (${declared})`
+            : "";
+          progress(`${indent}assert: ${ref} → score ${outcome.score.toFixed(2)} (${outcome.passed}/${outcome.total} komend${timing})${verdict}`);
           for (const check of outcome.checks) {
             if (check.exit !== 0) {
-              progress(`${indent}        ✗ ${check.name} (exit ${check.exit})`);
+              progress(`${indent}        ✗ ${check.name} (exit ${check.exit}${typeof check.duration_s === "number" ? `, ${check.duration_s} s` : ""})`);
               const tail = check.log_tail.trim().split("\n").slice(-10).join(`\n${indent}        | `);
               if (tail) progress(`${indent}        | ${tail}`);
             }
@@ -169,6 +198,13 @@ export async function assertCommand(args: string[]): Promise<number> {
         }
         return allPass;
       };
+      const redNote = (): string =>
+        !unexpectedRed
+          ? " — czerwień wyłącznie na stanie startowym, zgodnie z reference w task.yaml"
+          : startStateRed
+            ? " (czerwień na pustym diffie/stanie startowym bywa oczekiwana — porównaj z reference w task.yaml)"
+            : "";
+      const isEmptyPatch = (path: string) => statSync(path).size === 0;
 
       if (opts.patches.length > 1) {
         // Wsad: jedno wejście do kontenera, N wyników (N2).
@@ -180,30 +216,33 @@ export async function assertCommand(args: string[]): Promise<number> {
         const patches = opts.patches.map((path, i) => ({ name: names[i] as string, path }));
         const batch = runAssertionsBatch(engine, root, image, workspace, refs, patches, runOpts);
         let allPass = true;
-        for (const { name } of patches) {
+        for (const { name, path } of patches) {
           const entry = batch[name];
           if (!entry) throw new Error(`brak wyniku dla patcha "${name}" w checks-batch.json`);
           if (entry.patch_error !== null || !entry.outcomes) {
             allPass = false;
+            unexpectedRed = true;
             progress(`\npatch ${name}: NIE APLIKUJE SIĘ na stan startowy`);
             progress(`  | ${(entry.patch_error ?? "").trim().split("\n").slice(-5).join("\n  | ")}`);
             continue;
           }
           progress(`\npatch ${name}:`);
-          if (!printOutcomes(entry.outcomes, "  ")) allPass = false;
+          if (!printOutcomes(entry.outcomes, "  ", isEmptyPatch(path))) allPass = false;
         }
-        progress(`\nbench assert: ${allPass ? "wszystkie patche przechodzą wszystkie asercje" : "są patche z asercjami poniżej 1.0 (lub nieaplikowalne)"}`);
+        progress(`\nbench assert: ${allPass ? "wszystkie patche przechodzą wszystkie asercje" : `są patche z asercjami poniżej 1.0 (lub nieaplikowalne)${redNote()}`}`);
         if (opts.json) console.log(JSON.stringify({ mode: "batch", refs, patches: batch }, null, 2));
         return allPass ? 0 : 1;
       }
 
       const outcomes = runAssertions(engine, root, image, workspace, refs, opts.patches[0] ?? null, runOpts);
-      const allPass = printOutcomes(outcomes, "");
-      progress(`\nbench assert: ${allPass ? "wszystkie asercje przechodzą" : "są asercje poniżej 1.0"}`);
+      const patch = opts.patches[0];
+      const allPass = printOutcomes(outcomes, "", !patch || isEmptyPatch(patch));
+      progress(`\nbench assert: ${allPass ? "wszystkie asercje przechodzą" : `są asercje poniżej 1.0${redNote()}`}`);
       if (opts.json) console.log(JSON.stringify({ mode: "single", refs, outcomes }, null, 2));
       return allPass ? 0 : 1;
     } finally {
-      rmSync(workspace, { recursive: true, force: true });
+      // Artefakty task.prepare tworzy kontener — mogą nie należeć do użytkownika hosta.
+      removeTree(workspace, { engine, image });
     }
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);

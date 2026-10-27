@@ -78,6 +78,12 @@ export const AttemptSchema = z.object({
   /** Liczba podejść (retry przy awarii providera / kill'u sygnałem). */
   attempts: z.number().int().positive(),
   execution: ExecutionSchema.nullable(),
+  /**
+   * false = kopia workspace/ po próbie nie powiodła się (pełny dysk) —
+   * patch.diff i metryki są całe, sędzia-z-narzędziami nie ma czego badać.
+   * Brak pola = starsze próby (zachowany).
+   */
+  workspace_preserved: z.boolean().optional(),
 });
 
 export type Attempt = z.infer<typeof AttemptSchema>;

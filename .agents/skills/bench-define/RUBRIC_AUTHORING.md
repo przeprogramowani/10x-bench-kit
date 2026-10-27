@@ -21,7 +21,7 @@ can verify what the diff claims, not for a text-only reader.
 task's `evaluation[]` as `judge/<task-name>-rubric`. One rubric per
 task — rubrics are not shared across tasks (the axes are the task's),
 so there is no reuse decision to make; `default-rubric` in the pool is
-the demo's generic rubric, not a fallback for real tasks.
+a generic format example, not a fallback for real tasks.
 
 ## Format contract (checked by `bench validate`)
 

@@ -10,7 +10,13 @@
  *   (runner parsuje check.yaml na hoście; tu tylko JSON — zero zależności).
  *
  * Wyjście: /bench/out/checks.json:
- *   { "<ref>": { score, passed, total, checks: [{name, exit, log_tail}] } }
+ *   { "<ref>": { score, passed, total, checks: [{name, exit, log_tail, duration_s}] } }
+ *   duration_s = czas komendy w sekundach (pole addytywne — starsze
+ *   checks.json go nie mają; autor asercji mierzy nim "ciepły" koszt guarda).
+ *   log_tail = stdout+stderr bez kodów ANSI; dłuższy niż LOG_MAX znaków
+ *   → początek (LOG_HEAD) + koniec (reszta) z markerem pominięcia —
+ *   podsumowanie runnera testów zwykle jest na końcu, pierwszy błąd
+ *   kompilacji na początku.
  *
  * Komendy biegną w /workspace; katalog asercji dostają w env ASSERTION_DIR.
  */
@@ -31,23 +37,48 @@ function applyPatch(patchPath) {
   return apply.status === 0 ? null : apply.stderr || `git apply exit ${apply.status}`;
 }
 
+/** Sufit jednej komendy check.yaml (stała — config/flaga nie istnieje). */
+const CHECK_TIMEOUT_MS = 600_000;
+const LOG_MAX = 8000;
+const LOG_HEAD = 1500;
+
+// CSI (kolory, kursor), OSC (tytuły, linki), wybór zestawu znaków i pojedyncze ESC-sekwencje.
+const ANSI = /\x1b\[[0-?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\-_]/g;
+
+function logExcerpt(raw) {
+  const log = raw.replace(ANSI, "").replace(/\r(?!\n)/g, "\n");
+  if (log.length <= LOG_MAX) return log;
+  const tail = LOG_MAX - LOG_HEAD;
+  return `${log.slice(0, LOG_HEAD)}\n… [pominięto ${log.length - LOG_MAX} znaków] …\n${log.slice(-tail)}`;
+}
+
 function runPlan() {
   const results = {};
   for (const assertion of plan) {
     const checks = [];
     let passed = 0;
     for (const check of assertion.checks) {
+      const started = Date.now();
       const result = spawnSync("bash", ["-c", check.run], {
         cwd: WORKSPACE,
         encoding: "utf8",
-        timeout: 600_000,
+        timeout: CHECK_TIMEOUT_MS,
+        maxBuffer: 256 * 1024 * 1024,
         env: { ...process.env, ASSERTION_DIR: `/bench/assertions/${assertion.ref}` },
       });
+      const durationS = Math.round((Date.now() - started) / 100) / 10;
       const exit = result.status ?? -1;
       if (exit === 0) passed++;
+      const timedOut = result.error?.code === "ETIMEDOUT";
+      const timeoutNote = timedOut
+        ? `\n[bench] TIMEOUT: komenda przerwana po ${CHECK_TIMEOUT_MS / 60_000} min (sufit per komenda check.yaml — stała CHECK_TIMEOUT_MS ` +
+          "w .bench-kit/docker/evaluate.mjs; brak flagi/configu — skróć komendę albo rozbij ją na kilka checks)\n"
+        : "";
       const log = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-      checks.push({ name: check.name, exit, log_tail: log.slice(-2000) });
-      console.error(`evaluate: ${assertion.ref} / ${check.name} → exit ${exit}`);
+      checks.push({ name: check.name, exit, log_tail: logExcerpt(log) + timeoutNote, duration_s: durationS });
+      console.error(
+        `evaluate: ${assertion.ref} / ${check.name} → exit ${exit} (${durationS} s)${timedOut ? ` (TIMEOUT ${CHECK_TIMEOUT_MS / 60_000} min)` : ""}`,
+      );
     }
     const total = assertion.checks.length;
     const score = assertion.score_mode === "fraction" ? (total ? passed / total : 0) : passed === total ? 1 : 0;

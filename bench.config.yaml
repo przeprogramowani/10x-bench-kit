@@ -3,9 +3,15 @@
 
 # Repozytoria bazowe — projekty produktowe, na których agenci wykonują
 # zadania. Benchmark NIGDY ich nie modyfikuje; dostęp read-only.
-# URL zawsze https — dla repo prywatnych sekret BASE_REPO_TOKEN
-# (fine-grained PAT, contents:read) w repo instancji; workflow wpina go
-# w gita sam. Repo publiczne działają bez sekretu.
+# URL: preferowany https — działa wszędzie (CI, kontenery, inna
+# maszyna); repo publiczne bez sekretu, prywatne z BASE_REPO_TOKEN
+# (fine-grained PAT, contents:read) w env lub w sekretach repo instancji.
+# `bench-kit init` zostawia URL SSH (git@github.com:…), gdy repo nie
+# odpowiada po https (zwykle: prywatne) — lokalnie git używa wtedy
+# kluczy SSH operatora. Tam, gdzie kluczy nie ma (GitHub Actions), SSH
+# nie zadziała, chyba że jest BASE_REPO_TOKEN (runner przepisuje
+# git@github.com: na https z tokenem). Zmiana: podmień `url` na
+# https://github.com/<org>/<repo>.git i ustaw BASE_REPO_TOKEN.
 base_repos:
   - name: demo-app
     url: https://github.com/example-org/demo-app.git
@@ -15,7 +21,7 @@ base_repos:
 # (wersję deklaruje każda rubryka w swoim frontmatterze — `version`;
 # opcjonalne judge.rubric_version to tylko fallback dla rubryk legacy).
 judge:
-  model: openrouter/anthropic/claude-opus-5
+  model: openrouter/anthropic/claude-opus-5.5
   # Ścieżka oceny instancji (część ery): agent = sędzia z narzędziami per
   # próba (bench-measure → RATE_ATTEMPT.md), api = sędzia API na diffie
   # (smoke / CI). Wyniki z innej ścieżki są widoczne jako inna era, a
@@ -40,14 +46,16 @@ defaults:
   trials: 3
   # Modele oceniane, gdy wywołanie nie poda własnej listy. Prefiks id
   # wybiera harness (CLI agenta w próbie); bez prefiksu = OpenCode:
-  #   openrouter/anthropic/claude-sonnet-5              → OpenCode
+  #   openrouter/openai/gpt-6.1-sol                     → OpenCode
   #   claude-code:claude-sonnet-5                       → Claude Code (ANTHROPIC_API_KEY)
   #   claude-code:openrouter/anthropic/claude-sonnet-5  → Claude Code przez OpenRouter
   #   codex:gpt-5.1-codex                               → Codex CLI (OPENAI_API_KEY)
   #   codex:openrouter/openai/gpt-5.1-codex             → Codex CLI przez OpenRouter
   # Ten sam model w innym harnessie to osobny zawodnik (osobny wiersz wyników).
+  # Domyślny model jest od innego dostawcy niż sędzia (judge.model) —
+  # `bench validate` ostrzega, gdy oceniany i sędzia są z jednej rodziny.
   models:
-    - openrouter/anthropic/claude-sonnet-5
+    - openrouter/openai/gpt-6.1-sol
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
   # Sufit kosztu prób CAŁEGO biegu macierzy (USD). `bench attempt` robi

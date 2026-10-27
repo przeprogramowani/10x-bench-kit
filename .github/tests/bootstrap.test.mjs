@@ -29,7 +29,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { runBootstrap } from "../../.bench-kit/bootstrap/index.mjs";
+import { FIRST_STEP, runBootstrap } from "../../.bench-kit/bootstrap/index.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REAL_YAML = join(REPO_ROOT, ".bench-kit", "runner", "node_modules", "yaml");
@@ -78,6 +78,9 @@ function buildTemplateFixture(version = "0.1.0") {
   writeFileSync(join(dir, "benchkit.png"), "PNG");
   mkdirSync(join(dir, "docs"), { recursive: true });
   writeFileSync(join(dir, "docs", "plan.md"), "# plan template'u\n");
+  writeFileSync(join(dir, "README.md"), "# 10x-bench-kit — README template'u\n");
+  writeFileSync(join(dir, "CHANGELOG.md"), `## ${version}\n`);
+  writeFileSync(join(dir, "todo.md"), "- [] good first issue\n");
   mkdirSync(join(dir, ".claude", "skills", "bench-task"), { recursive: true });
   writeFileSync(
     join(dir, ".claude", "skills", "bench-task", "SKILL.md"),
@@ -166,6 +169,7 @@ test("init: materializuje template bez historii gita i robi świeże repo z comm
   assert.equal(manifest.templateRef, "latest");
   assert.equal(manifest.initializedAt, "2026-08-17T12:00:00.000Z");
   assert.equal(manifest.tool, "claude-code");
+  assert.equal(manifest.skillRoot, ".claude/skills"); // BUILD.md czyta <skills> stąd
 });
 
 test("init: pliki template-only nie trafiają do instancji", () => {
@@ -180,6 +184,22 @@ test("init: pliki template-only nie trafiają do instancji", () => {
   assert.equal(existsSync(join(target, ".github", "workflows", "ci.yaml")), false);
   assert.equal(existsSync(join(target, "benchkit.png")), false);
   assert.equal(existsSync(join(target, "docs")), false);
+  assert.equal(existsSync(join(target, "CHANGELOG.md")), false);
+  assert.equal(existsSync(join(target, "todo.md")), false);
+  // README opisuje instancję (narzędzie, skille, pierwszy prompt), nie template.
+  const readme = readFileSync(join(target, "README.md"), "utf8");
+  assert.ok(!readme.includes("README template'u"));
+  assert.match(readme, /^# instance\n/);
+  assert.ok(readme.includes("Claude Code"));
+  assert.ok(readme.includes("`.claude/skills/`"));
+  assert.ok(readme.includes(FIRST_STEP.prompt));
+});
+
+test("repair: nie nadpisuje README instancji", () => {
+  const { target, template } = initInstance();
+  writeFileSync(join(target, "README.md"), "# nasz benchmark\n");
+  runBootstrap(baseRequest(template, target));
+  assert.equal(readFileSync(join(target, "README.md"), "utf8"), "# nasz benchmark\n");
 });
 
 test("init: skille lądują wg profilu narzędzia z żądania, bez pustej skorupy .claude/", () => {
@@ -224,14 +244,19 @@ test("init: rejestruje wykryte repo produktowe i pinuje zadanie-demo", () => {
   assert.equal(response.demoTasksPinned, 1);
 
   // Instrukcja klonu dla CLI + gitignore zanim klon wyląduje.
-  // Domyślnie płytko: depth 1.
+  // Domyślnie pełna historia (kopanie PR-ów jej potrzebuje): depth null.
   assert.deepEqual(response.baseRepoClone, {
     name: "shop-app",
     url: "git@github.com:acme/shop-app.git",
     rootDir: "/somewhere/shop-app",
     dest: ".repos/shop-app",
-    depth: 1,
+    depth: null,
   });
+  // SSH zostało (https nieosiągalne) — operator dostaje ostrzeżenie.
+  assert.ok(response.warnings.some((w) => w.includes("SSH")));
+  // Pierwszy krok w instancji podaje kit, nie CLI.
+  assert.equal(response.nextStep.skill, "bench-status");
+  assert.match(response.nextStep.prompt, /bench-status/);
   assert.ok(readFileSync(join(target, ".gitignore"), "utf8").includes(".repos/"));
   const manifest = JSON.parse(readFileSync(join(target, ".bench-kit", "instance.json"), "utf8"));
   assert.equal(manifest.detectedBaseRepo.name, "shop-app");
@@ -254,9 +279,9 @@ test("init: preferuje https, gdy CLI zgłasza osiągalność", () => {
   assert.equal(response.baseRepoClone.url, "https://github.com/acme/shop-app.git");
 });
 
-test("init: deepClone zamawia pełną historię w instrukcji klonu", () => {
+test("init: shallowClone zamawia sam HEAD w instrukcji klonu", () => {
   const { response } = initInstance("0.1.0", {
-    deepClone: true,
+    shallowClone: true,
     detectedBaseRepo: {
       rootDir: "/somewhere/shop-app",
       name: "shop-app",
@@ -266,7 +291,16 @@ test("init: deepClone zamawia pełną historię w instrukcji klonu", () => {
     },
   });
 
-  assert.equal(response.baseRepoClone.depth, null);
+  assert.equal(response.baseRepoClone.depth, 1);
+});
+
+test("init: shallowClone niebooleanowe to invalid_request", () => {
+  const template = buildTemplateFixture();
+  const target = join(tempDir("bootstrap-target-"), "instance");
+  assert.equal(
+    codeOf(() => runBootstrap(baseRequest(template, target, { shallowClone: "yes" }))),
+    "invalid_request",
+  );
 });
 
 test("init: deepClone niebooleanowe to invalid_request", () => {

@@ -16,9 +16,10 @@ work they delivered.
 
 ## 0. Prerequisites (orchestrator, once)
 
-- The base repo clone in `.repos/<name>` (AGENTS.md convention). It is
-  shallow by default and mining needs history covering the scan window.
-  Deepen it **here, once**, never in a subagent:
+- The base repo clone in `.repos/<name>` (AGENTS.md convention). It
+  has full history by default (`10x bench-kit init` from 10x-cli 1.31+);
+  an older or `--shallow` init leaves it shallow, and mining needs
+  history covering the scan window. Deepen it **here, once**, never in a subagent:
   `git -C .repos/<name> fetch --shallow-since="<N> days ago" origin`
   (N = the scan's `--since`), or `--unshallow` for everything. The scan
   runs on a shallow clone too, but warns when the clone's history ends
@@ -37,7 +38,12 @@ work they delivered.
 node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> [--ref origin/HEAD] [--since 365] [--limit 30] [--json]
 ```
 
-The scan reads only local git: no network, nothing written. `--ref`
+The scan reads only local git: no network, and the only write is a
+coupling cache in the clone's `.git/` (`--no-cache` skips it). The
+coupling analysis runs on all cores (`--jobs <n>` to cap it): a first
+scan of a year in a mid-size monorepo takes a minute or two — start it
+and tell the user what it is doing; a re-scan reuses the cache and takes
+seconds, so widen `--since` or add `--all` freely. `--ref`
 defaults to `origin/HEAD` (see §0); pass another ref only on purpose.
 It lists
 first-parent changes that touched both code and tests, within size
@@ -57,8 +63,11 @@ excluded ones with reasons). Per candidate you get:
 - **Coupling:** the identifiers, contract names (fields, keys) and new
   files that the change *introduces* and its tests *use*.
 
-The ranking puts uncoupled candidates first, then size M, S, L, then
-recency.
+The ranking puts product work (feat / fix / perf / refactor) before
+maintenance (ci / chore / build / docs / style / test), then candidates
+whose coupling is at most 3 names (the prompt can state them verbatim —
+that is most feature PRs) before wider coupling, then size M, S, L, then
+recency. Coupling is a prompt-writing obligation, not a defect.
 
 `show <sha>` prints one candidate in full: message, files, coupling,
 and the PR branch's time span when it was a merge commit.
@@ -137,7 +146,14 @@ Write one entry per candidate per BACKLOG_TEMPLATE.md, with
     the task's do's and don'ts;
   - **Description** — the intent in 2–6 sentences, with nothing from
     the diff beyond the Coupled names.
-- **The user's** — **Decision**, **Class** and **Work baseline**.
+- **The user's** — **Decision**, **Class** and **Work baseline**. Ask
+  them **once per batch, as proposals**, not three open questions per
+  order: derive the default Decision from `defaults.models` in
+  `bench.config.yaml` ("can <cheapest configured model> replace <the
+  strongest> on <class> in this repo?"), the Class from the class hint,
+  and the Work baseline from what the user said they use today (or "no
+  agent today" when unknown). One question — "these three, or correct
+  any?" — unblocks the whole batch.
 
 Present the batch for acceptance before writing, as INTERVIEW.md step
 2 does: one table (name, class, type, guidance, time limit, Human time,

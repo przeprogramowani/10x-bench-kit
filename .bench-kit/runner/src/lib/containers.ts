@@ -3,8 +3,8 @@
  * Używane przez run / evaluate / assert / validate --assert.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { HARNESSES, harnessVersion, type HarnessName } from "./harness.ts";
 
 export function sh(cmd: string, args: string[], opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {}) {
@@ -46,6 +46,36 @@ export function must(cmd: string, args: string[], what: string, opts: Parameters
     throw new Error(`${what}: ${cmd} ${args.join(" ")}\n${(result.stderr || result.stdout || "").trim()}`);
   }
   return result.stdout;
+}
+
+/**
+ * Sprzątanie katalogu tymczasowego (workspace referencyjny, wyjście oceny)
+ * — wołane w `finally`, więc NIGDY nie rzuca: porażka sprzątania nie może
+ * przykryć właściwego wyniku. Pliki utworzone w kontenerze bywają własnością
+ * roota albo subuid-ów (docker rootful, rootless podman z użytkownikiem
+ * kontenera ≠ root) i host-owy rmSync kończy się EACCES — wtedy próba
+ * w przestrzeni nazw silnika: `podman unshare rm -rf` albo `docker run --rm`
+ * z katalogiem nadrzędnym zamontowanym do podanego obrazu. Na koniec warn
+ * ze ścieżką do ręcznego usunięcia.
+ */
+export function removeTree(dir: string, fallback: { engine: string; image: string } | null = null): void {
+  let error: unknown;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    return;
+  } catch (err) {
+    error = err;
+  }
+  if (fallback) {
+    const args =
+      fallback.engine === "podman"
+        ? ["unshare", "rm", "-rf", dir]
+        : ["run", "--rm", "-v", `${dirname(dir)}:/bench-cleanup`, fallback.image, "rm", "-rf", `/bench-cleanup/${basename(dir)}`];
+    sh(fallback.engine, args, { timeout: 300_000 });
+    if (!existsSync(dir)) return;
+  }
+  const why = error instanceof Error ? error.message.split("\n")[0] : String(error);
+  console.error(`warn:  nie udało się usunąć katalogu tymczasowego ${dir} (${why}) — usuń ręcznie`);
 }
 
 /** docker jeśli daemon odpowiada, inaczej podman — albo wymuszony --engine. */
@@ -135,6 +165,32 @@ export function signalFromExit(exitCode: number): { signal: number; name: string
   return { signal, name: SIGNAL_NAMES[signal] ?? `SIG${signal}`, likely_oom: signal === 9 };
 }
 
+/**
+ * Komunikat o nieudanym kontenerze oceny. status null = proces silnika
+ * zabity sygnałem albo niewystartowany (spawn error, timeout) — wtedy
+ * "kodem null:" z pustym ogonem nic nie mówi; nazywamy przyczynę i krok.
+ */
+export function containerFailureMessage(
+  result: { status: number | null; signal?: NodeJS.Signals | null; error?: Error; stdout?: string | null; stderr?: string | null },
+  memoryMb: number | null = null,
+): string {
+  const tail = (result.stderr || result.stdout || "").slice(-1000).trim();
+  let what: string;
+  if (result.status === null) {
+    const cause = result.error ? result.error.message : result.signal ? `sygnał ${result.signal}` : "przyczyna nieznana";
+    what =
+      `kontener oceny przerwany przed końcem (${cause}) — to awaria maszyny/silnika, nie wynik próby; ` +
+      "sprawdź `bench doctor` (silnik, pamięć; przy wielu równoległych ocenach zmniejsz ich liczbę) i powtórz ocenę tej próby";
+  } else {
+    const signal = signalFromExit(result.status);
+    const signalNote = signal
+      ? ` (${signal.name}${signal.likely_oom ? ` — prawdopodobnie OOM; limit: ${memoryMb !== null ? `${memoryMb} MiB` : "brak, sufit = pamięć maszyny silnika"}` : ""})`
+      : "";
+    what = `kontener oceny zakończony kodem ${result.status}${signalNote}`;
+  }
+  return tail ? `${what}:\n${tail}` : `${what} (brak wyjścia kontenera)`;
+}
+
 /** Pamięć maszyny silnika kontenerów w bajtach (docker/podman), null gdy nieznana. */
 export function engineMemoryBytes(engine: string): number | null {
   const format = engine === "podman" ? "{{.Host.MemTotal}}" : "{{.MemTotal}}";
@@ -149,9 +205,15 @@ export function engineMemoryBytes(engine: string): number | null {
  * tag. Wersje są w tagu, więc bump pinu jednego CLI daje nowy obraz,
  * a nie cichą podmianę narzędzia pod istniejącymi próbami.
  */
+/** Tag obrazu bazowego dla przypiętych wersji harnessów instancji. */
+export function baseImageTag(root: string): string {
+  const versions = Object.fromEntries(HARNESSES.map((h) => [h, harnessVersion(root, h)])) as Record<HarnessName, string>;
+  return `bench-base:oc${versions.opencode}-cc${versions["claude-code"]}-cx${versions.codex}`;
+}
+
 export function ensureBaseImage(engine: string, root: string): string {
   const versions = Object.fromEntries(HARNESSES.map((h) => [h, harnessVersion(root, h)])) as Record<HarnessName, string>;
-  const image = `bench-base:oc${versions.opencode}-cc${versions["claude-code"]}-cx${versions.codex}`;
+  const image = baseImageTag(root);
   must(
     engine,
     [

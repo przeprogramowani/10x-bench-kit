@@ -30,7 +30,9 @@ judge session, not a matrix run.
 ## Hard rules
 
 1. **The preserved attempt is read-only, and its code never runs on
-   the host.** Never modify anything under the attempt directory.
+   the host.** Never modify anything under the attempt directory
+   yourself (the runner writing `checks.json` / `checks.stamp.json`
+   there is expected).
    Anything you want to execute — build, tests, lint, starting the
    app, even `cat`-ing files is fine on the host but nothing that
    *runs* the workspace — happens in a **disposable container** from
@@ -51,7 +53,8 @@ judge session, not a matrix run.
    prompt left to the agent are never penalized. Your verdict JSON must
    match the rubric's ```json format exactly — `criteria` keys equal to
    the frontmatter weights' keys, numeric `score` in [0,1] per
-   criterion, one-sentence justifications. No arithmetic: the runner
+   criterion, one-sentence justifications — plus the optional top-level
+   `"notes"` from rule 5, the only extra key. No arithmetic: the runner
    computes the total.
 4. **Verify before you trust the diff.** For every claim the diff makes
    that the rubric prices (a feature exists, an edge case is handled,
@@ -64,7 +67,13 @@ judge session, not a matrix run.
    instance's judge model (`judge.model` in bench.config.yaml):
    verdicts from different models are different eras and must not mix.
    If you are not that model, say so and stop; the user launches the
-   session with the right model. Every verdict you fold carries its
+   session with the right model. **Same model, different route** counts
+   as that model: a Claude Code session on `claude-opus-5-5` judging
+   for `judge.model: openrouter/anthropic/claude-opus-5.5` signs with
+   the instance's id (`--judge-model openrouter/anthropic/claude-opus-5.5`)
+   and says the route in the verdict's top-level `"notes"` string (kept
+   in judge.json, ignored by scoring). A different model, size
+   or version is never "close enough". Every verdict you fold carries its
    author: `--judge-mode agent --judge-model <your model id>`. The
    runner refuses a verdict without an author, and one whose declared
    model is not the instance's judge. It stamps `judge_mode: agent`
@@ -97,7 +106,14 @@ these yourself.
   its exit code; without, an interactive shell. Every execution of
   step 3 goes through it.
 - `bench evaluate --attempt <dir> --verdict <file> --judge-mode agent --judge-model <your model id>` — folds your
-  verdict into `result.json`.
+  verdict into `result.json`. It reuses the guard results of your
+  `--skip-judge` run when they are provably fresh (same task, pool
+  assertions, evaluation image and patch — `checks.stamp.json`) and
+  says so (`guardy z … (świeże)`); otherwise it re-runs them and prints
+  why. `--rerun-guards` forces a re-run. A `bench attempt` running
+  meanwhile can rebuild the task image after a kit or `task.yaml`
+  change; the stamp then no longer matches and the fold re-runs the
+  guards once (minutes, not seconds). That is expected.
 - `bench status` — which preserved attempts still lack a fresh
   evaluation (batch mode).
 
@@ -172,7 +188,7 @@ It also decides `passed`, which is a **gate**, not a threshold on the
 total. Every guard with weight > 0 must score 1, and the judge
 component must reach `defaults.pass_threshold` on its own. A red guard
 cannot be outvoted by a generous verdict. `pass_reason` names what
-failed. Report the total, per-component scores and the gate outcome. Committing `results/` is the
+failed. Report the total, the component scores (`scores` in result.json) and the gate outcome (`passed`, `pass_reason`; the `eval:` line prints all three). Committing `results/` is the
 user's move — you never commit or push.
 
 ## Procedure — batch (a model, a task, or "everything new")
@@ -186,6 +202,21 @@ lists exactly the attempts to re-judge) and which are still running (skip those;
 attempt` may still be working in the background). For each attempt run the single-attempt procedure; with
 subagent support, one subagent per attempt keeps verdicts independent
 (they must not see each other — cross-attempt anchoring biases scores).
+
+**How many at once.** Every judge runs the guards in a container capped
+at `resources.memory_mb`, plus its own investigation in `bench shell`.
+Run at most *engine memory ÷ (memory_mb + 2 GiB)* judges in parallel —
+`bench doctor` prints both numbers; on a 23 GiB machine with 6 GiB
+containers that is 2–3, not 9. Too many at once trigger the host's
+OOM killer, which can take the container engine down with it.
+
+**An engine failure stops the batch.** When `bench evaluate
+--skip-judge` fails with a container error instead of check results
+(`kontener oceny przerwany`, `crun: … Access denied`), do not work
+around it with engine config overrides — guards run under different
+engine settings are not the conditions the era was stamped with. Stop,
+run `bench doctor` (its `start kontenera` line names the fix) and hand
+the fix to the user; resume the remaining attempts afterwards.
 Summarize at the end: a table of attempt → total, skipped attempts with
 reasons, guard failures worth escalating to bench-decide (explain).
 

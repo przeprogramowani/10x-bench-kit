@@ -6,6 +6,102 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.34.0 — 2026-10-27 (neutralny)
+
+**Pierwsze uruchomienie: od `bench-kit init` do zmierzonego zadania z
+własnych PR-ów, bez demo.** Wyniki 0.33.0 zostają w tej samej erze:
+nic tu nie zmienia liczenia oceny ani bramki.
+
+#### Dlaczego
+
+Przejście init → pierwsze zadanie z PR → pomiar 3 modeli na
+prawdziwym repo (przeprogramowani-edu, PR #234) pokazało, gdzie
+użytkownik czeka i gdzie się gubi: wskazówka po init kierowała do
+nieistniejącego skilla, płytki klon psuł kopanie, PR #234 był 59.
+kandydatem, skan trwał ponad 6 min, agenci pisali własne pętle
+czekania (38 min straconych), log testów był ucięty i pełen ANSI,
+a remis w bench-decide polecał najdroższy model.
+
+#### Zmiany
+
+- **Init** (z 10x-cli ≥ tej wersji): pełna historia klonu domyślnie
+  (`--shallow` dla starego zachowania), `doctor` w trakcie init,
+  instancja domyślnie w `../<repo>-bench`, własny README instancji;
+  README/CHANGELOG/todo szablonu nie trafiają do instancji.
+- **Bez demo w instancji.** Nowy skill **bench-status** sprawdza
+  gotowość (doctor, repo bazowe, modele i sędzia, validate), grzeje
+  obraz bazowy w tle i kieruje do bench-define. Demo zostaje w
+  `.github/fixtures/` dla CI.
+- **Kopanie PR-ów** (`mine-prs.mjs`): równoległe workery (`--jobs`),
+  cache sprzężenia per sha (`--no-cache`), linia postępu; ranking
+  produkt > utrzymanie, wąskie sprzężenie, rozmiar M>S>L; bez merge'ów
+  synchronizacyjnych; `emit` pisze `merge.diff` (dowód guardów
+  repo-level); `meta.json`: `post_merge_test_files` (było
+  `snapshot_files`). Skan 60 dni: 380 s → 67 s na zimno, ~5 s z cache.
+- **Pomiar:** `bench status --wait [--until-evaluated]` — od razu po
+  starcie biegu (marker biegu `attempts/.runs/` obejmuje przygotowanie
+  obrazów, zanim powstanie pierwszy `running.json`); fold
+  `--verdict` używa świeżych guardów (`checks.stamp.json`,
+  `--rerun-guards`); linia `eval:` podaje PASS/FAIL i `pass_reason`;
+  prognoza kosztu bez historii; ścieżki prób z surowym id modelu;
+  `log_tail` bez ANSI, początek + koniec logu.
+- **Dowody:** `bench assert --task` i `validate --assert` stosują
+  `task.prepare` — ten sam stan startowy co obraz zadania.
+- **Zadania z `prepare` na małym dysku:** zachowany `workspace/` próby
+  jest bez `node_modules` (wcześniej ~800 MB na próbę w monorepo pnpm;
+  13 prób zapełniło 12 GB), `bench shell` bierze je z obrazu zadania.
+  `trial.sh` pisze `metrics.json`/`execution.json` przed kopią
+  workspace'u, a pusty lub ucięty plik to awaria infrastruktury tej
+  próby z podpowiedzią „pełny dysk?" — nie `Unexpected end of JSON
+  input`, który przerywał cały bieg.
+- **Bieg przeżywa pełny dysk:** zapis na pełny dysk (ENOSPC, limit
+  tmpfs per użytkownik — Node: „Unknown system error -122") jest awarią
+  jednej próby, zatrzymuje zlecanie kolejnych i kończy bieg podsumowaniem
+  z wydaną kwotą zamiast wywrotki procesu. Nieudana kopia `workspace/`
+  jest usuwana (ucięta myliła `bench shell`), a `attempt.json` ma
+  `workspace_preserved: false`. `workspace/` jest też bez głównego
+  `.git` (−40% na próbę; `bench shell` bierze commit startowy z obrazu).
+- **Ocena:** przerwany kontener oceny (OOM hosta, padnięty silnik) mówi,
+  co się stało i co dalej, zamiast „zakończony kodem null:" z pustym
+  ogonem; podsumowanie `bench evaluate` wskazuje ponowną ocenę prób
+  z błędem. „Następny krok" po `bench attempt` zna `judge.mode`: przy
+  sędzi-agencie smoke idzie z `--no-write-results`, a bieg — do
+  RATE_ATTEMPT. `bench shell -- sh -c '…'` cytuje argumenty.
+- **Projekcja kosztu** modelu bez historii w zadaniu bierze jego koszt
+  z innych zadań instancji, gdy wyższy niż tokeny innych modeli (smoke
+  jednego modelu zaniżał projekcję ~3×), i mówi wprost, że szacunek
+  bywa 2–5× za niski.
+- **validate:** id modeli sprawdzane w katalogu OpenRouter; faza sieci
+  dla wszystkich repo bazowych; `--assert --tasks a,b` dowodzi tylko
+  zadań partii; pin, którego nie da się pobrać przez pełny TMPDIR, nie
+  udaje brakującego pinu. **doctor:** `--json`, `--warm`, obecność
+  obrazu bazowego, próbny start kontenera (silnik odpowiada na `info`,
+  a kontener nie wystartuje — np. po OOM padł menedżer systemd
+  użytkownika), ile prób zmieści się na dysku, ostrzeżenie o tmpfs,
+  pozostałości `bench-*` po przerwanych procesach.
+- **bench-decide:** remis = `resolved: false`, `cheapest_in_tie` i
+  uczciwa nota (wcześniej nota „wybór po cenie" przeczyła regule 3);
+  `tied_with` obejmuje też modele bez zaliczeń, których przedział
+  nachodzi na lidera.
+- **instance.json** zapisuje `skillRoot` (BUILD.md czyta stąd `<skills>`).
+- **Dokumenty:** TASK_AUTHORING — limit 10 min na komendę, kiedy guardy
+  repo-level (komenda, którą gatuje CI; czas mierzony w `bench assert`)
+  i kiedy `prepare`, skrypty cyklu życia instalacji (`--ignore-scripts`
+  lokalnie, `CI=true` w `prepare` i guardach); RATE_ATTEMPT — pole
+  `notes` werdyktu, ponowne guardy po przebudowie obrazu, ilu sędziów
+  naraz (pamięć silnika ÷ (memory_mb + 2 GiB)) i stop przy awarii
+  silnika; BUILD — decyzja o guardach i `prepare` raz na repo, guard
+  repo-level dowodzony per zadanie, a ten, który na danym zadaniu nie
+  może być czerwony, wypada z jego `evaluation`; WIRING skrócony do zmian okablowania i publikacji.
+- **Szablon:** sędzia `openrouter/anthropic/claude-opus-5.5`; guard
+  `static/lint` pokazuje ogon nieudanej instalacji.
+
+#### Migracja
+
+`10x bench-kit update`. Instancje z 0.33.0 zachowują swoje demo w
+`tasks/` (strefa użytkownika) — `bench status` nie liczy go już do
+brakujących prób, gdy są prawdziwe zadania; usuń je, kiedy chcesz.
+
 ## 0.33.0 — 2026-10-17 [scoring-breaking]
 
 Jeden release obejmuje trzy części, rozwijane na jednej gałęzi:

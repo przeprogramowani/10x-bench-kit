@@ -25,7 +25,7 @@
  * Wyjście: lista `ok:` / `warn:` / `error:`; kod 0 gdy brak errorów
  * (warningi dopuszczalne), 1 gdy jakikolwiek error, 2 przy złym użyciu.
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -36,14 +36,16 @@ import { TaskSchema, type Task } from "../schemas/task.ts";
 import { findInstanceRoot, listTaskNames, readYamlFile } from "../lib/instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
 import { parseRubric } from "../lib/judge.ts";
-import { detectEngine, ensureBaseImage } from "../lib/containers.ts";
+import { detectEngine, ensureBaseImage, removeTree } from "../lib/containers.ts";
 import { HARNESSES, parseModelId, underlyingModel, unknownHarnessPrefix } from "../lib/harness.ts";
-import { buildStartWorkspace, runAssertions } from "../lib/reference.ts";
+import { applyPrepare, buildStartWorkspace, runAssertions } from "../lib/reference.ts";
 import { gitAuthArgs } from "../lib/git-auth.ts";
+import { fetchOpenRouterModelIds, openRouterCatalogId } from "../lib/pricing.ts";
+import { nearest } from "../lib/attempt-path.ts";
 
 const PLACEHOLDER_COMMIT = "0".repeat(40);
 
-interface Issue {
+export interface Issue {
   level: "error" | "warn";
   where: string;
   message: string;
@@ -54,14 +56,21 @@ interface Options {
   offline: boolean;
   assert: boolean;
   engine: string | null;
+  /** --tasks: zawęża --assert do zadań partii (schemat i sieć sprawdzane dla całej instancji). */
+  tasks: string[] | null;
 }
 
 function parseArgs(args: string[]): Options | null {
-  const opts: Options = { root: process.cwd(), offline: false, assert: false, engine: null };
+  const opts: Options = { root: process.cwd(), offline: false, assert: false, engine: null, tasks: null };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--offline") opts.offline = true;
     else if (arg === "--assert") opts.assert = true;
+    else if (arg === "--tasks") {
+      const value = args[++i];
+      if (!value) return null;
+      opts.tasks = value.split(",").filter(Boolean);
+    }
     else if (arg === "--engine") {
       const value = args[++i];
       if (!value) return null;
@@ -73,6 +82,7 @@ function parseArgs(args: string[]): Options | null {
     } else return null;
   }
   if (opts.assert && opts.offline) return null;
+  if (opts.tasks && !opts.assert) return null;
   return opts;
 }
 
@@ -143,14 +153,43 @@ function checkCommitExists(url: string, commit: string): string | null {
     if (fetch.status === 0) return null;
     return (fetch.stderr || `git fetch zakończone kodem ${fetch.status}`).trim().split("\n").pop() ?? "";
   } finally {
-    rmSync(tmp, { recursive: true, force: true });
+    removeTree(tmp);
   }
+}
+
+/**
+ * Id modeli routowanych przez OpenRouter (defaults.models + judge.model)
+ * kontra katalog OpenRouter. Literówka w id inaczej wychodzi dopiero jako
+ * opłacona próba z błędem dostawcy. Modele spoza OpenRouter — pomijane.
+ */
+export function checkOpenRouterIds(config: Pick<BenchConfig, "defaults" | "judge">, catalog: Set<string>): Issue[] {
+  const issues: Issue[] = [];
+  const entries = [
+    ...config.defaults.models.map((id) => ({ field: "defaults.models", id })),
+    { field: "judge.model", id: config.judge.model },
+  ];
+  for (const { field, id } of entries) {
+    const slug = openRouterCatalogId(id);
+    if (slug === null || catalog.has(slug)) continue;
+    const close = nearest(slug, catalog, 3);
+    issues.push({
+      level: "error",
+      where: "bench.config.yaml",
+      message: `${field}: "${id}" — modelu "${slug}" nie ma w katalogu OpenRouter${close.length ? ` (czy chodziło o: ${close.join(", ")}?)` : ""}`,
+    });
+  }
+  return issues;
+}
+
+/** Ile id z configu sprawdza checkOpenRouterIds (0 = faza katalogu pominięta). */
+function openRouterIdsIn(config: Pick<BenchConfig, "defaults" | "judge">): number {
+  return [...config.defaults.models, config.judge.model].filter((id) => openRouterCatalogId(id) !== null).length;
 }
 
 export async function validateCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
-    console.error("usage: bench validate [--offline] [--assert] [--engine docker|podman] [--root <dir>]  (--assert nie łączy się z --offline)");
+    console.error("usage: bench validate [--offline] [--assert [--tasks a,b]] [--engine docker|podman] [--root <dir>]  (--assert nie łączy się z --offline; --tasks zawęża --assert do zadań partii)");
     return 2;
   }
 
@@ -168,7 +207,7 @@ export async function validateCommand(args: string[]): Promise<number> {
   // potrafi wisieć (sieć), zanim cokolwiek zawiśnie.
   const phases = ["schematy i spójność (lokalnie, szybkie)"];
   if (opts.offline) phases.push("sieć — POMINIĘTA (--offline)");
-  else phases.push("sieć: osiągalność repo + istnienie pinów (ls-remote/fetch — najdłuższa część)");
+  else phases.push("sieć: osiągalność repo + istnienie pinów (ls-remote/fetch — najdłuższa część) + id modeli w katalogu OpenRouter");
   if (opts.assert) phases.push("referencje (--assert): asercje na stanie startowym w kontenerze");
   console.log(`bench validate — fazy:${phases.map((p, i) => `\n  ${i + 1}. ${p}`).join("")}`);
   const phase = (n: number) => console.log(`\n— faza ${n}/${phases.length}: ${phases[n - 1]} —`);
@@ -235,7 +274,8 @@ export async function validateCommand(args: string[]): Promise<number> {
   const tasksDir = join(root, "tasks");
   const taskNames = listTaskNames(root);
   if (taskNames.length === 0) {
-    report({ level: "warn", where: "tasks/", message: "brak zadań — instancja nie ma czego uruchamiać" });
+    // Stan świeżej instancji, nie usterka: następny krok to bench-define.
+    console.log("info:  tasks/: brak zadań jeszcze — zdefiniuj je skillem bench-define (kopanie zmergowanych PR-ów)");
   }
 
   const tasks = new Map<string, Task>();
@@ -383,7 +423,9 @@ export async function validateCommand(args: string[]): Promise<number> {
     console.log("info:  --offline — pomijam klonowalność repo bazowych i istnienie pinów");
   } else if (config) {
     phase(2);
-    const usedRepos = [...new Set([...tasks.values()].map((t) => t.repo))].filter((name) => repoUrls.has(name));
+    // Wszystkie zarejestrowane repo, nie tylko używane przez zadania: świeża
+    // instancja (zero zadań) też ma się dowiedzieć, że URL nie odpowiada.
+    const usedRepos = [...repoUrls.keys()];
     const totalNet = usedRepos.length + [...tasks.values()].filter((t) => repoUrls.has(t.repo)).length;
     // Zapowiedź PRZED operacją (bez newline) + czas po niej — użytkownik
     // widzi, na czym dokładnie wisi i którym sprawdzeniem z ilu jest.
@@ -433,7 +475,12 @@ export async function validateCommand(args: string[]): Promise<number> {
           report({
             level: "error",
             where: `tasks/${taskName}`,
-            message: `pinowany commit ${task.commit.slice(0, 12)}… nie daje się pobrać z ${repoName}: ${commitProblem}`,
+            message:
+              `pinowany commit ${task.commit.slice(0, 12)}… nie daje się pobrać z ${repoName}: ${commitProblem}` +
+              // Fetch idzie do TMPDIR; pełny tmpfs (albo limit per użytkownik) git zgłasza jako uszkodzony pakiet.
+              (/index-pack|No space left|Disk quota|write error|unable to write/i.test(commitProblem)
+                ? ` — to raczej pełny dysk TMPDIR (${tmpdir()}), nie brakujący pin: sprawdź \`bench doctor\` (dysk TMPDIR) albo \`export TMPDIR=<katalog na większym dysku>\``
+                : ""),
           });
         } else {
           finished(t0, "ok — istnieje");
@@ -442,12 +489,39 @@ export async function validateCommand(args: string[]): Promise<number> {
     }
   }
 
+  // --- sieć: id modeli OpenRouter w publicznym katalogu ---
+  if (!opts.offline && config && openRouterIdsIn(config) > 0) {
+    const t0 = Date.now();
+    process.stdout.write(`net:   katalog OpenRouter — ${openRouterIdsIn(config)} id modeli … `);
+    try {
+      const found = checkOpenRouterIds(config, await fetchOpenRouterModelIds());
+      console.log(`${found.length ? "BŁĄD" : "ok — istnieją"} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+      for (const issue of found) report(issue);
+    } catch (err) {
+      // Katalog nieosiągalny to nie dowód złego id — ostrzeżenie, nie błąd.
+      console.log(`niedostępny (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+      report({
+        level: "warn",
+        where: "bench.config.yaml",
+        message: `nie sprawdzono id modeli w katalogu OpenRouter: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
   // --- weryfikacja referencyjna: asercje na stanie startowym vs deklaracje ---
   if (opts.assert && config) {
     phase(phases.length);
-    const declared = [...tasks].filter(([, t]) => Object.keys(t.reference ?? {}).length > 0);
+    const unknown = (opts.tasks ?? []).filter((name) => !tasks.has(name));
+    if (unknown.length > 0) {
+      report({ level: "error", where: "--tasks", message: `nie ma takich zadań: ${unknown.join(", ")} (są: ${[...tasks.keys()].join(", ")})` });
+    }
+    const declared = [...tasks].filter(([name, t]) => Object.keys(t.reference ?? {}).length > 0 && (!opts.tasks || opts.tasks.includes(name)));
     if (declared.length === 0) {
-      console.log("info:  --assert — żadne zadanie nie deklaruje reference, nic do weryfikacji");
+      console.log(
+        opts.tasks
+          ? `info:  --assert — wśród --tasks (${opts.tasks.join(", ")}) żadne zadanie nie deklaruje reference, nic do weryfikacji`
+          : "info:  --assert — żadne zadanie nie deklaruje reference, nic do weryfikacji",
+      );
     } else {
       try {
         console.log(`info:  ${declared.length} zadań(nie) z deklaracjami reference; każde = fetch pina + kontener oceny (minuty przy zimnym cache'u)`);
@@ -467,6 +541,12 @@ export async function validateCommand(args: string[]): Promise<number> {
           const overlay = join(root, "tasks", name, "overlay");
           const workspace = buildStartWorkspace(url, task.commit, existsSync(overlay) ? overlay : null, config.defaults.context_files);
           try {
+            if (task.prepare) {
+              applyPrepare(engine, image, workspace, task.prepare, {
+                memoryMb: task.memory_mb ?? config.resources.memory_mb ?? null,
+                pidsLimit: config.resources.pids_limit ?? null,
+              });
+            }
             const outcomes = runAssertions(engine, root, image, workspace, refs, null, {
               depsCache: config.evaluation.deps_cache,
               memoryMb: task.memory_mb ?? config.resources.memory_mb ?? null,
@@ -488,7 +568,8 @@ export async function validateCommand(args: string[]): Promise<number> {
               }
             }
           } finally {
-            rmSync(workspace, { recursive: true, force: true });
+            // Artefakty task.prepare tworzy kontener — mogą nie należeć do użytkownika hosta.
+            removeTree(workspace, { engine, image });
           }
         }
       } catch (err) {

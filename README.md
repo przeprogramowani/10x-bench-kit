@@ -39,21 +39,27 @@ You need [10xCLI](https://github.com/przeprogramowani/10x-cli), an AI coding
 tool that supports the installed skills, Docker or Podman, Node.js, and
 provider API keys in your shell environment.
 
-From your product repository, create a benchmark instance:
+From your product repository, create a benchmark instance next to it:
 
 ```bash
-10x bench-kit init my-bench
+cd my-product
+10x bench-kit init      # creates ../my-product-bench; add --tool claude-code --yes in a non-interactive shell
 ```
 
 Init registers the product repository as the first base repo and leaves
-its working clone in `.repos/`. Open the generated `my-bench` directory
-in the AI coding tool you selected during init, then ask:
+a full-history working clone in `.repos/` (PR mining reads that history).
+It checks your machine on the spot (container engine, memory, API keys:
+fix anything it flags *before* opening the agent, which inherits your
+shell's environment) and ends by printing the exact first prompt. Open
+`../my-product-bench` in the AI coding tool you selected and ask:
 
-> Use bench-measure to set up this instance and run the first smoke measurement.
+> Use bench-status to check this instance is ready, then use bench-define to mine our merged PRs for tasks.
 
-Its preflight checks configuration, container access, and credentials,
-then proves that execution and evaluation work locally. Publication is
-optional.
+bench-status confirms machine, keys, base repo, models and judge (a
+couple of minutes, no paid calls) and warms the base image in the
+background. There is no demo task: mining proposes candidate tasks from
+your merged PRs, and building the first one is the first end-to-end
+proof that execution and evaluation work. Publication is optional.
 
 **Init and update are the user-facing CLI operations.** All benchmark
 work goes through skills. The agent invokes the internal runner and
@@ -61,8 +67,10 @@ checks its output as part of each skill's procedure.
 
 ## Three concepts: define → measure → decide
 
-The whole workflow is three skills. Name one in your message to the
-agent; each loads its detailed procedures only when it needs them.
+The whole workflow is three skills, plus **bench-status** as the entry
+point ("is this instance ready, and what's next?"). Name one in your
+message to the agent; each loads its detailed procedures only when it
+needs them.
 
 | Concept | Skill | Example prompts | What you get |
 |---|---|---|---|

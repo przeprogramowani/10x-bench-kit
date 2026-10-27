@@ -13,10 +13,14 @@ to; the user's surface is the config, environment variables, and git. The
 benchmark runs LOCALLY (operator machine / VPS) — GitHub Actions is only
 readiness CI and leaderboard publication.
 
-Three skills, three concepts: **define → measure → decide.** Each
+One entry point and three concepts: **status, then define → measure → decide.** Each
 SKILL.md is short and routes to the procedures beside it, loaded only
 when the step needs them:
 
+- **bench-status**: is the instance ready, and what is next. Machine,
+  keys, base repos, models and judge, a green `bench validate`
+  (warming the base image in the background), then one routed next
+  step. The entry point of a fresh instance — there is no demo task.
 - **bench-define**: what we measure. Real work becomes tasks.
   - **PR mining** is the default source (`MINING.md`, `mine-prs.mjs`).
     A merged change that brought tests becomes a task: the pin is its
@@ -29,7 +33,7 @@ when the step needs them:
     `RUBRIC_AUTHORING.md`), runs a batch gate and writes evidence
     reports (`REPORT_TEMPLATE.md`). No git.
 - **bench-measure**: run models on it.
-  - **Preflight / wiring** (`WIRING.md`).
+  - **Wiring changes and publication** (`WIRING.md`).
   - The matrix run: cost projection against the budget, preserved
     attempts, top-up.
   - Evaluation by the **judge with tools**, one subagent per attempt
