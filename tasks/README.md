@@ -10,8 +10,9 @@ Strefa nietykalna przy `bench-kit update`.
 | `task.yaml` | repo bazowe + pinowany commit, timeout, dobór asercji z puli, wagi |
 | `overlay/` | opcjonalne pliki nakładane na repo bazowe (np. seed buga) |
 
-Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Przykład
-wszystkich pól: `demo-hello-bench/task.yaml`.
+Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Zadania
+buduje skill **bench-define** (kopanie PR-ów albo wywiad) — opis pól
+w jego `TASK_AUTHORING.md`.
 
 ## Backlog zleceń — `tasks/backlog.md`
 

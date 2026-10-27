@@ -23,6 +23,10 @@
  *      patch.diff + rubryka) — ścieżka automatyczna (CI/smoke),
  *    - `--skip-judge`: tylko guardy (krok 1 procedury rate-attempt);
  *      result.json nie powstaje, composant judge czeka na werdykt.
+ *    Fold `--verdict` używa guardów z poprzedniego przebiegu (checks.json
+ *    + checks.stamp.json), gdy są DOWODNIE świeże (lib/guard-stamp.ts:
+ *    task_hash, asercje puli, id obrazu oceny, patch, limity); inaczej
+ *    liczy je od nowa. `--rerun-guards` wymusza ponowne uruchomienie.
  * 3. result.json: scores, total = ważona suma (miara jakości), `passed` =
  *    BRAMKA: każdy guard z wagą > 0 na 1 ORAZ judge ≥ pass_threshold
  *    (guardy to fakty — nie da się ich "nadrobić" opinią sędziego), koszt/czas/tokeny
@@ -32,27 +36,31 @@
  *    i bieżącego to głośny warning.
  * 4. Zapis: result.json + judge.json w katalogu próby ORAZ w
  *    results/<zadanie>/<model>/trial-<n>/ (commituje operator; git
- *    wersjonuje historię ocen). `--no-write-results` zostawia wynik
- *    tylko przy próbie.
+ *    wersjonuje historię ocen). `--no-write-results` (smoke) nie zapisuje
+ *    werdyktu NIGDZIE — wynik tylko na stdout; przy próbie zostają same
+ *    fakty (checks.json + checks.stamp.json), żeby późniejszy
+ *    sędzia-z-narzędziami nie zastał cudzego werdyktu.
  *
  * Próby z awarią infrastruktury (infra_failure) są pomijane z warningiem.
  *
  * Użycie:
  *   bench evaluate [--attempt <dir>]... [--attempts <dir>]
  *                  [--results <dir> | --no-write-results]
- *                  [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>]]
+ *                  [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>] [--rerun-guards]]
  *                  [--no-deps-cache] [--engine docker|podman] [--root <dir>]
  * (bez argumentów: wszystkie zachowane próby z attempts/ w korzeniu)
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { resolveAttemptPath } from "../lib/attempt-path.ts";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { hashTaskDir, rubricVersionStamp } from "../lib/era.ts";
 import { judgeTrial, parseRubric, parseVerdict, type JudgeVerdict } from "../lib/judge.ts";
 import { buildEvalPlan } from "../lib/reference.ts";
 import { underlyingModel } from "../lib/harness.ts";
-import { depsCacheArgs, detectEngine, ensureBaseImage, resourceLimitArgs, signalFromExit } from "../lib/containers.ts";
+import { depsCacheArgs, detectEngine, ensureBaseImage, containerFailureMessage, resourceLimitArgs, sh } from "../lib/containers.ts";
+import { fileSha256, GUARD_STAMP_FILE, guardFingerprint, guardStampFreshness, type GuardStamp } from "../lib/guard-stamp.ts";
 import { imageExists, prepareTaskImage, sanitize } from "../lib/prepare.ts";
 import { ATTEMPT_FORMAT_VERSION, AttemptSchema, type Attempt } from "../schemas/attempt.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
@@ -74,6 +82,8 @@ interface Options {
   overwriteJudged: boolean;
   engine: string | null;
   noDepsCache: boolean;
+  /** Fold --verdict: guardy od nowa mimo świeżego checks.json. */
+  rerunGuards: boolean;
 }
 
 function parseArgs(args: string[]): Options | null {
@@ -90,11 +100,14 @@ function parseArgs(args: string[]): Options | null {
     overwriteJudged: false,
     engine: null,
     noDepsCache: false,
+    rerunGuards: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     const value = () => args[++i];
-    if (arg === "--attempt") opts.attempts.push(resolve(value() ?? ""));
+    // Surowa ścieżka — rozwiązywana po znalezieniu korzenia (resolveAttemptPath:
+    // względna wobec cwd albo korzenia, surowe id modelu → katalog sanitize).
+    if (arg === "--attempt") opts.attempts.push(value() ?? "");
     else if (arg === "--attempts") opts.attemptsDir = resolve(value() ?? "");
     else if (arg === "--results") opts.results = resolve(value() ?? "");
     else if (arg === "--no-write-results") opts.noWriteResults = true;
@@ -108,6 +121,7 @@ function parseArgs(args: string[]): Options | null {
     else if (arg === "--overwrite-judged") opts.overwriteJudged = true;
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--no-deps-cache") opts.noDepsCache = true;
+    else if (arg === "--rerun-guards") opts.rerunGuards = true;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else return null;
   }
@@ -118,6 +132,7 @@ function parseArgs(args: string[]): Options | null {
   if (opts.verdict && !opts.judgeMode) return null;
   if (opts.judgeMode === "agent" && !opts.judgeModel) return null;
   if (!opts.verdict && (opts.judgeMode || opts.judgeModel)) return null;
+  if (opts.rerunGuards && !opts.verdict) return null;
   return opts;
 }
 
@@ -204,11 +219,7 @@ function runChecksContainer(
   if (result.status !== 0 || !existsSync(join(trialDir, "checks.json"))) {
     // OOM w ocenie wyzerowałby miarę pracy i wyglądał jak porażka modelu —
     // kod sygnałowy nazywamy zamiast zgadywać.
-    const signal = result.status !== null ? signalFromExit(result.status) : null;
-    const signalNote = signal
-      ? ` (${signal.name}${signal.likely_oom ? ` — prawdopodobnie OOM; limit: ${memoryMb !== null ? `${memoryMb} MiB` : "brak, sufit = pamięć maszyny silnika"}` : ""})`
-      : "";
-    throw new Error(`kontener oceny zakończony kodem ${result.status}${signalNote}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
+    throw new Error(containerFailureMessage(result, memoryMb));
   }
   const checks = JSON.parse(readFileSync(join(trialDir, "checks.json"), "utf8")) as Record<string, { score: number }>;
   return new Map(refs.map((ref) => [ref, checks[ref]?.score ?? 0]));
@@ -241,7 +252,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       [
         "usage: bench evaluate [--attempt <dir>]... [--attempts <dir>]",
         "                      [--results <dir> | --no-write-results]",
-        "                      [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>] (z jednym --attempt)]",
+        "                      [--skip-judge | --verdict <plik> --judge-mode agent|human [--judge-model <id>] [--rerun-guards] (z jednym --attempt)]",
         "                      [--overwrite-judged]",
         "                      [--no-deps-cache] [--engine docker|podman] [--root <dir>]",
       ].join("\n"),
@@ -262,11 +273,14 @@ export async function evaluateCommand(args: string[]): Promise<number> {
 
     let attempts: AttemptRef[];
     if (opts.attempts.length > 0) {
-      attempts = opts.attempts.flatMap((dir) => {
-        if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
-          console.error(`warn:  katalog próby nie istnieje: ${dir}`);
-          return [];
-        }
+      const resolved = opts.attempts.map((raw) => resolveAttemptPath(root, raw));
+      const missing = resolved.flatMap((r) => (r.ok ? [] : [r.error]));
+      // Jawnie wskazana próba, której nie ma, to błąd — nie cichy pominięty argument.
+      if (missing.length > 0) throw new Error(missing.join("\n"));
+      attempts = resolved.flatMap((r) => {
+        if (!r.ok) return [];
+        const dir = r.dir;
+        if (r.rewritten) console.log(`info:  --attempt → ${relative(root, dir) || dir} (id modelu → katalog komórki)`);
         const found = findAttempts(dir);
         if (found.length === 0) console.error(`warn:  brak zachowanej próby (attempt.json) w ${dir}`);
         return found;
@@ -304,6 +318,12 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       }
     }
     const judgeMode: "api" | "agent" | "human" = opts.judgeMode ?? "api";
+    // Kopia werdyktu przy próbie (result.json/judge.json) służy audytowi
+    // i `bench report --run attempts/…` — ale tylko dla oceny, która trafia
+    // też do results/. Smoke (--no-write-results) jest jednorazowym sprawdzeniem
+    // rur: jego werdykt przy próbie wyglądałby jak ocena i podsunąłby się
+    // sędziemu-z-narzędziami (rate-attempt) jako "poprzedni werdykt".
+    const verdictAtAttempt = !opts.noWriteResults;
 
     const taskCache = new Map<string, { task: Task; hash: string }>();
     const preparedImages = new Set<string>();
@@ -330,6 +350,25 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             if (mode === "agent" || mode === "human") {
               console.error(`skip:  ${label} — wynik oceniony ścieżką "${mode}"; sędzia API go nie nadpisze (--overwrite-judged, jeśli to świadoma decyzja)`);
               continue;
+            }
+          } catch {
+            // nieczytelny wynik — ocena go zastąpi
+          }
+        }
+      }
+      // Drugi fold werdyktu na tę samą próbę zastępuje poprzedni — legalne
+      // (poprawka werdyktu), ale nie po cichu: historię trzyma git.
+      if (opts.verdict && !opts.noWriteResults) {
+        const existing = join(resultsDir, meta.task, sanitize(meta.model), `trial-${meta.trial}`, "result.json");
+        if (existsSync(existing)) {
+          try {
+            const prev = JSON.parse(readFileSync(existing, "utf8"));
+            const mode = prev?.stamps?.judge_mode;
+            if (mode === "agent" || mode === "human") {
+              console.error(
+                `warn:  ${label} — zastępuję istniejący werdykt (${mode}, total ${typeof prev.total === "number" ? prev.total.toFixed(3) : "?"}); ` +
+                  "poprzedni zostaje w historii gita results/ — jeśli to pomyłka (drugi sędzia na tę samą próbę), cofnij plik",
+              );
             }
           } catch {
             // nieczytelny wynik — ocena go zastąpi
@@ -374,16 +413,56 @@ export async function evaluateCommand(args: string[]): Promise<number> {
             prepareTaskImage(engine, root, baseImage, meta.task, task, url);
           }
           preparedImages.add(meta.image);
-          refScores = runChecksContainer(
-            engine,
-            root,
-            dir,
-            meta.image,
-            nonJudgeRefs,
-            !opts.noDepsCache && config.evaluation.deps_cache,
-            task.memory_mb ?? config.resources.memory_mb ?? null,
-            config.resources.pids_limit ?? null,
-          );
+          const memoryMb = task.memory_mb ?? config.resources.memory_mb ?? null;
+          const pidsLimit = config.resources.pids_limit ?? null;
+          const inspect = sh(engine, ["image", "inspect", "--format", "{{.Id}}", meta.image], { timeout: 30_000 });
+          const imageId = inspect.status === 0 ? inspect.stdout.trim() : "";
+          const fingerprint = imageId
+            ? guardFingerprint(root, dir, { taskHash: hash, refs: nonJudgeRefs, imageId, memoryMb, pidsLimit })
+            : null;
+          const checksPath = join(dir, "checks.json");
+          // Fold werdyktu (rate-attempt): guardy z --skip-judge sprzed chwili
+          // są tym samym faktem — ponowny kontener to minuty bez informacji.
+          let reused = false;
+          if (opts.verdict && !opts.rerunGuards && fingerprint) {
+            const stampPath = join(dir, GUARD_STAMP_FILE);
+            let stamp: unknown = null;
+            try {
+              stamp = existsSync(stampPath) ? JSON.parse(readFileSync(stampPath, "utf8")) : null;
+            } catch {
+              // nieczytelny stempel = brak dowodu świeżości
+            }
+            const verdict = guardStampFreshness(stamp, fingerprint, fileSha256(checksPath));
+            if (verdict.fresh) {
+              const checks = JSON.parse(readFileSync(checksPath, "utf8")) as Record<string, { score: number }>;
+              refScores = new Map(nonJudgeRefs.map((ref) => [ref, checks[ref]?.score ?? 0]));
+              reused = true;
+              console.log(`info:  guardy z ${relative(root, checksPath) || checksPath} (świeże) — bez ponownego uruchomienia (--rerun-guards wymusza)`);
+            } else {
+              console.log(`info:  guardy uruchamiane ponownie — ${verdict.reason}`);
+            }
+          }
+          if (!reused) {
+            refScores = runChecksContainer(
+              engine,
+              root,
+              dir,
+              meta.image,
+              nonJudgeRefs,
+              !opts.noDepsCache && config.evaluation.deps_cache,
+              memoryMb,
+              pidsLimit,
+            );
+            const stampPath = join(dir, GUARD_STAMP_FILE);
+            const checksSha = fileSha256(checksPath);
+            if (fingerprint && checksSha) {
+              const stamp: GuardStamp = { ...fingerprint, checks_sha256: checksSha, created_at: new Date().toISOString() };
+              writeFileSync(stampPath, JSON.stringify(stamp, null, 2) + "\n");
+            } else {
+              // Bez id obrazu świeżości nie da się dowieść — stary stempel nie może przeżyć.
+              rmSync(stampPath, { force: true });
+            }
+          }
         }
         const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
         const componentScore = (c: Component): number | null => {
@@ -392,11 +471,25 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           return mean(refs.map((ref) => refScores.get(ref) ?? 0));
         };
 
+        // Guard z wagą > 0 poniżej 1 = próba nie zalicza (bramka, krok 3).
+        const redGuards = NON_JUDGE.flatMap((c) =>
+          task.weights[c] > 0 ? (refsByComponent.get(c) ?? []).filter((ref) => (refScores.get(ref) ?? 0) < 1) : [],
+        );
+
         // --skip-judge: guardy policzone (checks.json = fakty dla
         // sędziego-z-narzędziami), result.json jeszcze nie powstaje.
+        // Składowe i czerwone guardy jak w linii PASS/FAIL pełnej oceny.
         if (opts.skipJudge && task.weights.judge > 0) {
-          const summary = nonJudgeRefs.map((ref) => `${ref} ${(refScores.get(ref) ?? 0).toFixed(2)}`).join(", ") || "brak guardów";
-          console.log(`eval:  ${label} → guardy policzone (${summary}); składowa judge czeka na werdykt (rate-attempt / --verdict)`);
+          const components = NON_JUDGE.flatMap((c) => {
+            const score = componentScore(c);
+            return score === null ? [] : [`${c} ${score.toFixed(2)}`];
+          });
+          const refs = nonJudgeRefs.map((ref) => `${ref} ${(refScores.get(ref) ?? 0).toFixed(2)}`).join(", ");
+          const summary = nonJudgeRefs.length ? `${components.join(", ") || "guardy z wagą 0"} — ${refs}` : "brak guardów";
+          const gate = redGuards.length
+            ? `czerwone guardy: ${redGuards.join(", ")} — próba nie zaliczy niezależnie od werdyktu`
+            : "guardy zielone";
+          console.log(`eval:  ${label} → guardy policzone (${summary}); ${gate}; składowa judge czeka na werdykt (rate-attempt / --verdict)`);
           continue;
         }
 
@@ -430,13 +523,22 @@ export async function evaluateCommand(args: string[]): Promise<number> {
               // Niepoprawny werdykt sędziego to awaria OCENY, nie porażka
               // modelu — bez wyniku, zamiast zera wliczonego do pass rate.
               if (verdict.invalid_reason) {
-                writeFileSync(join(dir, "judge.json"), JSON.stringify([{ ref, source: "api-judge", ...verdict }], null, 2) + "\n");
-                throw new Error(`sędzia API zwrócił niepoprawny werdykt dla ${ref}: ${verdict.invalid_reason} — wynik nie zapisany (judge.json przy próbie)`);
+                if (verdictAtAttempt) {
+                  writeFileSync(join(dir, "judge.json"), JSON.stringify([{ ref, source: "api-judge", ...verdict }], null, 2) + "\n");
+                }
+                const audit = verdictAtAttempt ? "judge.json przy próbie" : `--no-write-results; surowa odpowiedź: ${verdict.raw.slice(-500)}`;
+                throw new Error(`sędzia API zwrócił niepoprawny werdykt dla ${ref}: ${verdict.invalid_reason} — wynik nie zapisany (${audit})`);
               }
               verdicts.push({ ref, source: "api-judge", ...verdict });
             }
           }
-          writeFileSync(join(dir, "judge.json"), JSON.stringify(verdicts, null, 2) + "\n");
+          if (verdictAtAttempt) writeFileSync(join(dir, "judge.json"), JSON.stringify(verdicts, null, 2) + "\n");
+          else {
+            // Smoke: werdykt per kryterium (ocena rubryki przed macierzą) tylko na stdout.
+            for (const v of verdicts) {
+              console.log(`judge: ${label} — ${v.ref} (bez zapisu, --no-write-results):\n${JSON.stringify(v.parsed ?? v.raw, null, 2).replace(/^/gm, "  ")}`);
+            }
+          }
           judgeScore = mean(verdicts.map((v) => v.score));
           // Koszt sędziego osobno od kosztu próby; null = nieznany
           // (provider nie raportuje / werdykt agenta z pliku).
@@ -462,9 +564,6 @@ export async function evaluateCommand(args: string[]): Promise<number> {
         // być poniżej 1, a sędzia musi sam przekroczyć próg. total zostaje
         // miarą jakości (mediany, rozkład), nie decyzją o zaliczeniu.
         const threshold = config.defaults.pass_threshold;
-        const redGuards = NON_JUDGE.flatMap((c) =>
-          task.weights[c] > 0 ? (refsByComponent.get(c) ?? []).filter((ref) => (refScores.get(ref) ?? 0) < 1) : [],
-        );
         const judgeGated = task.weights.judge > 0 && judgeRefs.length > 0;
         // Tolerancja na arytmetykę zmiennoprzecinkową: średnia 0.4/1.0/0.7
         // to 0.6999999999999998, a znaczy 0.7.
@@ -516,7 +615,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           },
         });
         const resultText = JSON.stringify(result, null, 2) + "\n";
-        writeFileSync(join(dir, "result.json"), resultText);
+        if (verdictAtAttempt) writeFileSync(join(dir, "result.json"), resultText);
 
         // 4. kanoniczne drzewo wyników w repo — result.json + werdykt
         // sędziego z uzasadnieniem; nadpisanie w miejscu = re-ocena
@@ -534,7 +633,7 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           .filter(([, v]) => v !== null)
           .map(([k, v]) => `${k} ${(v as number).toFixed(2)}`)
           .join(", ");
-        console.log(`eval:  ${label} → total ${result.total.toFixed(3)} (${summary})`);
+        console.log(`eval:  ${label} → total ${result.total.toFixed(3)} (${summary}) — ${result.passed ? "PASS" : "FAIL"}: ${result.pass_reason}`);
       } catch (err) {
         failures++;
         console.error(`eval:  ${label} — BŁĄD: ${err instanceof Error ? err.message : String(err)}`);
@@ -542,7 +641,9 @@ export async function evaluateCommand(args: string[]): Promise<number> {
     }
 
     const resultsNote = written > 0 ? ` — ${written} wynik(ów) w ${resultsDir} (commituje operator; leaderboard czyta results/)` : "";
-    console.log(`\nbench evaluate: gotowe${failures ? ` (${failures} prób z błędem oceny)` : ""}${resultsNote}`);
+    console.log(
+      `\nbench evaluate: gotowe${failures ? ` (prób z błędem oceny: ${failures} — powód w liniach BŁĄD wyżej; po naprawie oceń je ponownie tym samym poleceniem z --attempt <próba>)` : ""}${resultsNote}`,
+    );
     return failures > 0 ? 1 : 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);

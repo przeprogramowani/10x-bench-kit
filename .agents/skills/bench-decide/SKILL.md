@@ -157,7 +157,10 @@ that k runs in a row all pass, i.e. "can this run unattended"), mean
 and total cost, expected cost per acceptable result (null when any
 trial's cost is unknown), median total, duration, diff size, excluded
 attempts, and other-era trials left out. The `recommendation` block
-already applies rule 3.
+already applies rule 3: with `resolved: false` its `model_id` is only
+the leader by interval lower bound, not a verdict — report the tie
+(`tied_with`, `tie_note`) and the number of tasks it would take to
+resolve it; `cheapest_in_tie` is context, never the pick.
 
 **Across tasks:**
 

@@ -46,5 +46,5 @@ Zasady:
 - szczegóły promptowania sędziego są świadomie odłożone (patrz DESIGN);
   wiążący jest format odpowiedzi.
 
-Przykład: `default-rubric.md` (używana przez zadanie-demo jako
-`judge/default-rubric`).
+Przykład: `default-rubric.md` (`judge/default-rubric` — wzór formatu;
+prawdziwe zadania dostają własne rubryki).

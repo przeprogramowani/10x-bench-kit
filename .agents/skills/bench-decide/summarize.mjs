@@ -336,8 +336,12 @@ for (const task of dirs(resultsRoot)) {
   // Remis: przedziały pass-rate nachodzą na siebie → tej różnicy próba NIE
   // rozstrzyga. Nie wolno jej podawać jako ustalonej kolejności ani zamieniać
   // na "więc bierz tańszy" — uczciwą reakcją jest domierzenie.
+  // Po wszystkich zmierzonych, także bez zaliczeń: 0/3 z przedziałem
+  // 0–0.56 nachodzi na 3/3 (0.44–1) tak samo jak 1/3 — pominięcie go
+  // sugerowałoby, że próba już go odróżniła. Najtańszym w remisie nie
+  // zostanie (brak kosztu na zaliczenie).
   const tied = pick
-    ? ranked.filter(
+    ? measured.filter(
         (m) => m !== pick && m.interval.lo <= pick.interval.hi && m.interval.hi >= pick.interval.lo,
       )
     : [];
@@ -432,11 +436,18 @@ for (const task of dirs(resultsRoot)) {
           reliability_lo: pick.interval.lo,
           caveats,
           tied_with: tied.map((m) => m.model_id),
-          // Remis rozstrzyga cena — nie ułamek mediany, którego nie da się odróżnić.
+          // Remis = nierozstrzygnięte (SKILL.md reguła 3): model_id to tylko
+          // lider po dolnej granicy, nie werdykt, a cena nie rozstrzyga
+          // różnicy, której próba nie widzi — uczciwy krok to domierzenie.
+          resolved: tied.length === 0,
+          cheapest_in_tie: tied.length
+            ? ([pick, ...tied]
+                .filter((m) => m.expected_cost_per_pass !== null)
+                .sort((a, b) => a.expected_cost_per_pass - b.expected_cost_per_pass)[0]?.model_id ?? null)
+            : null,
           tie_note: tied.length
-            ? pick.expected_cost_per_pass === null
-              ? "Przedziały pass-rate nachodzą się, a koszt wybranego jest nieznany — tego remisu nie rozstrzyga ani niezawodność, ani cena."
-              : "Przedziały pass-rate nachodzą się — wybór po cenie, nie po medianie."
+            ? `Nierozstrzygnięte: przedziały pass-rate ${[pick, ...tied].map((m) => m.model_id).join(", ")} nachodzą się — ` +
+              "próba nie odróżnia ich niezawodności. Nie wybieraj po cenie ani po medianie; rozstrzygają więcej zadań tej klasy lub więcej prób."
             : null,
         }
       : null,

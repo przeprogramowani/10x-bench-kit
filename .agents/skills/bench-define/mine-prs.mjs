@@ -9,7 +9,8 @@
  * Czyta WYŁĄCZNIE lokalnego gita (`.repos/<nazwa>`). Klon płytki działa,
  * o ile jego historia pokrywa okno --since (inaczej ostrzeżenie z komendą
  * pogłębienia). Domyślny --ref to origin/HEAD (tip remote'a po `git fetch`),
- * z powrotem do HEAD. Bez sieci, bez GitHuba, niczego nie zapisuje poza --out.
+ * z powrotem do HEAD. Bez sieci, bez GitHuba; zapisuje tylko --out i cache
+ * sprzężenia w .git klonu (bench-kit-mine-cache.json; --no-cache go pomija).
  * Wynik nie zależy od konfiguracji gita użytkownika (noprefix, kolory,
  * zewnętrzny diff, textconv, quotePath) — każde wywołanie ją nadpisuje.
  *
@@ -20,13 +21,14 @@
  *            reference.diff  zmiany kodu z manifestami/lockfile'ami, bez docs
  *                            i plików instrukcji agentów (rozwiązanie; tylko dowód)
  *            tests.diff      zmiany testowe (do raportu)
+ *            merge.diff      reference.diff + tests.diff — dowód dla guardów repo-level
  *            files/<ścieżka> wersje plików testowych PO merge'u, bajt w bajt
  *                            (do evaluation-pool/tests/<zadanie>-pr/files/)
  *            meta.json       pin, merge, PR, pliki, identyfikatory
  *
  * Użycie:
  *   node mine-prs.mjs --repo .repos/<nazwa> [--ref origin/HEAD] [--since 365]
- *        [--max-files 12] [--max-lines 800] [--limit 30] [--all] [--json]
+ *        [--max-files 12] [--max-lines 800] [--limit 30] [--all] [--json] [--jobs <n>] [--no-cache]
  *   node mine-prs.mjs --repo .repos/<nazwa> show <sha> [--json]
  *   node mine-prs.mjs --repo .repos/<nazwa> emit <sha> --out <dir>
  *
@@ -45,9 +47,12 @@
  * To heurystyka (wzorce składni, nie parser): "nie wykryto" znaczy
  * "przeczytaj testy", nie "na pewno brak".
  */
-import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback = null) => {
@@ -60,13 +65,14 @@ if (!repo) {
   console.error("usage: mine-prs.mjs --repo .repos/<nazwa> [scan|show <sha>|emit <sha> --out <dir>] [opcje]");
   process.exit(2);
 }
-const VALUED = new Set(["--repo", "--ref", "--since", "--max-files", "--max-lines", "--limit", "--out"]);
+const VALUED = new Set(["--repo", "--ref", "--since", "--max-files", "--max-lines", "--limit", "--out", "--jobs"]);
 const positional = [];
 for (let i = 0; i < args.length; i++) {
   if (VALUED.has(args[i])) i++;
   else if (!args[i].startsWith("--")) positional.push(args[i]);
 }
-const mode = ["show", "emit", "scan"].includes(positional[0]) ? positional[0] : "scan";
+// `couple` to wewnętrzny tryb workera skanu (sha… → sprzężenie jako JSON), nie dla ludzi.
+const mode = ["show", "emit", "scan", "couple"].includes(positional[0]) ? positional[0] : "scan";
 const target = positional[1] ?? null;
 
 // Błąd zgłaszany użytkownikowi (bez stosu): zły sha, korzeń historii, granica płytkiego klonu.
@@ -365,10 +371,14 @@ function lex(text, ext) {
   const slash = SLASH_COMMENT.test(ext);
   const triple = ext === "py" || ext === "pyi";
   const quotes = ext === "rs" ? "\"" : JS_EXT.test(ext) || ext === "go" ? "\"'`" : "\"'";
-  const code = text.split("");
-  const bare = text.split("");
-  const blank = (arr, from, to) => {
-    for (let k = from; k < to && k < arr.length; k++) if (arr[k] !== "\n") arr[k] = " ";
+  // Wycięte zakresy [od, do) zbierane po kolei (rosnąco, rozłączne) i składane
+  // raz na końcu — tablica znaków na plik (split/join) kosztowała większość skanu.
+  const codeCuts = [];
+  const bareCuts = [];
+  const cut = (from, to, both) => {
+    if (to <= from) return;
+    bareCuts.push(from, to);
+    if (both) codeCuts.push(from, to);
   };
   const n = text.length;
   let i = 0;
@@ -377,22 +387,19 @@ function lex(text, ext) {
     if ((slash && ch === "/" && text[i + 1] === "/") || (hash && ch === "#")) {
       let end = text.indexOf("\n", i);
       if (end < 0) end = n;
-      blank(code, i, end);
-      blank(bare, i, end);
+      cut(i, end, true);
       i = end;
     } else if (slash && ch === "/" && text[i + 1] === "*") {
       let end = text.indexOf("*/", i + 2);
       end = end < 0 ? n : end + 2;
-      blank(code, i, end);
-      blank(bare, i, end);
+      cut(i, end, true);
       i = end;
     } else if (triple && (text.startsWith('"""', i) || text.startsWith("'''", i))) {
       const q = text.slice(i, i + 3);
       let j = i + 3;
       while (j < n && !text.startsWith(q, j)) j += text[j] === "\\" ? 2 : 1;
       // Docstring to dokumentacja, nie kod — wycięty także z `code`.
-      blank(code, i + 3, j);
-      blank(bare, i + 3, j);
+      cut(i + 3, Math.min(j, n), true);
       i = Math.min(n, j + 3);
     } else if (quotes.includes(ch)) {
       let j = i + 1;
@@ -401,21 +408,31 @@ function lex(text, ext) {
         else if (text[j] === "\n" && ch !== "`") break; // niedomknięty (np. regex) — tylko do końca linii
         else j++;
       }
-      blank(bare, i + 1, j);
+      cut(i + 1, Math.min(j, n), false);
       i = j + 1;
     } else i++;
   }
-  const bareText = bare.join("");
+  // Zakres → spacje, ale nowe linie zostają (pozycje i numery linii bez zmian).
+  const assemble = (cuts) => {
+    let out = "";
+    let last = 0;
+    for (let k = 0; k < cuts.length; k += 2) {
+      out += text.slice(last, cuts[k]) + text.slice(cuts[k], cuts[k + 1]).replace(/[^\n]/g, " ");
+      last = cuts[k + 1];
+    }
+    return out + text.slice(last);
+  };
+  const bareText = assemble(bareCuts);
   // Najbliższy otwarty nawias dla każdej pozycji (kontekst: `{` obiekt/typ, `(` parametry).
   const opener = new Int32Array(n);
   const stack = [];
   for (let k = 0; k < n; k++) {
     opener[k] = stack.length ? stack[stack.length - 1] : -1;
-    const c = bareText[k];
-    if (c === "{" || c === "(" || c === "[") stack.push(k);
-    else if ((c === "}" || c === ")" || c === "]") && stack.length) stack.pop();
+    const c = bareText.charCodeAt(k);
+    if (c === 123 || c === 40 || c === 91) stack.push(k); // { ( [
+    else if ((c === 125 || c === 41 || c === 93) && stack.length) stack.pop(); // } ) ]
   }
-  return { code: code.join(""), bare: bareText, opener };
+  return { code: assemble(codeCuts), bare: bareText, opener };
 }
 
 // Pliki ŹRÓDŁOWE pinu (bez testów, docs, manifestów, szumu), które w ogóle
@@ -462,26 +479,43 @@ function contractForm(sources, t, accept = () => true) {
     }
     return false;
   };
+  // Wzorce raz na token, nie na plik; plik bez tokenu w ogóle (substring
+  // w `code`, nadzbiorze `bare`) odpada bez regexów — to był koszt skanu.
+  const R = {
+    member: new RegExp(`(?<!\\.)\\.${T}`, "dg"),
+    quoted: new RegExp(`(["'\`])${T}\\1`, "dg"),
+    decl: new RegExp(`\\b(?:def|function|func|class|fn|type|interface|struct|enum|trait|module|record|attr_\\w+)\\s+(?:\\([^)\\n]*\\)\\s*)?[*:]?${T}`, "dg"),
+    exported: new RegExp(`\\bexport\\s+(?:declare\\s+)?(?:const|let|var)\\s+${T}`, "dg"),
+    method: new RegExp(`^[ \\t]*(?:(?:async|static|get|set|public|private|protected|override|readonly|abstract)\\s+)*\\*?${T}\\s*(?:<[^>\\n]*>)?\\s*\\([^)\\n]*\\)\\s*(?::[^{;\\n]*)?\\{`, "dgm"),
+    key: new RegExp(`(?:^|[{,;(])[ \\t]*(?:(?:readonly|public|private|protected|static|declare|override)\\s+)*${T}\\s*[?!]?\\s*:(?![:=])`, "dgm"),
+    shorthand: new RegExp(`(?:^|[{,])[ \\t]*${T}[ \\t]*(?=[,}]|$)`, "dgm"),
+    pyKwarg: new RegExp(`[(,]\\s*${T}\\s*=(?!=)`, "dg"),
+    pyParam: new RegExp(`[(,]\\s*\\*{0,2}${T}\\s*(?::[^,)=\\n]+)?\\s*[,)]`, "dg"),
+    pyAttr: new RegExp(`^(?: {0,4}|\\t?)${T}\\s*(?::[^=\\n]+)?=(?!=)`, "dgm"),
+    goField: new RegExp(`^[ \\t]+${T}[ \\t]+[*\\[\\]\\w.]`, "dgm"),
+    goConst: new RegExp(`^[ \\t]+${T}\\s*=`, "dgm"),
+  };
   for (const s of sources) {
+    if (!s.code.includes(t)) continue;
     const py = s.ext === "py" || s.ext === "pyi";
     const go = s.ext === "go";
-    if (any(new RegExp(`(?<!\\.)\\.${T}`, "dg"), s, s.bare)) return true;
-    if (any(new RegExp(`(["'\`])${T}\\1`, "dg"), s, s.code)) return true;
-    if (any(new RegExp(`\\b(?:def|function|func|class|fn|type|interface|struct|enum|trait|module|record|attr_\\w+)\\s+(?:\\([^)\\n]*\\)\\s*)?[*:]?${T}`, "dg"), s, s.bare)) return true;
-    if (any(new RegExp(`\\bexport\\s+(?:declare\\s+)?(?:const|let|var)\\s+${T}`, "dg"), s, s.bare)) return true;
-    if (any(new RegExp(`^[ \\t]*(?:(?:async|static|get|set|public|private|protected|override|readonly|abstract)\\s+)*\\*?${T}\\s*(?:<[^>\\n]*>)?\\s*\\([^)\\n]*\\)\\s*(?::[^{;\\n]*)?\\{`, "dgm"), s, s.bare, (c) => c.ch === "{")) return true;
+    if (any(R.member, s, s.bare)) return true;
+    if (any(R.quoted, s, s.code)) return true;
+    if (any(R.decl, s, s.bare)) return true;
+    if (any(R.exported, s, s.bare)) return true;
+    if (any(R.method, s, s.bare, (c) => c.ch === "{")) return true;
     // Klucz/właściwość: w `{…}` (obiekt, typ, interfejs, literał struktury Go); w Pythonie także adnotacje i parametry.
-    if (any(new RegExp(`(?:^|[{,;(])[ \\t]*(?:(?:readonly|public|private|protected|static|declare|override)\\s+)*${T}\\s*[?!]?\\s*:(?![:=])`, "dgm"), s, s.bare, (c) => py || c.ch === "{")) return true;
+    if (any(R.key, s, s.bare, (c) => py || c.ch === "{")) return true;
     // JS/TS: właściwość skrócona `{ tok, … }` (zwracany obiekt), destrukturyzacja, import nazwany.
-    if (JS_EXT.test(s.ext) && any(new RegExp(`(?:^|[{,])[ \\t]*${T}[ \\t]*(?=[,}]|$)`, "dgm"), s, s.bare, (c) => c.ch === "{")) return true;
+    if (JS_EXT.test(s.ext) && any(R.shorthand, s, s.bare, (c) => c.ch === "{")) return true;
     if (py) {
-      if (any(new RegExp(`[(,]\\s*${T}\\s*=(?!=)`, "dg"), s, s.bare, (c) => c.ch === "(")) return true; // kwarg / wartość domyślna
-      if (any(new RegExp(`[(,]\\s*\\*{0,2}${T}\\s*(?::[^,)=\\n]+)?\\s*[,)]`, "dg"), s, s.bare, (c) => c.ch === "(" && /\bdef\s+\w+\s*$/.test(c.before))) return true;
-      if (any(new RegExp(`^(?: {0,4}|\\t?)${T}\\s*(?::[^=\\n]+)?=(?!=)`, "dgm"), s, s.bare)) return true; // atrybut klasy / moduł
+      if (any(R.pyKwarg, s, s.bare, (c) => c.ch === "(")) return true; // kwarg / wartość domyślna
+      if (any(R.pyParam, s, s.bare, (c) => c.ch === "(" && /\bdef\s+\w+\s*$/.test(c.before))) return true;
+      if (any(R.pyAttr, s, s.bare)) return true; // atrybut klasy / moduł
     }
     if (go) {
-      if (any(new RegExp(`^[ \\t]+${T}[ \\t]+[*\\[\\]\\w.]`, "dgm"), s, s.bare, (c) => c.ch === "{" || (c.ch === "(" && /\b(?:const|var|type)\s*$/.test(c.before)))) return true;
-      if (any(new RegExp(`^[ \\t]+${T}\\s*=`, "dgm"), s, s.bare, (c) => c.ch === "(" && /\b(?:const|var)\s*$/.test(c.before))) return true;
+      if (any(R.goField, s, s.bare, (c) => c.ch === "{" || (c.ch === "(" && /\b(?:const|var|type)\s*$/.test(c.before)))) return true;
+      if (any(R.goConst, s, s.bare, (c) => c.ch === "(" && /\b(?:const|var)\s*$/.test(c.before))) return true;
     }
   }
   return false;
@@ -521,6 +555,8 @@ function syncMerge(subject, merge) {
   if (src && LONG_LIVED.test(src) && !/^(main|master|trunk)$/i.test(src)) return true;
   if (merge.via && merge.via !== "squash") return false; // PR/MR z gałęzi roboczej
   if (/^Merge (remote-tracking branch|branches|branch '|tag '|commit ')/.test(subject)) return true;
+  // Ręczny opis synchronizacji: "Merge latest master for …", "merge main into feature".
+  if (/^merge\b.*\b(main|master|trunk|develop|stable)\b/i.test(subject)) return true;
   // Tytuł to sama nazwa gałęzi długowiecznej: "Stable (#3851)".
   if (LONG_LIVED.test(subject.replace(/\s*\(#\d+\)\s*$/, "").replace(/[`'"]/g, "").trim())) return true;
   const into = subject.match(/^merge\s+(?:branch\s+)?[`'"]?([\w./-]+)[`'"]?\s+into\s+[`'"]?([\w./-]+)[`'"]?/i);
@@ -725,18 +761,86 @@ if (mode === "scan") {
     }
     if (c.src_files.length > maxFiles) c.excluded.push(`>${maxFiles} plików kodu`);
     if (c.src_lines > maxLines) c.excluded.push(`>${maxLines} linii kodu`);
-    // Sprzężenie tylko dla tych, którzy przeszli tanie wykluczenia.
-    if (!c.excluded.length) addCoupling(c);
     all.push(c);
   }
-  // Ranking: testy bez sprzężenia > testy ze sprzężeniem; potem rozmiar M > S > L, świeżość.
+  // Sprzężenie tylko dla tych, którzy przeszli tanie wykluczenia — to jest
+  // koszt skanu (git grep po drzewie pinu + lekser), więc idzie równolegle:
+  // kandydaci round-robin na workery (`couple`), wynik scalany po sha, więc
+  // lista jest identyczna jak przy biegu szeregowym (`--jobs 1`).
+  // Cache sprzężenia per sha w .git klonu: wynik zależy tylko od commita
+  // i od wersji tego skryptu (hash źródła w kluczu), więc ponowny skan
+  // (`--all`, inne `--since`, kolejna runda backlogu) liczy tylko nowe zmiany.
+  let cachePath = null;
+  let cache = {};
+  const version = createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex").slice(0, 16);
+  if (!has("--no-cache")) {
+    const gitDir = tryGit("rev-parse", "--absolute-git-dir")?.trim();
+    if (gitDir) {
+      cachePath = join(gitDir, "bench-kit-mine-cache.json");
+      try {
+        const stored = JSON.parse(readFileSync(cachePath, "utf8"));
+        if (stored.version === version) cache = stored.coupling;
+      } catch {
+        // brak / uszkodzony cache = liczymy od nowa
+      }
+    }
+  }
+  for (const c of all) if (!c.excluded.length && cache[c.sha]) Object.assign(c, cache[c.sha]);
+  const todo = all.filter((c) => !c.excluded.length && c.coupled === null);
+  const jobs = Math.max(1, Math.min(Number(flag("--jobs", String(availableParallelism()))) || 1, Math.ceil(todo.length / 4)));
+  if (todo.length > 0) {
+    const cached = all.filter((c) => !c.excluded.length).length - todo.length;
+    console.error(
+      `mine-prs: sprzężenie dla ${todo.length} kandydatów (${jobs} wątk${jobs === 1 ? "" : "i"}` +
+        `${cached ? `, ${cached} z cache'u` : ""}) — pierwszy skan roku w średnim monorepo to ~1–2 min, kolejne biorą wynik z cache'u`,
+    );
+  }
+  if (jobs === 1) todo.forEach(addCoupling);
+  else {
+    const chunks = Array.from({ length: jobs }, (_, k) => todo.filter((_, i) => i % jobs === k).map((c) => c.sha));
+    const self = fileURLToPath(import.meta.url);
+    const parts = await Promise.all(
+      chunks.map(
+        (shas) =>
+          new Promise((ok, ko) => {
+            const child = spawn(process.execPath, [self, "--repo", repo, "couple", ...shas], { stdio: ["ignore", "pipe", "inherit"] });
+            let out = "";
+            child.stdout.on("data", (d) => (out += d));
+            child.on("error", ko);
+            child.on("close", (code) => (code === 0 ? ok(JSON.parse(out)) : ko(new Error(`mine-prs: worker skanu zakończył się kodem ${code}`))));
+          }),
+      ),
+    );
+    const bySha = Object.assign({}, ...parts);
+    for (const c of todo) Object.assign(c, bySha[c.sha]);
+  }
+  if (cachePath !== null && todo.length) {
+    for (const c of todo) cache[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled };
+    try {
+      writeFileSync(`${cachePath}.tmp`, JSON.stringify({ version, coupling: cache }));
+      renameSync(`${cachePath}.tmp`, cachePath);
+    } catch {
+      // cache to optymalizacja — klon tylko do odczytu nie psuje skanu
+    }
+  }
+  // Ranking: praca produktowa (feat/fix/perf/refactor) przed utrzymaniową
+  // (ci/chore/build/docs/style/test) — decyzje routingu dotyczą tej pierwszej.
+  // Potem sprzężenie do MAX_PROMPT_NAMES nazw (prompt poda je dosłownie —
+  // typowy feature PR ma 1–3) przed szerszym; potem rozmiar M > S > L,
+  // świeżość. Sprzężenie jako twarde "na koniec" chowało większość
+  // prawdziwych featurów za drobnymi zmianami bez sprzężenia.
+  const MAX_PROMPT_NAMES = 3;
+  const MAINTENANCE = /^(ci|chore|build|docs|style|test)(\(|!|:)/i;
+  const maintenance = (c) => MAINTENANCE.test(c.title) || c.class_hint === "test-only";
+  const wideCoupling = (c) => (c.coupled?.length ?? 0) > MAX_PROMPT_NAMES;
   const sizeRank = { M: 0, S: 1, L: 2 };
   const ranked = all
     .filter((c) => has("--all") || c.excluded.length === 0)
     .sort(
       (a, b) =>
         (a.excluded.length > 0) - (b.excluded.length > 0) ||
-        (a.coupled?.length > 0) - (b.coupled?.length > 0) ||
+        maintenance(a) - maintenance(b) ||
+        wideCoupling(a) - wideCoupling(b) ||
         sizeRank[a.size] - sizeRank[b.size] ||
         b.date.localeCompare(a.date),
     )
@@ -760,6 +864,13 @@ if (mode === "scan") {
       console.log(`             ${coupling}${c.excluded.length ? ` | wykluczony: ${c.excluded.join(", ")}` : ""}`);
     }
   }
+} else if (mode === "couple") {
+  const out = {};
+  for (const sha of positional.slice(1)) {
+    const c = addCoupling(describe(sha));
+    out[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled };
+  }
+  console.log(JSON.stringify(out));
 } else if (mode === "show") {
   if (!target) fail(new MineError("show wymaga <sha>"));
   let c;
@@ -808,6 +919,10 @@ if (mode === "scan") {
   // Surowe bajty: tekst w innym kodowaniu niż UTF-8 nie może przejść przez dekodowanie.
   writeFileSync(join(out, "reference.diff"), nonTest.length ? gitBuf(...DIFF, "--binary", c.pin, c.sha, "--", ...nonTest) : "");
   writeFileSync(join(out, "tests.diff"), gitBuf(...DIFF, "--binary", c.pin, c.sha, "--", ...c.test_files));
+  // Pełny merge (kod + testy): dowód dla guardów repo-level (typecheck, lint,
+  // cały suite) — zmiana bywa poprawiać też istniejące testy, więc na samym
+  // reference.diff taki guard jest czerwony z konstrukcji.
+  writeFileSync(join(out, "merge.diff"), gitBuf(...DIFF, "--binary", c.pin, c.sha, "--", ...nonTest, ...c.test_files));
   const snapshots = [];
   for (const path of c.test_files) {
     // cat-file blob: bajty z obiektu, bez textconv i filtrów; null = plik usunięty przez PR.
@@ -818,8 +933,11 @@ if (mode === "scan") {
     writeFileSync(dest, content);
     snapshots.push(path);
   }
-  writeFileSync(join(out, "meta.json"), JSON.stringify({ ...c, snapshot_files: snapshots }, null, 2) + "\n");
+  writeFileSync(join(out, "meta.json"), JSON.stringify({ ...c, post_merge_test_files: snapshots }, null, 2) + "\n");
   console.log(`mine-prs: ${c.sha.slice(0, 10)} → ${out}`);
+  console.log(
+    `  merge.diff = reference + testy — tym dowodzisz guardów repo-level (typecheck, lint, cały suite)`,
+  );
   console.log(
     `  pin ${c.pin}; reference.diff (${c.src_files.length} plików kodu` +
       `${c.manifest_files.length ? ` + ${c.manifest_files.length} manifestów` : ""} — dowód, nigdy do zadania); files/ (${snapshots.length} plików testów po merge'u)`,

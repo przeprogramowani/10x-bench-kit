@@ -25,9 +25,7 @@ for a "TO BE SET" status add the ready-to-run user step, e.g.
 
 - `bench validate` → <0 errors / list>
 - `bench validate --assert` (if tasks have reference declarations) → <result>
-- local smoke: `bench attempt --smoke` + `bench evaluate` —
-  `<model>` × `<task>` → total <x>, cost $<y>, duration <z> s;
-  result committed at `results/<task>/<model>/trial-1/result.json`
+- `bench status` after the change → <evaluations now stale, or "none — no results yet">
 - readiness workflow green on the instance repo (if publication is
   wired): <link / "no remote yet">
 
@@ -41,6 +39,6 @@ existing results stop being comparable.>
 
 ## Wiring cost
 
-<cost of the smoke attempt / judge calls (model, $), or "none — no
-models were run".>
+<cost of re-evaluations triggered by the change (judge model, $), or
+"none — no models were run".>
 ```

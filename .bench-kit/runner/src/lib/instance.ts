@@ -49,3 +49,12 @@ export function loadTask(root: string, name: string): Task {
   }
   return parsed.data;
 }
+
+/**
+ * Zadanie-demo z template'u (`demo-hello-bench`): smoke rur, nie pomiar.
+ * Po `init` bootstrap przepina je na repo firmy (pinPlaceholderTasks), więc
+ * repo/commit niczego nie mówią — rozpoznajemy je po nazwie (`demo-*`).
+ */
+export function isDemoTask(name: string): boolean {
+  return /^demo-/.test(name);
+}

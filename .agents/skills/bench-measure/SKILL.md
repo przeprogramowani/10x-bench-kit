@@ -1,15 +1,16 @@
 ---
 name: bench-measure
 description: >-
-  Measures models on the benchmark's tasks on this machine — preflight
-  (instance wiring, engine, keys: WIRING.md), the matrix run (models ×
+  Measures models on the benchmark's tasks on this machine — the matrix run (models ×
   tasks × trials, cost projection vs budget, `bench attempt` with
   preserved attempts and top-up), evaluation (the judge with tools per
   attempt: RATE_ATTEMPT.md; judge stability: JUDGE_DIAGNOSTICS.md) and
-  a reliability-first handover with the `bench changes` commit plan.
-  Use when the user says "set up / wire the instance", "run the
-  benchmark / measure model X / a new model came out / re-evaluate",
-  or after bench-define when tasks are ready.
+  a reliability-first handover with the `bench changes` commit plan;
+  changing models/judge on an instance with results and publishing
+  (WIRING.md). Use when the user says "run the benchmark / measure
+  model X / a new model came out / re-evaluate / change the judge", or
+  after bench-define when tasks are ready. Instance readiness is
+  bench-status.
 ---
 
 # bench-measure — the measurement loop
@@ -24,7 +25,8 @@ The procedures live next to this file:
 
 | Need | Procedure |
 |---|---|
-| Fresh instance, wiring change, `bench doctor` red | [WIRING.md](WIRING.md) (preflight; PR template [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md)) |
+| Fresh instance, `bench doctor` red, keys or base repos missing | the **bench-status** skill |
+| Changing models / judge on an instance with results; publication | [WIRING.md](WIRING.md) (PR template [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md)) |
 | Judge one preserved attempt with tools (one subagent per attempt) | [RATE_ATTEMPT.md](RATE_ATTEMPT.md) |
 | Verdicts on similar diffs look unstable, or choosing a judge model | [JUDGE_DIAGNOSTICS.md](JUDGE_DIAGNOSTICS.md) |
 
@@ -103,8 +105,14 @@ evaluated.
    instead of passing silently as "all evaluated".
 8. **Long runs are detached, never awaited in the foreground.** A
    matrix run is hours of mostly waiting on provider APIs; start it
-   detached (a `tmux` session or `nohup … > <log> &`) and come back
-   with `bench status`. Never sit blocking on the runner's stdout,
+   detached (a `tmux` session or `nohup … > <log> &`) and wait with
+   `bench status --wait` (add `--until-evaluated` to also wait for
+   evaluations, `--timeout <s>` to cap it; exit 124 on timeout),
+   right after the launch: the run's own marker covers image
+   preparation, before any trial has started. Keep each blocking
+   call under your tool's time limit and re-issue it on exit 124. Never write
+   your own waiter (`pgrep -f` loops match their own shell and never
+   end), never sit blocking on the runner's stdout,
    and never re-launch a cell that `bench status` shows as running —
    the marker exists precisely so a second launch skips it.
 9. **Evaluate where the workspace lives.** Attempt metadata travels
@@ -131,10 +139,10 @@ evaluated.
 ### 0. Preflight
 
 `bench doctor` and `bench validate`. Green means go on to step 1. Red
-on wiring (no engine, missing keys, placeholder pins, a base repo not
-in `base_repos`) means following WIRING.md first; the user's surface
-there is config, environment and git. A fresh instance always starts
-in WIRING.md, which ends with its own smoke attempt.
+(no engine, missing keys, a placeholder or unreachable base repo) means
+the bench-status skill first; the user's surface there is config,
+environment and git. An instance without tasks has nothing to measure —
+route to bench-define.
 
 ### 1. Scope
 

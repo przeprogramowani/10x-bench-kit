@@ -34,7 +34,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
   BASE_REPOS_DIR,
   ensureIgnored,
@@ -84,6 +84,90 @@ function runGit(args, cwd) {
 }
 
 /**
+ * `bench doctor --json` zaraz po init: braki (silnik, klucze, repo bazowe)
+ * wychodzą w terminalu init, ZANIM użytkownik otworzy agenta — sesja
+ * agenta dziedziczy env, w którym ją uruchomiono, więc klucz dodany
+ * później wymagałby restartu narzędzia. Porażka samego doctora = null
+ * (raport init bez sekcji środowiska), nigdy błąd init.
+ */
+function runDoctor(targetDir) {
+  const entry = join(targetDir, ".bench-kit", "runner", "src", "index.ts");
+  if (!existsSync(entry)) return null;
+  log("sprawdzam środowisko (bench doctor)");
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", entry, "doctor", "--json", "--root", targetDir], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  try {
+    const report = JSON.parse((result.stdout ?? "").trim().split("\n").pop() ?? "");
+    return {
+      missing: report.missing,
+      warns: report.warns,
+      ok: report.checks.filter((c) => c.status === "OK").map((c) => c.name),
+      problems: report.checks.filter((c) => c.status !== "OK"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+const TOOL_NAMES = {
+  "claude-code": "Claude Code",
+  cursor: "Cursor",
+  copilot: "GitHub Copilot",
+  codex: "Codex",
+  gemini: "Gemini CLI",
+  kiro: "Kiro",
+  factory: "Factory",
+  "devin-desktop": "Devin",
+};
+
+/** README instancji — o TEJ instancji, nie o template'cie (ten zostaje w repo kitu). */
+function instanceReadme({ name, baseRepo, tool, skillRoot, templateVersion, templateSource }) {
+  return `# ${name}
+
+AI agent benchmark for ${baseRepo ? `\`${baseRepo.name}\` (${baseRepo.url})` : "your product repositories"},
+created with \`10x bench-kit init\` from [10x-bench-kit](${templateSource || "https://github.com/przeprogramowani/10x-bench-kit"}) ${templateVersion}.
+
+## Start here
+
+Open this directory in ${tool} and ask:
+
+> ${FIRST_STEP.prompt}
+
+All benchmark work goes through three skills (installed in \`${skillRoot}/\`):
+
+| Skill | Use it to |
+|---|---|
+| **bench-define** | Turn merged PRs (or an interview) into tasks: \`tasks/\`, \`evaluation-pool/\`, \`reports/\`. |
+| **bench-measure** | Set up the instance, run models on tasks within budget, evaluate attempts. |
+| **bench-decide** | Get a verdict: which model (and CLI) for which class of work, at what cost. |
+
+Skills leave files in the working tree and end with a commit plan; you review and commit.
+
+## What lives where
+
+| Path | Contents |
+|---|---|
+| \`bench.config.yaml\` | Base repos, models under test, judge, budget, trials. |
+| \`tasks/\` | Tasks (pin, prompt, overlay) and \`tasks/backlog.md\`. |
+| \`evaluation-pool/\` | Rubrics and guards — never visible to the agent under test. |
+| \`attempts/\` | Preserved trials (gitignored, local disk). |
+| \`results/\` | Evaluated results — commit these. |
+| \`.repos/\` | Local clones of base repos (gitignored). |
+| \`.bench-kit/\` | Runner and contracts, owned by the kit — do not edit. |
+
+## Update the kit
+
+\`\`\`bash
+10x bench-kit update
+\`\`\`
+
+Release notes: ${(templateSource || "https://github.com/przeprogramowani/10x-bench-kit").replace(/\.git$/, "")}/blob/master/CHANGELOG.md
+`;
+}
+
+/**
  * `npm ci` w runnerze instancji — PRZED chirurgią na yamlu, bo content.mjs
  * pożycza pakiet `yaml` z `.bench-kit/runner/node_modules`. Porażka
  * degraduje do warninga, nigdy nie blokuje.
@@ -128,6 +212,9 @@ function validateRequest(request) {
   if (request.deepClone !== undefined && typeof request.deepClone !== "boolean") {
     throw new BootstrapError("invalid_request", "Pole 'deepClone' musi być boolean.");
   }
+  if (request.shallowClone !== undefined && typeof request.shallowClone !== "boolean") {
+    throw new BootstrapError("invalid_request", "Pole 'shallowClone' musi być boolean.");
+  }
 }
 
 function requireTemplateVersion(templateDir) {
@@ -147,8 +234,8 @@ function requireTemplateVersion(templateDir) {
  * workflowy, npm ci, rejestracja wykrytego repo bazowego, manifest,
  * świeże `git init` + pierwszy commit. Zwraca instrukcję klonu repo
  * bazowego — sam klon wykonuje CLI (sieć zostaje po jego stronie).
- * Instrukcja niesie `depth`: 1 (płytki klon, domyślnie) albo null
- * (pełna historia, gdy żądanie ma `deepClone: true`).
+ * Instrukcja niesie `depth`: null (pełna historia, domyślnie) albo 1
+ * (sam HEAD, gdy żądanie ma `shallowClone: true`).
  */
 function runInit(request) {
   const { templateDir, targetDir } = request;
@@ -193,6 +280,8 @@ function runInit(request) {
       return posix === skillSource || posix.startsWith(`${skillSource}/`);
     },
   });
+  const readmePath = join(targetDir, "README.md");
+  const writeReadme = !existsSync(readmePath);
   const skills = syncDir(join(templateDir, skillSource), join(targetDir, tool.skillRoot), {
     overwrite: !repair,
   });
@@ -215,6 +304,11 @@ function runInit(request) {
     if (https !== null && detected.httpsReachable === true) {
       repo = { ...repo, url: https };
       log(`repo odpowiada po https — używam ${https} zamiast SSH`);
+    } else if (https !== null) {
+      warnings.push(
+        `The base repo is registered with its SSH URL (${detected.url}) because ${https} did not answer without credentials. ` +
+          "Local runs use your SSH keys; for CI set BASE_REPO_TOKEN (see the comment in bench.config.yaml).",
+      );
     }
     const yaml = loadYaml(targetDir);
     if (yaml === null) {
@@ -231,18 +325,19 @@ function runInit(request) {
     }
     if (baseRepo !== null) {
       ensureIgnored(targetDir, `${BASE_REPOS_DIR}/`);
-      // Domyślnie klon PŁYTKI (`depth: 1`, sam HEAD): instancja startuje
-      // od pinu na HEAD, a autorskie skille dostają drzewo plików, nie
-      // historię — pełna historia dużego repo to minuty i gigabajty za
-      // dane, których nikt na tym etapie nie czyta. Historia jest do
-      // dobrania na żądanie (`git fetch --unshallow` / `--deepen`);
-      // `--deep` w CLI (request.deepClone) wyłącza płytkość od razu.
+      // Domyślnie PEŁNA historia (`depth: null`): kopanie PR-ów — domyślne
+      // źródło zadań od 0.33.0 — czyta historię, a klon idzie z lokalnej
+      // kopii roboczej (hardlinki obiektów: sekundy, prawie zero dysku).
+      // Dogłębianie płytkiego klonu szłoby za to przez sieć do origin
+      // (SSH/token) — wolniej i z ryzykiem auth w samym środku budowy.
+      // `--shallow` w CLI (request.shallowClone) zostawia sam HEAD dla
+      // repo, których historii nie chcesz kopiować.
       baseRepoClone = {
         name: baseRepo.name,
         url: baseRepo.url,
         rootDir: detected.rootDir,
         dest: `${BASE_REPOS_DIR}/${baseRepo.name}`,
-        depth: request.deepClone === true ? null : 1,
+        depth: request.shallowClone === true ? 1 : null,
       };
     }
   }
@@ -254,6 +349,7 @@ function runInit(request) {
     templateSource: request.templateSource ?? existingManifest?.templateSource ?? "",
     initializedAt: existingManifest?.initializedAt ?? now,
     tool: tool.id,
+    skillRoot: tool.skillRoot,
     ...(existingManifest?.updatedAt === undefined ? {} : { updatedAt: existingManifest.updatedAt }),
     ...(baseRepo !== null
       ? { detectedBaseRepo: baseRepo }
@@ -262,6 +358,19 @@ function runInit(request) {
         : {}),
   };
   writeManifest(targetDir, manifest);
+  if (writeReadme) {
+    writeFileSync(
+      readmePath,
+      instanceReadme({
+        name: basename(targetDir),
+        baseRepo,
+        tool: TOOL_NAMES[tool.id] ?? "your AI coding tool",
+        skillRoot: tool.skillRoot,
+        templateVersion,
+        templateSource: manifest.templateSource,
+      }),
+    );
+  }
 
   let committed = false;
   if (!repair) {
@@ -284,9 +393,12 @@ function runInit(request) {
     }
   }
 
+  const doctor = !repair && runnerDeps === "installed" ? runDoctor(targetDir) : null;
+
   return {
     ok: true,
     mode: repair ? "repair" : "init",
+    doctor,
     templateVersion,
     tool: tool.id,
     skillRoot: tool.skillRoot,
@@ -307,6 +419,9 @@ function runInit(request) {
     nextSteps: repair
       ? ["Przejrzyj przywrócone pliki; zadania, evaluation-pool i config zostały nietknięte."]
       : ["Podepnij sekrety, potem uruchom 'npm run bench --prefix .bench-kit/runner -- validate' przed pierwszym runem."],
+    // Pierwsze polecenie dla agenta w nowej instancji — CLI drukuje je
+    // dosłownie (kit zna nazwy swoich skilli, CLI nie).
+    ...(repair ? {} : { nextStep: FIRST_STEP }),
   };
 }
 
@@ -373,6 +488,7 @@ function runUpdate(request) {
     templateSource: request.templateSource ?? manifest?.templateSource ?? "",
     initializedAt: manifest?.initializedAt ?? now,
     tool: tool.id,
+    skillRoot: tool.skillRoot,
     updatedAt: now,
     ...(manifest?.detectedBaseRepo === undefined
       ? {}
@@ -436,6 +552,11 @@ function runUpdate(request) {
     ],
   };
 }
+
+export const FIRST_STEP = {
+  skill: "bench-status",
+  prompt: "Use bench-status to check this instance is ready, then use bench-define to mine our merged PRs for tasks.",
+};
 
 export function runBootstrap(request) {
   validateRequest(request);

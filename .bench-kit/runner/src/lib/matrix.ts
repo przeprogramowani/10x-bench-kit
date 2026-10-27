@@ -5,7 +5,8 @@
  * stempli result.json z erą oceny WYLICZONĄ z bieżącej instancji
  * (ten sam klucz, którym report/leaderboard grupują wyniki).
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import type { BenchConfig } from "../schemas/config.ts";
 import { hashTaskDir, rubricVersionStamp } from "./era.ts";
@@ -114,12 +115,77 @@ export function staleReasons(stamps: Record<string, unknown>, era: EvalEra): str
   return reasons;
 }
 
-/** Ta sama reguła przeterminowania co w bench attempt (timeout + 15 min). */
-function runningState(marker: Record<string, unknown> | null): "running" | "stale" {
+/** Czy proces o tym PID żyje na TEJ maszynie (EPERM = żyje, cudzy użytkownik). */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Stan markera running.json — wspólna reguła bench attempt / status:
+ * przeterminowany (started_at + timeout_s + 15 min minęło) albo — gdy
+ * marker pochodzi z TEJ maszyny (host) — proces o jego PID już nie żyje
+ * (zabity bench attempt nie sprząta markera). Marker z innej maszyny:
+ * tylko reguła czasu (PID-u nie da się tam sprawdzić).
+ */
+export function runningMarkerState(
+  marker: Record<string, unknown> | null,
+  now: number = Date.now(),
+  host: string = hostname(),
+  isAlive: (pid: number) => boolean = pidAlive,
+): "running" | "stale" {
   const started = Date.parse(String(marker?.started_at ?? ""));
   const timeoutS = typeof marker?.timeout_s === "number" ? marker.timeout_s : 0;
   if (!Number.isFinite(started)) return "stale";
-  return Date.now() > started + (timeoutS + 900) * 1000 ? "stale" : "running";
+  if (now > started + (timeoutS + 900) * 1000) return "stale";
+  if (marker?.host === host && typeof marker.pid === "number" && !isAlive(marker.pid)) return "stale";
+  return "running";
+}
+
+/**
+ * Marker biegu `bench attempt` (attempts/.runs/<host>-<pid>.json): istnieje
+ * od startu biegu, także w fazie przygotowania obrazów, gdy żadna próba nie
+ * ma jeszcze running.json — bez niego `bench status --wait` uznawał bieg
+ * za skończony, zanim się zaczął. Sprzątany przy wyjściu procesu; po
+ * SIGKILL zostaje i jest martwy według tej samej reguły PID/czasu.
+ */
+const RUN_MARKER_TTL_S = 6 * 3600;
+
+export function writeRunMarker(attemptsDir: string, info: Record<string, unknown>): string {
+  const dir = join(attemptsDir, ".runs");
+  mkdirSync(dir, { recursive: true });
+  // Sam się ignoruje — działa też w instancjach, których .gitignore powstał
+  // przed tym markerem (update nie dopisuje reguł do pliku firmy).
+  writeFileSync(join(dir, ".gitignore"), "*\n");
+  const path = join(dir, `${hostname()}-${process.pid}.json`);
+  writeFileSync(
+    path,
+    JSON.stringify({ ...info, pid: process.pid, host: hostname(), started_at: new Date().toISOString(), timeout_s: RUN_MARKER_TTL_S }, null, 2) + "\n",
+  );
+  process.once("exit", () => rmSync(path, { force: true }));
+  return path;
+}
+
+/** Liczba żywych biegów bench attempt dla tego katalogu attempts/. */
+export function liveRuns(attemptsDir: string): number {
+  const dir = join(attemptsDir, ".runs");
+  if (!existsSync(dir)) return 0;
+  let live = 0;
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".json")) continue;
+    let marker: Record<string, unknown> | null = null;
+    try {
+      marker = JSON.parse(readFileSync(join(dir, entry), "utf8"));
+    } catch {
+      continue;
+    }
+    if (runningMarkerState(marker) === "running") live++;
+  }
+  return live;
 }
 
 export function cellStatus(root: string, task: string, model: string, target: number, era: EvalEra): CellStatus {
@@ -154,7 +220,7 @@ export function cellStatus(root: string, task: string, model: string, target: nu
         const marker = readJson(join(dir, "running.json"));
         trials.push({
           trial,
-          state: runningState(marker),
+          state: runningMarkerState(marker),
           cost_usd: null,
           started_at: typeof marker?.started_at === "string" ? marker.started_at : null,
           evaluated: null,

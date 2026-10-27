@@ -50,10 +50,11 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
 import { detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, shAsync, signalFromExit } from "../lib/containers.ts";
 import { hashTaskDir } from "../lib/era.ts";
+import { runningMarkerState, writeRunMarker } from "../lib/matrix.ts";
 import { prepareTaskImage, sanitize, type PreparedTask } from "../lib/prepare.ts";
 import { harnessVersion, parseModelId, type HarnessModel } from "../lib/harness.ts";
 import {
@@ -61,9 +62,12 @@ import {
   costPolicy,
   fetchOpenRouterCatalog,
   finalizeCost,
+  priceTokens,
   resolvePrice,
   type Catalog,
+  type Price,
   type ResolvedPrice,
+  type Tokens,
 } from "../lib/pricing.ts";
 import { ATTEMPT_FORMAT_VERSION } from "../schemas/attempt.ts";
 import type { Task } from "../schemas/task.ts";
@@ -207,60 +211,202 @@ function existingTrials(cellDir: string): Map<number, "done" | "running"> {
  * (started_at + timeout_s + zapas) = proces zginął bez sprzątania —
  * katalog jest odkładany do trial-<n>.aborted-<stempel>/ przy następnym
  * zajęciu numeru (artefakty częściowe zostają; opłacona praca nie ginie).
+ * Marker z tej maszyny, którego proces (pid) nie żyje, też jest
+ * przeterminowany — reguła wspólna z bench status (lib/matrix.ts).
  */
-const RUNNING_GRACE_S = 900;
-
 function readRunningMarker(trialDir: string): "running" | "stale" | null {
   const path = join(trialDir, "running.json");
   if (!existsSync(path)) return null;
   try {
-    const marker = JSON.parse(readFileSync(path, "utf8")) as { started_at?: string; timeout_s?: number };
-    const started = Date.parse(marker.started_at ?? "");
-    const timeoutS = typeof marker.timeout_s === "number" ? marker.timeout_s : 0;
-    if (!Number.isFinite(started)) return "stale";
-    return Date.now() > started + (timeoutS + RUNNING_GRACE_S) * 1000 ? "stale" : "running";
+    return runningMarkerState(JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>);
   } catch {
     return "stale";
   }
 }
 
+/** ENOSPC albo EDQUOT (limit tmpfs per użytkownik; Node zgłasza go jako "Unknown system error -122"). */
+export function isDiskFull(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException | null;
+  return !!e && (e.code === "ENOSPC" || e.code === "EDQUOT" || e.errno === -122 || /system error -122/.test(e.message ?? ""));
+}
+
 const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
 
 /**
- * Projekcja kosztu próby komórki z historii results/ w repo: mediana
- * cost_usd wyników tej pary (zadanie × model), fallback: mediana po
- * wszystkich modelach zadania. null = brak historii (pierwszy pomiar).
+ * JSON wypisany przez trial.sh; null, gdy go brak, jest pusty albo ucięty.
+ * Pusty plik po skończonej próbie to niemal zawsze pełny dysk (zachowanie
+ * workspace/ zjadło miejsce, potem heredoc zapisał 0 bajtów) — mówimy to
+ * wprost, zamiast "Unexpected end of JSON input", które zabijało cały bieg.
  */
-function projectedTrialCost(resultsDir: string, task: string, model: string): number | null {
-  const costs: { model: string; cost: number }[] = [];
-  const taskDir = join(resultsDir, task);
-  if (!statSync(taskDir, { throwIfNoEntry: false })?.isDirectory()) return null;
-  const walk = (dir: string) => {
-    for (const name of readdirSync(dir)) {
-      const full = join(dir, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (name === "result.json") {
-        try {
-          const parsed = JSON.parse(readFileSync(full, "utf8")) as { model?: string; cost_usd?: number; cost_source?: string | null };
-          // cost_source null = koszt nieznany (cost_usd 0 tylko z kontraktu) —
-          // wliczony zaniżałby projekcję budżetu.
-          if (typeof parsed.cost_usd === "number" && typeof parsed.model === "string" && parsed.cost_source !== null) {
-            costs.push({ model: parsed.model, cost: parsed.cost_usd });
-          }
-        } catch {
-          // nieparsowalny wynik nie psuje projekcji
-        }
-      }
+function readTrialJson<T = { agent_exit: number; timed_out: boolean; wall_duration_s: number }>(path: string, label: string): T | null {
+  if (!existsSync(path)) return null;
+  const text = readFileSync(path, "utf8");
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const why = text.trim() === "" ? "pusty" : "ucięty";
+    console.error(
+      `trial:  ${label} — ${basename(path)} ${why} (pełny dysk? sprawdź \`df -h\` dla katalogu attempts/ i koniec agent.log) — próba liczona jako awaria infrastruktury`,
+    );
+    return null;
+  }
+}
+
+/** Próbka historii kosztu zadania: zachowana próba (metrics.json) albo wynik (results/). */
+export interface CostSample {
+  model: string;
+  /** null = koszt nieznany (cost_source null / brak) — nie wchodzi do median. */
+  cost: number | null;
+  /** Tokeny z metrics.json (z cache); null = brak (np. result.json nie trzyma cache). */
+  tokens: Tokens | null;
+}
+
+/**
+ * Historia kosztu zadania z dysku: zachowane próby (attempts/…/trial-N/
+ * metrics.json + model z attempt.json) i wyniki (results/…/result.json)
+ * — po jednej próbce na katalog trial-N (próba ma pierwszeństwo przed
+ * swoim wynikiem). Próbki odłożone (.superseded/.aborted) pomijane.
+ */
+export function costSamples(attemptsDir: string, resultsDir: string, task: string): CostSample[] {
+  const samples = new Map<string, CostSample>();
+  const isDir = (p: string) => statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false;
+  const read = (p: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
+    } catch {
+      return null; // nieparsowalny plik nie psuje projekcji
     }
   };
-  walk(taskDir);
-  const median = (values: number[]): number | null => {
-    if (values.length === 0) return null;
-    const sorted = [...values].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
-  };
-  return median(costs.filter((c) => c.model === model).map((c) => c.cost)) ?? median(costs.map((c) => c.cost));
+  const trialDirs = (base: string): [string, string][] =>
+    isDir(join(base, task))
+      ? readdirSync(join(base, task)).flatMap((cell) =>
+          isDir(join(base, task, cell))
+            ? readdirSync(join(base, task, cell))
+                .filter((n) => /^trial-\d+$/.test(n))
+                .map((n): [string, string] => [`${cell}/${n}`, join(base, task, cell, n)])
+            : [],
+        )
+      : [];
+  for (const [key, dir] of trialDirs(attemptsDir)) {
+    const attempt = read(join(dir, "attempt.json"));
+    const metrics = read(join(dir, "metrics.json"));
+    if (typeof attempt?.model !== "string" || !metrics) continue;
+    const tokens = (metrics.tokens ?? null) as Tokens | null;
+    samples.set(key, {
+      model: attempt.model,
+      cost: typeof metrics.cost_usd === "number" && metrics.cost_source !== null ? metrics.cost_usd : null,
+      tokens: typeof tokens?.input === "number" && typeof tokens.output === "number" ? tokens : null,
+    });
+  }
+  for (const [key, dir] of trialDirs(resultsDir)) {
+    if (samples.has(key)) continue;
+    const result = read(join(dir, "result.json"));
+    if (typeof result?.model !== "string") continue;
+    // cost_source null = koszt nieznany (cost_usd 0 tylko z kontraktu) —
+    // wliczony zaniżałby projekcję budżetu.
+    const known = typeof result.cost_usd === "number" && result.cost_source !== null;
+    samples.set(key, { model: result.model, cost: known ? (result.cost_usd as number) : null, tokens: null });
+  }
+  return [...samples.values()];
+}
+
+/**
+ * Prior tokenów próby, gdy zadanie nie ma jeszcze żadnej zachowanej próby
+ * z tokenami: rząd wielkości jednej sesji agenta kodującego (~10 min,
+ * kilkadziesiąt tur; cache_read dominuje). Tylko do projekcji budżetu —
+ * linia planu oznacza go jako SZACUNEK; koszt próby zawsze pochodzi
+ * z jej metrics.json.
+ */
+export const TOKEN_PRIOR: Required<Tokens> = { input: 100_000, output: 20_000, cache_read: 3_000_000, cache_write: 0 };
+
+export interface TrialProjection {
+  usd: number;
+  /**
+   * history = mediana kosztu tej komórki; estimate = cena modelu × tokeny
+   * (mediana tokenów zachowanych prób zadania albo TOKEN_PRIOR);
+   * other-models = mediana kosztu innych modeli zadania (brak ceny).
+   */
+  basis: "history" | "estimate" | "other-models";
+  /** Opis źródła do linii planu (dla estimate). */
+  note: string;
+}
+
+const median = (values: number[]): number | null => {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
+};
+
+/**
+ * Projekcja kosztu jednej próby komórki: historia tej pary (zadanie ×
+ * model) → szacunek z ceny modelu × tokeny → mediana innych modeli
+ * zadania → null (brak podstaw).
+ */
+export function projectTrialCost(
+  samples: CostSample[],
+  model: string,
+  price: Price | null,
+  otherTasks: CostSample[] = [],
+): TrialProjection | null {
+  const own = median(samples.filter((s) => s.model === model && s.cost !== null).map((s) => s.cost as number));
+  if (own !== null) return { usd: own, basis: "history", note: "" };
+  // Ten sam model na innych zadaniach instancji: modele różnią się zużyciem
+  // tokenów kilkukrotnie, więc tokeny innego modelu (np. jednego smoke'a)
+  // zaniżają szacunek — bierzemy większą z dwóch liczb.
+  const sameModel = otherTasks.filter((s) => s.model === model && s.cost !== null).map((s) => s.cost as number);
+  const crossTask = median(sameModel);
+  if (crossTask !== null) {
+    const tokenBased = price ? projectTrialCost(samples, model, price) : null;
+    if (!tokenBased || crossTask >= tokenBased.usd) {
+      return { usd: crossTask, basis: "estimate", note: `mediana kosztu tego modelu na innych zadaniach (${sameModel.length} prób)` };
+    }
+    return tokenBased;
+  }
+  if (price) {
+    const withTokens = samples.flatMap((s) => (s.tokens ? [s.tokens] : []));
+    if (withTokens.length > 0) {
+      const field = (k: keyof Tokens) => median(withTokens.map((t) => t[k] ?? 0)) ?? 0;
+      const tokens = { input: field("input"), output: field("output"), cache_read: field("cache_read"), cache_write: field("cache_write") };
+      return { usd: priceTokens(tokens, price), basis: "estimate", note: `mediana tokenów ${withTokens.length} zachowanych prób zadania` };
+    }
+    return { usd: priceTokens(TOKEN_PRIOR, price), basis: "estimate", note: "stały prior tokenów (TOKEN_PRIOR, brak prób zadania)" };
+  }
+  const others = median(samples.flatMap((s) => (s.cost !== null ? [s.cost] : [])));
+  return others !== null ? { usd: others, basis: "other-models", note: "" } : null;
+}
+
+/** Do ilu prób "następny krok" wypisuje osobne `bench evaluate --attempt`. */
+const EXPLICIT_EVALUATE_MAX = 3;
+
+/**
+ * Linia "następny krok" po biegu. Smoke (albo garść prób) ocenia się
+ * dokładnie tymi próbami — gołe `bench evaluate` bierze WSZYSTKIE zachowane
+ * próby instancji (WIRING.md B4); większy bieg → forma zbiorcza.
+ * Ścieżki względem korzenia instancji (absolutne, gdy --out poza nim).
+ * Instancja z judge.mode agent ocenia wyniki sędzią-agentem (bench-measure,
+ * RATE_ATTEMPT.md); smoke idzie wtedy przez sędziego API tylko jako dowód
+ * ścieżki oceny — bez zapisu do results/.
+ */
+export function nextStepLine(root: string, produced: string[], smoke: boolean, judgeMode: "agent" | "api" = "api"): string {
+  if (produced.length === 0) return "następny krok: bench status (w tym biegu nie zachowano żadnej próby)";
+  const shown = produced.map((dir) => {
+    const rel = relative(root, dir);
+    return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : dir;
+  });
+  if (judgeMode === "agent") {
+    if (smoke) {
+      return [
+        "następny krok (dowód ścieżki oceny, sędzia API, bez zapisu do results/; wynik da sędzia-agent):",
+        ...[...shown].sort().map((d) => `  bench evaluate --attempt ${d} --no-write-results`),
+      ].join("\n");
+    }
+    return `następny krok: ocena ${produced.length} prób sędzią-agentem (skill bench-measure → RATE_ATTEMPT.md; \`bench status\` liczy nieocenione)`;
+  }
+  if (smoke || produced.length <= EXPLICIT_EVALUATE_MAX) {
+    return ["następny krok (ocena dokładnie tych prób → results/):", ...[...shown].sort().map((d) => `  bench evaluate --attempt ${d}`)].join("\n");
+  }
+  return "następny krok: bench evaluate (ocena zachowanych prób → results/)";
 }
 
 export async function attemptCommand(args: string[]): Promise<number> {
@@ -292,7 +438,8 @@ export async function attemptCommand(args: string[]): Promise<number> {
       // Smoke = sprawdzenie rur, nie pomiar: 1 próba, jeden model.
       trials = 1;
       models = models.slice(0, 1);
-      console.log(`smoke: 1 próba × ${models[0]} (tani model wskaż przez --models)`);
+      // Podpowiedź tylko, gdy model wziął się z defaults.models — jawne --models już wskazało.
+      console.log(`smoke: 1 próba × ${models[0]}${opts.models ? "" : " (tani model wskaż przez --models)"}`);
     }
     const allTasks = listTaskNames(root);
     const taskNames = opts.tasks ?? allTasks;
@@ -359,31 +506,6 @@ export async function attemptCommand(args: string[]): Promise<number> {
       return 0;
     }
 
-    // --- projekcja kosztu + sufit budżetu na cały bieg macierzy ---
-    const budget = opts.maxCost ?? config.defaults.max_cost_usd ?? null;
-    let projectedTotal = 0;
-    let projectionUnknown = 0;
-    for (const cell of plan) {
-      if (cell.numbers.length === 0) continue;
-      const perTrial = projectedTrialCost(resultsDir, cell.task, cell.model);
-      if (perTrial === null) projectionUnknown += cell.numbers.length;
-      else projectedTotal += perTrial * cell.numbers.length;
-    }
-    const projectionNote =
-      projectionUnknown > 0
-        ? ` + ${projectionUnknown} prób bez historii kosztu (pierwszy pomiar — projekcja niepełna)`
-        : "";
-    console.log(
-      `plan:   ${totalPlanned} prób do wykonania; projekcja kosztu ~$${projectedTotal.toFixed(2)}${projectionNote}` +
-        (budget !== null ? `; budżet biegu: $${budget}` : "; budżet biegu: brak (ustaw defaults.max_cost_usd)"),
-    );
-    if (budget !== null && projectedTotal > budget) {
-      console.error(
-        `warn:   projekcja ($${projectedTotal.toFixed(2)}) przekracza budżet biegu ($${budget}) — ` +
-          "runner przerwie zlecanie prób po przekroczeniu sumy kosztów; zawęź macierz albo podnieś budżet świadomie",
-      );
-    }
-
     // --- harnessy i ceny: ustalone PRZED wydaniem pieniędzy ---
     // Model, którego kosztu nie da się policzyć, nie startuje: koszt
     // nieznany to budżet, który nie działa, i $0 w ekonomii bench-decide.
@@ -391,7 +513,26 @@ export async function attemptCommand(args: string[]): Promise<number> {
     for (const model of new Set(plan.filter((c) => c.numbers.length > 0).map((c) => c.model))) {
       harnessSpecs.set(model, parseModelId(model));
     }
-    const needsCatalog = [...harnessSpecs.values()].some((s) => costPolicy(s) !== "harness" && !config.pricing?.[s.id]);
+    // Historia kosztu per zadanie (zachowane próby + results/) — do projekcji;
+    // komórka bez własnej historii potrzebuje ceny modelu (szacunek), także
+    // dla harnessu raportującego koszt sam (OpenCode).
+    const samplesByTask = new Map<string, CostSample[]>();
+    for (const cell of plan) {
+      if (cell.numbers.length > 0 && !samplesByTask.has(cell.task)) samplesByTask.set(cell.task, costSamples(outDir, resultsDir, cell.task));
+    }
+    // Historia innych zadań instancji — szacunek dla modelu nowego w zadaniu.
+    const otherTaskSamples = (task: string): CostSample[] => {
+      const dirs = [join(outDir), resultsDir].filter((d) => existsSync(d));
+      const names = new Set(dirs.flatMap((d) => readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name)));
+      names.delete(task);
+      return [...names].flatMap((n) => costSamples(outDir, resultsDir, n));
+    };
+    const lacksHistory = (cell: { task: string; model: string }) =>
+      !(samplesByTask.get(cell.task) ?? []).some((s) => s.model === cell.model && s.cost !== null);
+    const estimateModels = new Set(plan.filter((c) => c.numbers.length > 0 && lacksHistory(c)).map((c) => c.model));
+    const needsCatalog = [...harnessSpecs.values()].some(
+      (s) => (costPolicy(s) !== "harness" || estimateModels.has(s.id)) && !config.pricing?.[s.id],
+    );
     let catalog: Catalog | null = null;
     let catalogError: string | null = null;
     if (needsCatalog) {
@@ -402,9 +543,14 @@ export async function attemptCommand(args: string[]): Promise<number> {
       }
     }
     const prices = new Map<string, ResolvedPrice | null>();
+    /** Ceny tylko do szacunku projekcji (harness z własnym kosztem, komórka bez historii). */
+    const estimatePrices = new Map<string, ResolvedPrice | null>();
     for (const spec of harnessSpecs.values()) {
       const policy = costPolicy(spec);
-      if (policy === "harness") continue;
+      if (policy === "harness") {
+        if (estimateModels.has(spec.id)) estimatePrices.set(spec.id, resolvePrice(spec, config, catalog));
+        continue;
+      }
       const price = resolvePrice(spec, config, catalog);
       prices.set(spec.id, price);
       const why = catalogError
@@ -428,8 +574,53 @@ export async function attemptCommand(args: string[]): Promise<number> {
       }
     }
 
+    // --- projekcja kosztu + sufit budżetu na cały bieg macierzy ---
+    // Komórka bez historii kosztu dostaje SZACUNEK z ceny modelu × tokeny,
+    // żeby budżet działał już przy pierwszym pomiarze.
+    const budget = opts.maxCost ?? config.defaults.max_cost_usd ?? null;
+    let projectedTotal = 0;
+    let estimatedTotal = 0;
+    let estimatedTrials = 0;
+    let projectionUnknown = 0;
+    for (const cell of plan) {
+      if (cell.numbers.length === 0) continue;
+      const price = prices.get(cell.model) ?? estimatePrices.get(cell.model) ?? null;
+      const perTrial = projectTrialCost(samplesByTask.get(cell.task) ?? [], cell.model, price, otherTaskSamples(cell.task));
+      if (perTrial === null) {
+        projectionUnknown += cell.numbers.length;
+        continue;
+      }
+      projectedTotal += perTrial.usd * cell.numbers.length;
+      if (perTrial.basis === "estimate") {
+        estimatedTotal += perTrial.usd * cell.numbers.length;
+        estimatedTrials += cell.numbers.length;
+        console.log(
+          `plan:   SZACUNEK ${cell.task} × ${cell.model}: ~$${perTrial.usd.toFixed(2)}/próbę ` +
+            `(brak historii kosztu w tym zadaniu; ${perTrial.note.startsWith("mediana kosztu") ? perTrial.note : `cena ${price?.source ?? "?"} × ${perTrial.note}`})`,
+        );
+      }
+    }
+    const projectionNote = [
+      estimatedTrials > 0
+        ? ` (w tym ~$${estimatedTotal.toFixed(2)} SZACUNKU dla ${estimatedTrials} prób bez historii w tym zadaniu — modele różnią się zużyciem tokenów kilkukrotnie, realny koszt bywa 2–5× wyższy; twardym sufitem jest budżet biegu)`
+        : "",
+      projectionUnknown > 0 ? ` + ${projectionUnknown} prób bez historii kosztu i bez ceny modelu (projekcja niepełna)` : "",
+    ].join("");
+    console.log(
+      `plan:   ${totalPlanned} prób do wykonania; projekcja kosztu ~$${projectedTotal.toFixed(2)}${projectionNote}` +
+        (budget !== null ? `; budżet biegu: $${budget}` : "; budżet biegu: brak (ustaw defaults.max_cost_usd)"),
+    );
+    if (budget !== null && projectedTotal > budget) {
+      console.error(
+        `warn:   projekcja ($${projectedTotal.toFixed(2)}) przekracza budżet biegu ($${budget}) — ` +
+          "runner przerwie zlecanie prób po przekroczeniu sumy kosztów; zawęź macierz albo podnieś budżet świadomie",
+      );
+    }
+
     const engine = detectEngine(opts.engine);
     console.log(`bench attempt: macierz ${models.length} model(i) × ${taskNames.length} zadań → ${outDir} (engine: ${engine})`);
+
+    writeRunMarker(outDir, { tasks: taskNames, models });
 
     // --- przygotowanie: obraz bazowy + obrazy zadań (jedyny etap z siecią) ---
     const baseImage = ensureBaseImage(engine, root);
@@ -452,6 +643,8 @@ export async function attemptCommand(args: string[]): Promise<number> {
     let overBudget = false;
     let failures = 0;
     let resourceKills = 0;
+    /** Katalogi prób zachowanych w tym biegu (attempt.json zapisany) — do "następny krok". */
+    const produced: string[] = [];
 
     interface TrialSpec {
       name: string;
@@ -566,7 +759,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
         );
 
         const executionPath = join(trialDir, "execution.json");
-        execution = existsSync(executionPath) ? JSON.parse(readFileSync(executionPath, "utf8")) : null;
+        execution = readTrialJson(executionPath, label);
         infraFailure = result.status !== 0 || !execution;
         providerError = !infraFailure && detectProviderError(trialDir, execution, harness);
         const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
@@ -636,11 +829,22 @@ export async function attemptCommand(args: string[]): Promise<number> {
         : null;
       rmSync(contextList, { force: true });
 
+      // trial.sh usuwa uciętą kopię workspace/ i zostawia znacznik.
+      const workspaceMarker = join(trialDir, "workspace-incomplete.txt");
+      const workspacePreserved = !existsSync(workspaceMarker);
+      if (!workspacePreserved) {
+        rmSync(workspaceMarker, { force: true });
+        console.error(
+          `trial:  ${label} — workspace/ NIE zachowany (pełny dysk?); patch.diff i metryki są całe — ` +
+            "ocena statyczna i testy działają, sędzia-z-narzędziami nie ma czego badać; zwolnij miejsce i powtórz próbę (--trial-index)",
+        );
+      }
+
       // Koszt wg polityki harnessu (lib/pricing.ts): wycena z tokenów tam,
       // gdzie harness nie daje wiarygodnego kosztu — ze źródłem w metrics.json.
       const metricsFile = join(trialDir, "metrics.json");
-      if (existsSync(metricsFile)) {
-        const metrics = JSON.parse(readFileSync(metricsFile, "utf8")) as Record<string, unknown>;
+      const metrics = readTrialJson<Record<string, unknown>>(metricsFile, label);
+      if (metrics) {
         const note = finalizeCost(metrics, harness, prices.get(model) ?? null);
         if (note) {
           writeFileSync(metricsFile, JSON.stringify(metrics, null, 2) + "\n");
@@ -672,6 +876,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
             resource_kill: resourceKill,
             attempts,
             execution,
+            workspace_preserved: workspacePreserved,
           },
           null,
           2,
@@ -679,14 +884,13 @@ export async function attemptCommand(args: string[]): Promise<number> {
       );
       // attempt.json zapisany = próba zachowana; marker w toku schodzi.
       rmSync(join(trialDir, "running.json"), { force: true });
+      produced.push(trialDir);
 
       // Budżet biegu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
       // (pool sprawdza flagę przed startem każdej próby; próby już
       // biegnące kończą się normalnie).
       if (budget !== null) {
-        const metricsPath = join(trialDir, "metrics.json");
-        const metrics = existsSync(metricsPath) ? JSON.parse(readFileSync(metricsPath, "utf8")) : {};
-        spentUsd += typeof metrics.cost_usd === "number" ? metrics.cost_usd : 0;
+        spentUsd += typeof metrics?.cost_usd === "number" ? metrics.cost_usd : 0;
         if (spentUsd > budget && !overBudget) {
           overBudget = true;
           console.error(
@@ -699,12 +903,30 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     // Pool: `parallel` torów zdejmuje próby z listy w kolejności macierzy;
     // przekroczony budżet zatrzymuje zlecanie nowych, nie ubija biegnących.
+    // Błąd jednej próby (np. zapis na pełny dysk) nie zabija biegu: próba
+    // liczy się jako awaria infrastruktury; pełny dysk zatrzymuje zlecanie
+    // nowych prób — wydane pieniądze i zachowane próby zostają.
     let nextSpec = 0;
+    let diskFull = false;
     await Promise.all(
       Array.from({ length: parallel }, async () => {
-        while (nextSpec < specs.length && !overBudget) {
+        while (nextSpec < specs.length && !overBudget && !diskFull) {
           const spec = specs[nextSpec++] as TrialSpec;
-          await runTrial(spec);
+          try {
+            await runTrial(spec);
+          } catch (err) {
+            failures++;
+            const label = `${spec.name} × ${spec.model} × próba ${spec.trial}`;
+            if (isDiskFull(err)) {
+              diskFull = true;
+              console.error(
+                `trial:  ${label} — PEŁNY DYSK (${(err as NodeJS.ErrnoException).code ?? "errno -122"}) — nie zlecam kolejnych prób; ` +
+                  "zwolnij miejsce (`df -h` dla attempts/ i TMPDIR; tmpfs ma też limit per użytkownik), potem `bench attempt` dokończy brakujące próby",
+              );
+            } else {
+              console.error(`trial:  ${label} — błąd runnera: ${err instanceof Error ? err.message : String(err)} — próba liczona jako awaria infrastruktury`);
+            }
+          }
         }
       }),
     );
@@ -712,21 +934,24 @@ export async function attemptCommand(args: string[]): Promise<number> {
     // Przekroczenie budżetu PO ostatniej próbie niczego nie ucina — pieniądze
     // już wydane, próby zachowane; głośny warning zamiast wywrotki. Kod 1
     // dopiero, gdy budżet realnie pominął zaplanowane próby.
-    const skippedByBudget = specs.length - nextSpec;
+    const skippedByBudget = diskFull ? 0 : specs.length - nextSpec;
+    const skippedByDisk = diskFull ? specs.length - nextSpec : 0;
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
     const killNote = resourceKills
       ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, próby do powtórzenia po naprawie zasobów)`
       : "";
-    const status = overBudget
+    const status = diskFull
+      ? `PRZERWANE (pełny dysk) — ${skippedByDisk} prób(y) niezlecone`
+      : overBudget
       ? skippedByBudget > 0
         ? `PRZERWANE (budżet) — ${skippedByBudget} prób(y) niezlecone`
         : "gotowe (budżet przekroczony po ostatniej próbie — nic nie pominięto)"
       : "gotowe";
     console.log(
       `\nbench attempt: ${status} → ${outDir}${failures ? ` (${failures} prób z awarią infrastruktury)` : ""}${killNote}${budgetNote}` +
-        `\nnastępny krok: bench evaluate (ocena zachowanych prób → results/)`,
+        `\n${nextStepLine(root, produced, opts.smoke, config.judge.mode)}`,
     );
-    return failures > 0 || resourceKills > 0 || skippedByBudget > 0 ? 1 : 0;
+    return failures > 0 || resourceKills > 0 || skippedByBudget > 0 || skippedByDisk > 0 ? 1 : 0;
   } catch (err) {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     return 1;

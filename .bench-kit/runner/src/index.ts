@@ -33,6 +33,9 @@ import { assertCommand } from "./commands/assert.ts";
 import { judgeCommand } from "./commands/judge.ts";
 import { calibrateCommand } from "./commands/calibrate.ts";
 import { doctorCommand } from "./commands/doctor.ts";
+import { findInstanceRoot } from "./lib/instance.ts";
+import { applyDiskTmpdir } from "./lib/tmpdir.ts";
+import { resolve } from "node:path";
 
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   attempt: attemptCommand,
@@ -52,6 +55,13 @@ const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
 
 const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
+
+// /tmp na tmpfs-ie (RAM) → katalogi tymczasowe na dysku instancji (lib/tmpdir.ts).
+{
+  const rootFlag = args.indexOf("--root");
+  const start = rootFlag >= 0 && args[rootFlag + 1] ? resolve(args[rootFlag + 1] as string) : process.cwd();
+  applyDiskTmpdir(findInstanceRoot(start));
+}
 
 if (!handler) {
   console.error("usage: bench <attempt|evaluate|status|backlog|changes|shell|validate|report|leaderboard|assert|judge|calibrate|doctor> [options]");

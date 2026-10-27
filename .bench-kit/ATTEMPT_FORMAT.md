@@ -64,7 +64,12 @@ zachowane / w toku / przeterminowane / ocenione — pokazuje
   `execution.json`, `signal.json`, `container.log` — pełne metadane
   i diff wystarczają do re-oceny diffowej i triage'u.
 - **Tylko dysk**: `workspace/` (`.gitignore`: `attempts/**/workspace/`),
-  `agent.log` (`*.log`) i przejściowy `running.json`. Backup workspace'ów to osobna
+  `agent.log` (`*.log`) i przejściowy `running.json`. `workspace/` jest
+  bez katalogów `node_modules` (próba biegnie offline, więc pochodzą z
+  obrazu zadania — `task.prepare`) i bez głównego `.git` (commit startowy
+  z obrazu; zmiany agenta są w drzewie i w `patch.diff`); `bench shell`
+  przenosi oba do kopii z obrazu. Kopia nieudana (pełny dysk) jest
+  usuwana, a `attempt.json` ma wtedy `workspace_preserved: false`. Backup workspace'ów to osobna
   odpowiedzialność operatora (rsync/dysk); manifestem drzewa jest sam
   zestaw `attempt.json` — wystarcza do skip-logic (`bench attempt`
   dogania braki) i do agregacji.
@@ -109,7 +114,9 @@ zachowane / w toku / przeterminowane / ocenione — pokazuje
 ## Wyniki oceny
 
 Ocena dokłada do katalogu próby `eval-plan.json`, `checks.json`
-(guardy — exit codes i logi jako FAKTY), `judge.json` (werdykty
+(guardy — exit codes i logi jako FAKTY), `checks.stamp.json` (z czego
+powstały: task_hash, hashe asercji puli, obraz oceny, patch — fold
+werdyktu reużywa guardów tylko przy pełnej zgodności), `judge.json` (werdykty
 z uzasadnieniem) i `result.json`, a kanoniczną kopię
 `result.json` + `judge.json` zapisuje w repo:
 

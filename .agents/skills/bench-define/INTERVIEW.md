@@ -116,8 +116,7 @@ Remaining fields (ask only when the description does not settle them):
 - **What the task measures**: implementation / bugfix / refactor /
   documentation.
 - **Base repo** — must be in `base_repos` in bench.config.yaml
-  (check!); if it is not, bench-measure → WIRING.md comes first, not
-  this order.
+  (check!); if it is not, bench-status adds it first, not this order.
 - **Difficulty and time limit** — always discussed and recorded in
   **minutes** (typically 5–15 min, up to 30 min for the widest
   product-level orders); consistent with the guidance level — a

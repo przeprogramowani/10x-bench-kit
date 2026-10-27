@@ -13,8 +13,8 @@ import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { depsCacheArgs, must, resourceLimitArgs, sh } from "./containers.ts";
-import { gitAuthArgs } from "./git-auth.ts";
+import { containerFailureMessage, depsCacheArgs, must, removeTree, resourceLimitArgs, sh } from "./containers.ts";
+import { fetchPin } from "./pin-source.ts";
 import { readYamlFile } from "./instance.ts";
 import { CheckFileSchema } from "../schemas/check.ts";
 
@@ -23,7 +23,8 @@ export interface AssertionOutcome {
   score: number;
   passed: number;
   total: number;
-  checks: Array<{ name: string; exit: number; log_tail: string }>;
+  /** duration_s: czas komendy w sekundach — pole addytywne evaluate.mjs; starsze checks.json go nie mają. */
+  checks: Array<{ name: string; exit: number; log_tail: string; duration_s?: number }>;
 }
 
 /** Plan oceny dla evaluate.mjs: sparsowane check.yaml wskazanych refów. */
@@ -39,19 +40,37 @@ export function buildEvalPlan(root: string, refs: string[]) {
 
 /**
  * Buduje stan startowy w katalogu tymczasowym: repo@pin + overlay + commit
- * startowy. Zwraca ścieżkę workspace'u (sprzątanie po stronie wołającego).
+ * startowy. Zwraca ścieżkę workspace'u (sprzątanie po stronie wołającego
+ * — removeTree; przy błędzie budowy katalog jest usuwany tutaj).
  */
 export function buildStartWorkspace(
   repoUrl: string,
   commit: string,
   overlayDir: string | null,
   contextPolicy: ContextFilesPolicy = "unified",
+  /** `.repos/<repo>/` z pinem (localPinClone) — fetch bez sieci; null = remote. */
+  localClone: string | null = null,
 ): string {
   const workspace = mkdtempSync(join(tmpdir(), "bench-reference-"));
+  try {
+    populateStartWorkspace(workspace, repoUrl, commit, overlayDir, contextPolicy, localClone);
+  } catch (err) {
+    removeTree(workspace);
+    throw err;
+  }
+  return workspace;
+}
+
+function populateStartWorkspace(
+  workspace: string,
+  repoUrl: string,
+  commit: string,
+  overlayDir: string | null,
+  contextPolicy: ContextFilesPolicy,
+  localClone: string | null,
+): void {
   must("git", ["init", "-q", workspace], "git init workspace referencyjnego");
-  must("git", [...gitAuthArgs(), "-C", workspace, "fetch", "--depth", "1", repoUrl, commit], `fetch pinowanego commita ${commit.slice(0, 12)}…`, {
-    timeout: 300_000,
-  });
+  fetchPin(workspace, repoUrl, commit, localClone, `fetch pinowanego commita ${commit.slice(0, 12)}…`);
   must("git", ["-C", workspace, "checkout", "-q", commit], "checkout pinowanego commita");
 
   if (overlayDir && existsSync(overlayDir)) {
@@ -67,7 +86,34 @@ export function buildStartWorkspace(
     ["-C", workspace, "-c", "user.name=bench", "-c", "user.email=bench@local", "commit", "-q", "--allow-empty", "-m", "bench: stan startowy referencji"],
     "commit stanu startowego",
   );
-  return workspace;
+}
+
+/**
+ * task.prepare na stanie startowym — to samo, co `bench attempt` zapieka
+ * w obraz zadania (prepare.ts): komenda w /workspace z siecią, potem commit
+ * artefaktów. Bez tego guardy dowodzone przez assert/validate widziałyby
+ * inny stan niż agent i ocena (np. brak node_modules z prepare).
+ */
+export function applyPrepare(engine: string, image: string, workspace: string, prepare: string, opts: AssertRunOptions = {}): void {
+  must(
+    engine,
+    [
+      "run",
+      "--rm",
+      "-v",
+      `${workspace}:/workspace`,
+      ...resourceLimitArgs(opts.memoryMb ?? null, opts.pidsLimit ?? null),
+      // Cache zależności jak w kontenerze oceny: każdy assert/validate --assert
+      // pobierał całe drzewo pakietów od nowa (ten sam lockfile = ten sam wynik).
+      ...depsCacheArgs(opts.depsCache ?? false),
+      image,
+      "bash",
+      "-c",
+      `cd /workspace && ( ${prepare} ) && git add -A && git -c user.name=bench -c user.email=bench@local commit -q --allow-empty -m "bench: prepare środowiska zadania"`,
+    ],
+    "task.prepare na stanie startowym",
+    { timeout: 1_800_000 },
+  );
 }
 
 export interface AssertRunOptions {
@@ -117,15 +163,19 @@ export function runAssertions(
   opts: AssertRunOptions = {},
 ): Record<string, AssertionOutcome> {
   const outDir = mkdtempSync(join(tmpdir(), "bench-assert-out-"));
-  mkdirSync(outDir, { recursive: true });
-  writeFileSync(join(outDir, "eval-plan.json"), JSON.stringify(buildEvalPlan(root, refs), null, 2) + "\n");
-  if (patchFile) copyFileSync(patchFile, join(outDir, "patch.diff"));
+  try {
+    writeFileSync(join(outDir, "eval-plan.json"), JSON.stringify(buildEvalPlan(root, refs), null, 2) + "\n");
+    if (patchFile) copyFileSync(patchFile, join(outDir, "patch.diff"));
 
-  const result = runEvaluateContainer(engine, root, image, workspace, refs, outDir, opts);
-  if (result.status !== 0 || !existsSync(join(outDir, "checks.json"))) {
-    throw new Error(`kontener oceny zakończony kodem ${result.status}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
+    const result = runEvaluateContainer(engine, root, image, workspace, refs, outDir, opts);
+    if (result.status !== 0 || !existsSync(join(outDir, "checks.json"))) {
+      throw new Error(containerFailureMessage(result));
+    }
+    return JSON.parse(readFileSync(join(outDir, "checks.json"), "utf8"));
+  } finally {
+    // checks.json pisze kontener — może nie należeć do użytkownika hosta.
+    removeTree(outDir, { engine, image });
   }
-  return JSON.parse(readFileSync(join(outDir, "checks.json"), "utf8"));
 }
 
 /** Wynik wsadu: per patch — wynik per ref albo błąd aplikacji patcha. */
@@ -151,6 +201,24 @@ export function runAssertionsBatch(
   opts: AssertRunOptions = {},
 ): Record<string, BatchEntry> {
   const outDir = mkdtempSync(join(tmpdir(), "bench-assert-out-"));
+  try {
+    return runBatchIn(outDir, engine, root, image, workspace, refs, patches, opts);
+  } finally {
+    // checks-batch.json pisze kontener — może nie należeć do użytkownika hosta.
+    removeTree(outDir, { engine, image });
+  }
+}
+
+function runBatchIn(
+  outDir: string,
+  engine: string,
+  root: string,
+  image: string,
+  workspace: string,
+  refs: string[],
+  patches: Array<{ name: string; path: string }>,
+  opts: AssertRunOptions,
+): Record<string, BatchEntry> {
   mkdirSync(join(outDir, "patches"), { recursive: true });
   writeFileSync(join(outDir, "eval-plan.json"), JSON.stringify(buildEvalPlan(root, refs), null, 2) + "\n");
   const order: string[] = [];
@@ -165,7 +233,7 @@ export function runAssertionsBatch(
   const result = runEvaluateContainer(engine, root, image, workspace, refs, outDir, opts);
   const batchPath = join(outDir, "checks-batch.json");
   if (result.status !== 0 || !existsSync(batchPath)) {
-    throw new Error(`kontener oceny zakończony kodem ${result.status}:\n${(result.stderr || result.stdout || "").slice(-1000)}`);
+    throw new Error(containerFailureMessage(result));
   }
   const raw = JSON.parse(readFileSync(batchPath, "utf8")) as Record<string, BatchEntry>;
   const results: Record<string, BatchEntry> = {};

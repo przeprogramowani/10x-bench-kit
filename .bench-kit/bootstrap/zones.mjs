@@ -23,7 +23,9 @@ import {
 } from "node:fs";
 import { join, sep } from "node:path";
 
-export const TEMPLATE_ONLY_PATHS = [".github", "benchkit.png", "docs"];
+// README.md i CHANGELOG.md opisują template, nie instancję — instancja
+// dostaje własne README z bootstrapu, a notatki wydań są pod linkiem w nim.
+export const TEMPLATE_ONLY_PATHS = [".github", "benchkit.png", "docs", "todo.md", "README.md", "CHANGELOG.md"];
 
 export const SHARED_ROOT_FILES = ["AGENTS.md"];
 

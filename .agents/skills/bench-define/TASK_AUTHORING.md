@@ -187,7 +187,10 @@ todo.md progress file and the report, stays as below.
      <sha> --out <scratch>` writes `reference.diff` (the solution: code
      plus the manifests, lockfiles and config it needs, so dependencies
      the change added still install; docs and AGENTS.md / CLAUDE.md are
-     left out), `files/` (the test files after the merge, byte-exact,
+     left out), `merge.diff` (reference + tests — the proof for
+     repo-level guards such as typecheck, lint or the whole suite: a
+     change that also fixed existing tests leaves those guards red on
+     `reference.diff` alone), `files/` (the test files after the merge, byte-exact,
      including binary fixtures and snapshots under `__snapshots__/` and
      `*.snap`) and `meta.json` (pin, files by class including
      `manifest_files`, `new_identifiers`, `coupled`).
@@ -201,7 +204,10 @@ todo.md progress file and the report, stays as below.
      - **individual test cases** may be dropped by editing the copied
        test file (e.g. the one case that asserts an internal name),
        instead of dropping the whole file.
-  3. Write `check.yaml`. Copy the files over the workspace (the
+  3. Write `check.yaml`. Each `run` command has a **10-minute ceiling**
+     (no flag; the log ends with `[bench] TIMEOUT` when hit) — on a
+     monorepo whose install alone takes minutes, put install in its own
+     check before the tests. Copy the files over the workspace (the
      agent's edits to those same files lose, as in SWE-bench), install
      dependencies the way the repo does, run the repo's own test
      command **for those files**, then put the workspace back:
@@ -231,7 +237,8 @@ todo.md progress file and the report, stays as below.
   5. **Prove both directions** with one batch call: `bench assert
      tests/<task>-pr --task <task> --patch <empty.diff> --patch
      <scratch>/reference.diff`. The empty diff must score 0 and the
-     reference 1.
+     reference 1. A repo-level guard you add (typecheck, lint) is proven
+     green on `<scratch>/merge.diff` instead, and green at the pin.
   6. Read the red log: the change's new assertions must be what fails,
      while the pre-existing tests in those files pass. A crash, an
      import error or a missing module at the pin is the wrong reason.
@@ -362,9 +369,12 @@ the code.
 
 **Neutralize human-in-the-loop instructions in the task's materials.**
 Scan every document the prompt points the agent at — in-repo specs and
-plans, overlay files — for instructions that presuppose an interactive
+plans, overlay files — **and the agent-instruction files the harness
+loads on its own** (`AGENTS.md`, `CLAUDE.md` at the root and in the
+directories the task touches) for instructions that presuppose an interactive
 human: "pause for manual confirmation", "ask before proceeding", "wait
-for review", staged sign-offs. A trial has nobody to answer, so an
+for review", "open a PR", "run the full verify before finishing",
+staged sign-offs. A trial has nobody to answer, so an
 agent that obeys such an instruction stalls — and the stall is then
 misread as a model failure when it is a harness failure. Override each
 one explicitly in the prompt ("that instruction does not apply here:
@@ -426,6 +436,47 @@ pre-existing problems of the base repo (the founding lesson) — e.g.
 lint scored relative to the starting-state error count. A guard
 installs its own dependencies (the evaluation stage may use the
 network).
+
+**Which repo-level guards a task gets.** Default for every base repo:
+the repo's own **typecheck and lint**, when its CI runs them, they are
+green at the pin, and each takes under ~2 minutes warm. Use **the
+command CI gates on** (in a monorepo, usually the app's target, e.g.
+`nx <app>:lint`), not a broader root script CI never runs. "Green" and
+"how long" are measured, not guessed: the first `bench assert` of the
+guard prints each check's duration. The orchestrator decides this
+conditionally ("typecheck + lint, if each is under ~2 min warm"), and
+the build subagent settles it with that one container entry. Pass is a gate
+(every guard green), so these guards decide whether a result is
+acceptable at all. Give them a small weight (static 0.05–0.1): their
+weight only shapes the quality score. The **whole test suite** is not
+a default for mined orders, because `tests/<task>-pr` already carries
+correctness. Add it only when the change touches code with a wide
+blast radius and the suite runs in under ~5 minutes. Every repo-level
+guard is proven green at the pin and on `merge.diff`. A guard that is
+red on `merge.diff` (the real change did not pass it either) is not
+used: report it, do not loosen it.
+
+**`prepare` in task.yaml — pre-installed dependencies.** Use it when
+a frozen install costs more than about a minute per container entry
+(a pnpm/yarn monorepo). Then every trial, every evaluation and every
+`bench assert` (it applies `prepare` too) skips that install.
+`prepare` holds the repo-native frozen install and nothing else: no
+build, no codegen the task could touch. The agent then starts like a
+developer with a ready checkout, which is realistic, but it is a
+property of the task. So decide it **per base repo, the same for
+every task on it**, and before the first measurement: changing
+`prepare` changes `task_hash`, which opens a new era. Guards keep
+their own install line, because on a prepared workspace it is a
+fast no-op.
+
+**Install lifecycle scripts.** A repo-native install runs the repo's
+own `prepare`/`postinstall` scripts, often git-hook installers
+(`husky`, `git config core.hooksPath …`). Locally, in your worktree of
+`.repos/<name>/`, such a script writes into the **shared** clone's git
+config. So install there with `--ignore-scripts`. In `prepare` and in
+every guard, set `CI=true`, which most hook installers honour, and
+check the repo's root `package.json` scripts for anything else that
+expects a developer machine.
 
 Assertions are shared across many tasks — for guards this is the norm:
 one base repo usually needs **one** guard set, reused by every task on
