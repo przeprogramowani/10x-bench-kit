@@ -51,8 +51,8 @@ as a large one.
    exactly what this skill exists to prevent.
 2. **You never change scoring.** No edits to `results/`, `attempts/`,
    tasks, rubrics or `bench.config.yaml`. This skill reads and
-   renders. A wrong score is EXPLAIN.md's job (one anomaly) or bench-evaluate's
-   JUDGE_DIAGNOSTICS.md (unstable verdicts); a missing cell is bench-evaluate.
+   renders. A wrong score is EXPLAIN.md's job; a missing cell is
+   bench-evaluate.
 3. **Reliability first, price second — and ties are reported as ties.**
    Ranking runs on the LOWER bound of the pass-rate interval, never on
    the median score and never on price alone: a small sample is itself
@@ -256,8 +256,6 @@ the user's choice.
 
 - Not a diagnosis. A surprising score goes to [EXPLAIN.md](EXPLAIN.md)
   (one chain, one fault class, evidence from the attempt).
-- Not judge calibration. Unstable verdicts on similar diffs go to
-  **bench-evaluate**'s JUDGE_DIAGNOSTICS.md.
 - Not a measurement. Missing cells and thin trial counts go back to
   **bench-evaluate** — and "buy more trials on the cheap models" is
   frequently the right recommendation to end on, because pass rate is

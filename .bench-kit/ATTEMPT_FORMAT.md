@@ -1,7 +1,7 @@
 # ATTEMPT_FORMAT — kontrakt zachowanej próby (format 1)
 
 Zachowana próba to **jedyny punkt styku** między wykonaniem
-(`bench attempt`) a oceną (`bench evaluate` / procedura rate-attempt skilla bench-evaluate).
+(`bench attempt`) a oceną (`bench evaluate`).
 Wykonanie nie wie nic o rubrykach; ocena nie wie nic o kontenerze agenta
 (ma własny kontener do build/testów). Próba raz opłacona **nigdy nie
 jest wyrzucana** — nowa rubryka czy nowy sędzia to re-ocena zachowanych

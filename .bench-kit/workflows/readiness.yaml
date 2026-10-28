@@ -2,7 +2,7 @@
 # `bench-kit init`/`update` kopiuje go do .github/workflows/ instancji.
 #
 # Benchmark pracuje LOKALNIE (maszyna operatora / VPS): próby wykonuje
-# `bench attempt`, ocenę `bench evaluate` / procedura rate-attempt skilla bench-evaluate, wyniki
+# `bench attempt`, ocenę `bench evaluate`, wyniki
 # lądują commitami w results/. Ten workflow pilnuje jedynie, żeby zmiany
 # w instancji (zadania, pula ocen, config, wyniki) były spójne:
 #

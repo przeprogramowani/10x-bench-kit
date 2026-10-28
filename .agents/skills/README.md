@@ -22,24 +22,21 @@ when the step needs them:
   (warming the base image in the background), then one routed next
   step. The entry point of a fresh instance — there is no demo task.
 - **bench-create-task**: what we measure. Real work becomes tasks.
-  - **PR mining** is the default source (`MINING.md`, `mine-prs.mjs`).
+  - **PR mining** is the only source (`MINING.md`, `mine-prs.mjs`).
     A merged change that brought tests becomes a task: the pin is its
     parent, its tests are a hidden fail-to-pass guard admitted only
-    without shape coupling, and its code proves solvability.
-  - The **interview** (`INTERVIEW.md`) covers work without history, and
-    **refresh** (`REFRESH.md`) handles expired tasks.
+    without shape coupling.
   - Orders go to `tasks/backlog.md` (`BACKLOG_TEMPLATE.md`). **Build**
-    (`BUILD.md`) fans out one subagent per order (`TASK_AUTHORING.md`,
-    `RUBRIC_AUTHORING.md`), runs a batch gate and writes evidence
-    reports (`REPORT_TEMPLATE.md`). No git.
+    (`BUILD.md`, `RUBRIC_AUTHORING.md`) is static: task files, rubric,
+    a report (`REPORT_TEMPLATE.md`) and a green `bench validate`. No
+    containers, no judge, no attempts, no git.
 - **bench-evaluate**: run models on it.
-  - **Wiring changes and publication** (`WIRING.md`).
+  - New tasks proven on the pin (`bench validate --assert`) before
+    their first attempt.
   - The matrix run: cost projection against the budget, preserved
     attempts, top-up.
-  - Evaluation by the **judge with tools**, one subagent per attempt
-    (`RATE_ATTEMPT.md`; verdicts signed with `--judge-mode`).
-  - **Judge diagnostics** (`JUDGE_DIAGNOSTICS.md`), and the "new model
-    came out" re-run on the same tasks.
+  - Evaluation with `bench evaluate`: guards plus the API judge on the
+    diff. A new model is the same run with `--models <new>`.
 - **bench-analysis**: what it means.
   - `summarize.mjs` + `analytics.mjs` compute the routing decision:
     pass rate with interval and pass^k per task × model; class × model

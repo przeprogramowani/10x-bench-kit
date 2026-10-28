@@ -77,8 +77,8 @@ needs them.
 
 | Concept | Skill | Example prompts | What you get |
 |---|---|---|---|
-| **Create task** — what we measure | [bench-create-task](.agents/skills/bench-create-task/SKILL.md) | “Use bench-create-task.” · “Use bench-create-task to turn PR #412 into a task.” · “Use bench-create-task to build the pending backlog.” · “Refresh this expired task.” | Tasks taken from your real work, in a short conversation. Name a PR or commit and the agent finds it and confirms it with you; name nothing and a cheap subagent reviews the last quarter and proposes 3–5 candidates (a bugfix, a feature, a refactor) for you to pick from. A merged change with tests becomes a task, with its tests as the hidden grader and its code as proof the task is solvable. An interview covers work with no history. Orders tied to a decision land in `tasks/backlog.md`, and built tasks come with evidence in `reports/<task>-build.md`. |
-| **Evaluate** — run models and judge them | [bench-evaluate](.agents/skills/bench-evaluate/SKILL.md) | “Use bench-evaluate to compare our configured models within the budget.” · “A new model came out — measure it against what we use.” | Preflight (setup, keys, engine), preserved attempts, evaluation (a judge with tools per attempt), actual spend, a reliability-first table. |
+| **Create task** — what we measure | [bench-create-task](.agents/skills/bench-create-task/SKILL.md) | “Use bench-create-task.” · “Use bench-create-task to turn PR #412 into a task.” · “Use bench-create-task to build the pending backlog.” | Tasks taken from your real work, in a short conversation. Name a PR or commit and the agent finds it and confirms it with you; name nothing and a cheap subagent reviews the last quarter and proposes 3–5 candidates (a bugfix, a feature, a refactor) for you to pick from. A merged change with tests becomes a task, with its tests as the hidden grader. Orders tied to a decision land in `tasks/backlog.md`. Building is static (task files, rubric, `reports/<task>-build.md`, a green `bench validate`); the first run proves the task on its pin before paying for attempts. |
+| **Evaluate** — run models and judge them | [bench-evaluate](.agents/skills/bench-evaluate/SKILL.md) | “Use bench-evaluate to compare our configured models within the budget.” · “A new model came out — measure it against what we use.” | Preflight (setup, keys, engine), preserved attempts, new tasks proven on their pin, evaluation with guards plus an API judge on the diff, actual spend, pass counts per task × model. |
 | **Analysis** — what it means | [bench-analysis](.agents/skills/bench-analysis/SKILL.md) | “Use bench-analysis to show which model and tool we should use for bugfixes.” · “Why did model X fail here?” | An agent-supported analysis in conversation, ending in a one-page HTML verdict. It covers pass rate with uncertainty, cost per acceptable result and review burden; class × model comparisons that count tasks, not trials; whether a difference is actually resolved; what your task set can resolve and how many tasks a closer call needs; and the time horizon (“reliably handles ~N-minute tasks in your repo”). |
 
 **Why mining matters:** comparing two models on the same tasks resolves
@@ -109,7 +109,7 @@ selection is recorded in `.bench-kit/instance.json`.
 
 | Location | Contents |
 |---|---|
-| `tasks/` | Backlog and tasks: pinned starting points, prompts, and overlays. |
+| `tasks/` | Backlog and tasks: pinned starting points and prompts. |
 | `evaluation-pool/` | Rubrics and execution guards, isolated from the agent solving the task. |
 | `bench.config.yaml` | Base repositories, models, judge, budgets, and run defaults. |
 | `attempts/` | Preserved trials: workspace, patch, agent log, and execution metrics. |
@@ -127,8 +127,7 @@ and cost metrics on the measurement host.
 
 Evaluation uses a disposable copy of that workspace in a container.
 Repository-native execution guards supply facts; the judge assesses the
-implementation against the task rubric and can build, test, and inspect
-it with tools. Results are written separately to `results/`.
+diff against the task rubric. Results are written separately to `results/`.
 
 **Preserved attempts can be evaluated again.** A rubric or judge change
 uses the existing attempts, avoiding another model execution. Changing
@@ -154,6 +153,6 @@ From the benchmark instance directory:
 | Tasks, evaluation materials, configuration, attempts, and results | You | Left untouched. |
 
 Review the proposed shared-file changes and the [changelog](CHANGELOG.md).
-Use **bench-evaluate** if the update requires a wiring check or when a
+Use **bench-evaluate** when a
 scoring change calls for re-evaluation of
 preserved attempts.

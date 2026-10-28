@@ -25,7 +25,6 @@ import { hashTaskDir } from "../lib/era.ts";
 import { findInstanceRoot, listTaskNames, loadTask } from "../lib/instance.ts";
 import { parseRubric } from "../lib/judge.ts";
 import { isDir, readJson } from "../lib/matrix.ts";
-import { gateFilled } from "./backlog.ts";
 
 interface Options {
   root: string;
@@ -215,10 +214,9 @@ export function planChanges(root: string, base: string): { base: string; groups:
       else g.messages.push("nowe zadanie otwiera własną erę — nie zamyka żadnej istniejącej");
       if (existsSync(join(root, "tasks", name, "todo.md"))) {
         // brak raportu to normalny stan w trakcie budowy — powód blokady podaje todo.md
-      } else if (!existsSync(report)) g.messages.push(`brak reports/${name}-build.md — zadanie bez dowodów ze stanu startowego (bench-create-task)`);
-      else if (!gateFilled(readFileSync(report, "utf8"))) g.messages.push("raport bez sekcji Batch gate — stan startowy nieudowodniony na bramce partii");
+      } else if (!existsSync(report)) g.messages.push(`brak reports/${name}-build.md — zadanie bez raportu budowy (bench-create-task)`);
     } else if (exists && !stamps.some((s) => s.task === name) && !removedResults.has(name)) {
-      // Zadanie bez wyników (np. przepięcie demo z placeholdera, WIRING.md
+      // Zadanie bez wyników (np. przepięcie demo z placeholdera,
       // reguła 1): nowy task_hash nie ma z czym tracić porównywalności.
       g = group(`task:${name}`, {
         title: `zmiana zadania ${name} (bez wyników)`,
@@ -333,7 +331,7 @@ export function planChanges(root: string, base: string): { base: string; groups:
         raise(g, "era");
         g.messages.push(
           `nowa era oceny dla: ${users.join(", ") || "(brak zadań)"}; ${stamped.length} wynik(ów) ze stemplem ${name}@${before} ` +
-            "do RE-OCENY zachowanych prób (rate-attempt / bench evaluate) — bez nowego biegu",
+            "do RE-OCENY zachowanych prób (bench evaluate) — bez nowego biegu",
         );
       }
       for (const c of list) {
@@ -437,8 +435,8 @@ export function planChanges(root: string, base: string): { base: string; groups:
     const g = group("config", {
       title: "bench.config.yaml",
       impact: eraChanged.length && !noResults ? "era" : "neutral",
-      // Świeża instancja (results/ puste): WIRING.md reguła 1 dopuszcza commit
-      // configu prosto na master za wyraźną zgodą użytkownika.
+      // Świeża instancja (results/ puste): commit configu prosto na master
+      // za wyraźną zgodą użytkownika.
       needs_pr: !noResults,
       commit_message: eraChanged.length
         ? `${noResults ? "chore" : "feat"}(config): ${eraChanged.join(", ")} — ${noResults ? "pierwsza era" : "nowa era"}`
@@ -450,7 +448,7 @@ export function planChanges(root: string, base: string): { base: string; groups:
       g.messages.push(`zmienione pola ery: ${eraChanged.join(", ")} — wszystkie dotychczasowe wyniki zostają w poprzedniej erze`);
     }
     if (noResults) {
-      g.messages.push("świeża instancja bez wyników — PR niewymagany; commit bezpośredni za wyraźną zgodą użytkownika (WIRING.md, reguła 1)");
+      g.messages.push("świeża instancja bez wyników — PR niewymagany; commit bezpośredni za wyraźną zgodą użytkownika");
     }
     if (settingsChanged.length) {
       g.messages.push(`ustawienia biegu/wiringu (${settingsChanged.join(", ")}) — bez wpływu na porównywalność`);

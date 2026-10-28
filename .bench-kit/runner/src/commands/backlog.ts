@@ -2,14 +2,14 @@
  * bench backlog — etap każdego zlecenia z tasks/backlog.md WYPROWADZONY
  * z dysku, nie przepisany ze statusu w pliku. Backlog trzyma decyzje
  * (zlecenie istnieje / porzucone), a postęp to fakty, które i tak już
- * leżą w drzewie: todo.md subagenta, task.yaml, raport z sekcją
- * „Batch gate", zachowane próby i świeże oceny. Komenda tylko czyta.
+ * leżą w drzewie: todo.md subagenta, task.yaml, zachowane próby
+ * i świeże oceny. Komenda tylko czyta.
  *
  * Etapy (kolejno):
  *   ordered    — zlecenie bez katalogu zadania (czeka na bench-create-task)
  *   building   — tasks/<nazwa>/todo.md istnieje (subagent pracuje)
- *   built      — task.yaml jest, raport bez wypełnionej bramki partii
- *   ready      — raport z bramką partii; brak prób (czeka na bench-evaluate)
+ *   ready      — task.yaml jest (budowa statyczna skończona); brak prób
+ *                (czeka na bench-evaluate, który dowodzi zadania na pinie)
  *   measuring  — są próby, ale nie każda komórka (model z defaults.models)
  *                ma defaults.trials świeżo ocenionych prób
  *   measured   — każda komórka ma cel prób ocenionych w bieżącej erze
@@ -44,7 +44,7 @@ function parseArgs(args: string[]): Options | null {
   return opts;
 }
 
-export type Stage = "ordered" | "building" | "built" | "ready" | "measuring" | "measured" | "dropped";
+export type Stage = "ordered" | "building" | "ready" | "measuring" | "measured" | "dropped";
 
 interface OrderEntry {
   name: string;
@@ -107,13 +107,6 @@ function shortClass(raw: string | undefined): string | null {
   return head ? head.slice(0, 32) : null;
 }
 
-/** Sekcja `## Batch gate` raportu wypełniona (nie placeholder z szablonu). */
-export function gateFilled(report: string): boolean {
-  const match = report.match(/^## +Batch gate[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m);
-  const body = match?.[1]?.trim() ?? "";
-  return body.length > 0 && !body.startsWith("<");
-}
-
 function gitUncommitted(root: string, paths: string[]): boolean | null {
   try {
     const out = execFileSync("git", ["-C", root, "status", "--porcelain", "--untracked-files=all", "--", ...paths], {
@@ -158,7 +151,6 @@ export function backlogStates(root: string): { orders: OrderState[]; unordered: 
     const reportPath = join(root, "reports", `${name}-build.md`);
     const hasTask = existsSync(join(taskDir, "task.yaml"));
     const hasReport = existsSync(reportPath);
-    const gated = hasReport && gateFilled(readFileSync(reportPath, "utf8"));
 
     let stage: Stage;
     const measurement: OrderState["measurement"] = [];
@@ -174,12 +166,8 @@ export function backlogStates(root: string): { orders: OrderState[]; unordered: 
       stage = "ordered";
       if (declared === "in-progress") notes.push("osierocone in-progress: brak todo.md i task.yaml — sesja budowy zginęła?");
       if (declared === "built" || declared === "done") notes.push(`deklarowane ${declared}, a tasks/${name}/task.yaml nie istnieje`);
-    } else if (!gated) {
-      stage = "built";
-      if (!hasReport) notes.push(`brak reports/${name}-build.md — zadanie bez dowodów`);
-      else notes.push("raport bez sekcji Batch gate — czeka na bramkę partii");
-      if (declared === "done") notes.push("deklarowane done bez dowodu bramki w raporcie");
     } else {
+      if (!hasReport) notes.push(`brak reports/${name}-build.md — zadanie bez raportu budowy`);
       const era = currentEvalEra(root, config, name);
       let anyAttempt = false;
       for (const model of config.defaults.models) {
@@ -294,7 +282,6 @@ export async function backlogCommand(args: string[]): Promise<number> {
     const steps = [
       buildable ? `${buildable} do zbudowania → bench-create-task (budowa)` : "",
       undecided ? `${undecided} bez Decision → uzupełnij (bench-create-task)` : "",
-      count("built") ? `${count("built")} czeka na bramkę partii (bench-create-task, budowa)` : "",
       count("ready") + count("measuring") ? `${count("ready") + count("measuring")} do pomiaru → bench-evaluate` : "",
       reevaluate ? `${reevaluate} zachowanych prób ocenionych w innej erze → re-ocena (bench-evaluate)` : "",
       count("measured") ? `${count("measured")} zmierzone → bench-analysis` : "",

@@ -104,12 +104,12 @@ export function statusNextStep({ allTasks, preserved, running, toEvaluate, missi
   const buildHint = `zlecenia w tasks/backlog.md czekające na budowę: ${pendingOrders} → bench-create-task (zbuduj backlog)`;
   if (allTasks.length === 0) return pendingOrders > 0 ? `następny krok: ${buildHint}` : `następny krok: brak zadań — ${defineHint}`;
   const parts: string[] = [];
-  if (toEvaluate > 0) parts.push(`${toEvaluate} zachowanych prób bez świeżej oceny → bench evaluate / rate-attempt`);
+  if (toEvaluate > 0) parts.push(`${toEvaluate} zachowanych prób bez świeżej oceny → bench evaluate`);
   else if (preserved === 0) parts.push(running > 0 ? `jeszcze brak zachowanych prób (${running} w toku)` : "jeszcze brak zachowanych prób");
   else parts.push("wszystkie zachowane próby ocenione");
   if (demoOnly) {
     parts.push(
-      `jedyne zadania to demo (${allTasks.join(", ")}) — mierzą rury, nie pracę firmy (smoke: WIRING.md); ${defineHint}, zamiast dogrywać macierz na demo`,
+      `jedyne zadania to demo (${allTasks.join(", ")}) — mierzą rury, nie pracę firmy; ${defineHint}, zamiast dogrywać macierz na demo`,
     );
   } else if (missing > 0) {
     parts.push(`${missing} prób(y) brakuje do celu → bench attempt (dogania braki)`);
