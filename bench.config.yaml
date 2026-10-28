@@ -23,7 +23,7 @@ base_repos:
 judge:
   model: openrouter/anthropic/claude-opus-5.5
   # Ścieżka oceny instancji (część ery): agent = sędzia z narzędziami per
-  # próba (bench-measure → RATE_ATTEMPT.md), api = sędzia API na diffie
+  # próba (bench-evaluate → RATE_ATTEMPT.md), api = sędzia API na diffie
   # (smoke / CI). Wyniki z innej ścieżki są widoczne jako inna era, a
   # masowe `bench evaluate` nie nadpisuje werdyktów agenta ani człowieka.
   mode: agent
@@ -52,10 +52,12 @@ defaults:
   #   codex:gpt-5.1-codex                               → Codex CLI (OPENAI_API_KEY)
   #   codex:openrouter/openai/gpt-5.1-codex             → Codex CLI przez OpenRouter
   # Ten sam model w innym harnessie to osobny zawodnik (osobny wiersz wyników).
-  # Domyślny model jest od innego dostawcy niż sędzia (judge.model) —
-  # `bench validate` ostrzega, gdy oceniany i sędzia są z jednej rodziny.
+  # `bench validate` ostrzega, gdy oceniany i sędzia (judge.model) są
+  # z jednej rodziny — tu dotyczy to Sonneta (sędzia: Opus).
   models:
     - openrouter/openai/gpt-6.1-sol
+    - openrouter/anthropic/claude-sonnet-5.5
+    - openrouter/deepseek/deepseek-v4.1-flash
   # Timeout próby (sekundy), gdy task.yaml nie nadpisze.
   timeout_s: 1800
   # Sufit kosztu prób CAŁEGO biegu macierzy (USD). `bench attempt` robi
@@ -95,4 +97,4 @@ resources:
 # Workspace każdej próby jest ZAWSZE zachowywany na dysku
 # (attempts/<zadanie>/<model>/trial-<n>/workspace/, poza gitem) —
 # to część kontraktu zachowanej próby (.bench-kit/ATTEMPT_FORMAT.md),
-# surowiec dla sędziego-z-narzędziami (procedura rate-attempt (bench-measure)).
+# surowiec dla sędziego-z-narzędziami (procedura rate-attempt (bench-evaluate)).

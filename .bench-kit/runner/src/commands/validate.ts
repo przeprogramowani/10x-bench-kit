@@ -246,7 +246,7 @@ export async function validateCommand(args: string[]): Promise<number> {
       report({
         level: "warn",
         where: "bench.config.yaml",
-        message: `sędzia (${config?.judge.model}) i oceniany "${model}" są od tego samego dostawcy — ryzyko faworyzowania własnej rodziny; rozważ sędziego innego dostawcy albo diagnostykę sędziego (bench-measure)`,
+        message: `sędzia (${config?.judge.model}) i oceniany "${model}" są od tego samego dostawcy — ryzyko faworyzowania własnej rodziny; rozważ sędziego innego dostawcy albo diagnostykę sędziego (bench-evaluate)`,
       });
     }
   }
@@ -275,8 +275,8 @@ export async function validateCommand(args: string[]): Promise<number> {
   const tasksDir = join(root, "tasks");
   const taskNames = listTaskNames(root);
   if (taskNames.length === 0) {
-    // Stan świeżej instancji, nie usterka: następny krok to bench-define.
-    console.log("info:  tasks/: brak zadań jeszcze — zdefiniuj je skillem bench-define (kopanie zmergowanych PR-ów)");
+    // Stan świeżej instancji, nie usterka: następny krok to bench-create-task.
+    console.log("info:  tasks/: brak zadań jeszcze — zdefiniuj je skillem bench-create-task (kopanie zmergowanych PR-ów)");
   }
 
   const tasks = new Map<string, Task>();

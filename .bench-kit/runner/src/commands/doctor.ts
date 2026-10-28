@@ -1,7 +1,7 @@
 /**
  * bench doctor — deterministyczna checklista środowiska instancji.
  *
- * To, co dotąd było prozą w preflighcie skilla bench-measure (i pracą agenta powtarzaną
+ * To, co dotąd było prozą w preflighcie skilla bench-evaluate (i pracą agenta powtarzaną
  * w każdej firmie), a jest w 100% deterministyczne: silnik kontenerów,
  * wersja node, zależności runnera, klucze API (sama obecność, nigdy
  * wartości), remote repo instancji, klonowalność repo bazowych, workflows.

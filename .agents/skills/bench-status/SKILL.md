@@ -18,9 +18,9 @@ The entry point of an instance. It proves the instance can do real work
 **on the company's own tasks** — there is no demo task to rehearse on —
 and hands over to the skill that moves it forward:
 
-1. **define**: what we measure (bench-define);
-2. **measure**: run models on it (bench-measure);
-3. **decide**: what the results mean (bench-decide).
+1. **create task**: what we measure (bench-create-task);
+2. **evaluate**: run models on it and judge the attempts (bench-evaluate);
+3. **analysis**: what the results mean (bench-analysis).
 
 Budget: a couple of minutes, no paid model calls. Everything here is a
 check the runner can prove; the only conversation is about the things
@@ -128,22 +128,42 @@ precondition for any spend.
 | State | Next step |
 |---|---|
 | Anything MISSING in steps 1–4 | The user's fix list; nothing else until it is green |
-| No tasks, no backlog | **bench-define** — mine merged PRs for task candidates (default), or interview for work without history |
-| Orders in `tasks/backlog.md` not built | **bench-define** — build the pending backlog |
-| Tasks built, cells missing trials | **bench-measure** — run the matrix within budget |
-| Preserved attempts not evaluated / stale era | **bench-measure** — evaluate |
-| Results complete for a question | **bench-decide** — the verdict |
+| No tasks, no backlog | **bench-create-task** — the user names a merged PR, or a subagent proposes 3–5 from the last quarter; interview for work without history |
+| Orders in `tasks/backlog.md` not built | **bench-create-task** — build the pending backlog |
+| Tasks built, cells missing trials | **bench-evaluate** — run the matrix within budget |
+| Preserved attempts not evaluated / stale era | **bench-evaluate** — evaluate |
+| Results complete for a question | **bench-analysis** — the verdict |
 | Uncommitted results or tasks | The commit plan from `bench changes` first |
 
 The first real task is also the first end-to-end proof of the container
-path: bench-define's build runs its guards in containers on the pin and
+path: bench-create-task's build runs its guards in containers on the pin and
 on the reference solution (`bench validate --assert`), and the first
-bench-measure run produces the first preserved attempt and result.
+bench-evaluate run produces the first preserved attempt and result.
 Nothing is rehearsed on a toy task.
 
 ## Handover
 
-Three short blocks, then one ask:
+**Only when steps 1–4 are all green** (doctor 0 missing, validate 0
+errors), open with an **Instance brief** — what this instance measures
+today, read from `bench.config.yaml`, `bench backlog` and `bench
+status` (no extra checks):
+
+- **What we test** — base repos (name → url); tasks built, with their
+  classes; backlog orders still pending.
+- **On which models** — each `defaults.models` id with its harness
+  (OpenCode / Claude Code / Codex) and route (direct / OpenRouter).
+- **How we judge** — `judge.model`, `judge.mode`,
+  `defaults.pass_threshold` (0.7 when absent).
+- **Run shape** — `defaults.trials`, `defaults.max_cost_usd`,
+  `defaults.parallel`, `resources.memory_mb`.
+- **Results so far** — preserved attempts, evaluated in the current
+  era, stale; or "no results yet".
+
+A compact table or a few lines, no commentary. If anything in steps 1–4
+is open, skip the brief entirely and say nothing about it — the fix
+list comes first.
+
+Then three short blocks and one ask:
 
 - **Ready** — each fact with its proof (`bench doctor: 0 missing`,
   `bench validate: 0 errors`, `base image built (52 s)`, `3 models ×
@@ -155,4 +175,4 @@ Three short blocks, then one ask:
   had done everything".
 
 End with the single next step as a prompt the user can send, e.g.
-"Use bench-define to mine our merged PRs for tasks." One ask, not a menu.
+"Use bench-create-task to create our first tasks." One ask, not a menu.

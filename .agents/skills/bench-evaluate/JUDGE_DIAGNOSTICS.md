@@ -1,14 +1,14 @@
-<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-evaluate** skill — loaded from its SKILL.md when needed. -->
 
-# judge diagnostics (bench-measure) — judge calibration on real attempts
+# judge diagnostics (bench-evaluate) — judge calibration on real attempts
 
 This procedure answers one question: **is the measuring instrument stable?**
-Not "is the rubric right" — the rubric is written by bench-define
+Not "is the rubric right" — the rubric is written by bench-create-task
 (RUBRIC_AUTHORING.md) and corrected by reading real attempts against
 it — but "given this rubric, does the judge return the same verdict on
 the same diff, and do two judges rank the diffs the same way?". It is
 a diagnostic, not a phase of the pipeline: a new task goes
-bench-define → bench-measure without passing through here.
+bench-create-task → bench-evaluate without passing through here.
 
 The tool is `bench calibrate --task <name> --set <dir>` (from the
 instance root: `node --experimental-strip-types
@@ -21,7 +21,7 @@ the judge model for the round; `--label` names the round in the set's
 
 **What this measures and what it does not.** `bench calibrate` drives
 the text-only API judge. On real tasks the leaderboard verdicts come
-from **rate-attempt** (bench-measure) — the judge with tools. Stability measured here
+from **rate-attempt** (bench-evaluate) — the judge with tools. Stability measured here
 transfers to rate-attempt only to the extent the rubric text is the
 common factor: a rubric the API judge reads consistently is a rubric
 rate-attempt reads consistently; a rubric with 0.3 spread on the API
@@ -34,7 +34,7 @@ present a calibration number as a property of the leaderboard's judge.
    `patch.diff` of preserved attempts (`attempts/<task>/<model>/
    trial-N/patch.diff`) plus one empty diff. If `attempts/<task>/`
    holds no completed attempts, stop: tell the user the task has not
-   been measured yet and that the first measurement (bench-measure)
+   been measured yet and that the first measurement (bench-evaluate)
    is what produces calibration material — there is nothing to
    fabricate.
 2. **You assess the diffs before the judge does.** Every diff in the
@@ -51,7 +51,7 @@ present a calibration number as a property of the leaderboard's judge.
    Successive rounds on the same rubric use **the same set**.
 4. **No rubric edits here.** If the measurement shows the rubric is
    *wrong* (ranking disagrees with your `expected.md`), the fix is a
-   rubric edit per bench-define's RUBRIC_AUTHORING.md — name the
+   rubric edit per bench-create-task's RUBRIC_AUTHORING.md — name the
    criterion and the anchor in your summary and hand it over; a bump
    of `version` is due if results were computed with the rubric, and
    the follow-up is re-evaluating the preserved attempts, never a
@@ -75,7 +75,7 @@ present a calibration number as a property of the leaderboard's judge.
 Two shapes, and you ask which if the invocation does not say:
 
 - **Stability of one judge** on the task's rubric (the default when
-  bench-measure or bench-decide's EXPLAIN.md sent you here because
+  bench-evaluate or bench-analysis's EXPLAIN.md sent you here because
   verdicts on similar diffs diverged).
 - **Comparison of judge models** — the user names two (or more)
   `provider/model` ids, or asks you to propose a cheaper candidate
@@ -147,7 +147,7 @@ End with a **Next step** section: the instance state in one sentence,
 alternatives with their cost, and — separately — what awaits a human
 decision. Typical transitions:
 
-- **stable** → nothing; continue measuring with bench-measure.
+- **stable** → nothing; continue measuring with bench-evaluate.
 - **rubric finding** → edit the rubric (RUBRIC_AUTHORING.md), bump
   `version` if results exist, re-evaluate preserved attempts via
   rate-attempt — list the tasks whose era closes.

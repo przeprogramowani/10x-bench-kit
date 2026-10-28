@@ -4,7 +4,7 @@
  * rozwiązanych zadań (α = 0.05 dwustronnie, moc 0.8; przybliżenie
  * McNemara z jawnym założeniem rozbieżności ψ = δ + 0.1).
  *
- * Ta sama formuła co w bench-decide/analytics.mjs (skrypt skilla nie
+ * Ta sama formuła co w bench-analysis/analytics.mjs (skrypt skilla nie
  * importuje TS) — zmiana tu = zmiana tam.
  */
 export function tasksNeeded(delta: number): number {

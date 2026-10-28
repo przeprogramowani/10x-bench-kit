@@ -16,9 +16,9 @@ Shipped in this PR and verified offline (no paid model calls):
   `.bench-kit/docker/*.version`, token pricing when the harness reports
   no cost (`pricing` in config or the OpenRouter catalog; unpriceable =
   refused before spend, unknown cost is never zero).
-- **(A) Three concepts** — `bench-define` (interview, **PR mining**,
-  build, refresh), `bench-measure` (wiring, matrix, rate-attempt, judge
-  diagnostics), `bench-decide` (summary with tasks as the unit,
+- **(A) Three concepts** — `bench-create-task` (interview, **PR mining**,
+  build, refresh), `bench-evaluate` (wiring, matrix, rate-attempt, judge
+  diagnostics), `bench-analysis` (summary with tasks as the unit,
   bootstrap CI, exact sign test, pass^k, time horizon, resolvable gap,
   explain). Pass is a **gate** (every weighted guard = 1 AND judge ≥
   threshold). Verdicts carry provenance (`agent` / `human` / `api`).
@@ -80,21 +80,21 @@ base image, starts the mock on the docker bridge gateway, and runs one
 `.bench-kit/docker/metrics-adapter/` against CLI output drift on every
 pin bump.
 
-### 4. Leaderboard parity with bench-decide
+### 4. Leaderboard parity with bench-analysis
 
-`bench-decide/summarize.mjs` computes class views, paired comparisons,
+`bench-analysis/summarize.mjs` computes class views, paired comparisons,
 time horizons and the anchors block; the leaderboard
 (`.bench-kit/runner/assets/leaderboard/app.js`) shows gated pass and
 unknown cost but none of those. Either render them from `report.json`
 (move the computation into `bench report` so both consume one source)
-or state on the leaderboard that decisions live in the bench-decide
+or state on the leaderboard that decisions live in the bench-analysis
 page. Prefer the former; keep `power.ts` ↔ `analytics.mjs` parity (the
 unit test already pins it).
 
 ### 5. Dogfood PR mining on a real company-like repo
 
 Mining was tuned on this repo plus small JS / Python / Go fixtures.
-Run `bench-define` mining end-to-end on one mid-size real repo
+Run `bench-create-task` mining end-to-end on one mid-size real repo
 (~20 candidate PRs → ~10 tasks) and record what breaks:
 
 - coupling detection (`mine-prs.mjs`, names the PR introduces that the

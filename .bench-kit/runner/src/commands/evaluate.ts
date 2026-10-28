@@ -14,7 +14,7 @@
  *    sędziego-z-narzędziami).
  * 2. Składowa judge:
  *    - `--verdict <plik>` (pojedyncza próba): werdykt przygotowany przez
- *      sędziego-agenta z narzędziami (bench-measure → RATE_ATTEMPT.md) albo
+ *      sędziego-agenta z narzędziami (bench-evaluate → RATE_ATTEMPT.md) albo
  *      człowieka — JSON w formacie rubryki; runner parsuje i liczy total
  *      z wag frontmattera. Autor jest obowiązkowy (`--judge-mode agent`
  *      + `--judge-model`, albo `--judge-mode human`) i trafia do stempli
@@ -226,7 +226,7 @@ function runChecksContainer(
 }
 
 /**
- * Werdykt z pliku (procedura rate-attempt skilla bench-measure): JSON w formacie rubryki —
+ * Werdykt z pliku (procedura rate-attempt skilla bench-evaluate): JSON w formacie rubryki —
  * pojedynczy obiekt (jedna rubryka zadania) albo mapa
  * { "<nazwa-rubryki>": <werdykt> } przy wielu rubrykach.
  */

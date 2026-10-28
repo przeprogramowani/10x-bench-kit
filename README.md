@@ -53,19 +53,22 @@ fix anything it flags *before* opening the agent, which inherits your
 shell's environment) and ends by printing the exact first prompt. Open
 `../my-product-bench` in the AI coding tool you selected and ask:
 
-> Use bench-status to check this instance is ready, then use bench-define to mine our merged PRs for tasks.
+> Use bench-status to check this instance, then bench-create-task to create our first tasks.
 
 bench-status confirms machine, keys, base repo, models and judge (a
-couple of minutes, no paid calls) and warms the base image in the
-background. There is no demo task: mining proposes candidate tasks from
-your merged PRs, and building the first one is the first end-to-end
-proof that execution and evaluation work. Publication is optional.
+couple of minutes, no paid calls), warms the base image in the
+background and, when everything is green, prints a brief of the
+instance: what it tests, on which models, how it judges, budget and
+results so far. There is no demo task: bench-create-task proposes 3–5
+candidates from your last quarter of merged PRs (or takes the one you
+name), and building the first one is the first end-to-end proof that
+execution and evaluation work. Publication is optional.
 
 **Init and update are the user-facing CLI operations.** All benchmark
 work goes through skills. The agent invokes the internal runner and
 checks its output as part of each skill's procedure.
 
-## Three concepts: define → measure → decide
+## Three concepts: create task → evaluate → analysis
 
 The whole workflow is three skills, plus **bench-status** as the entry
 point ("is this instance ready, and what's next?"). Name one in your
@@ -74,9 +77,9 @@ needs them.
 
 | Concept | Skill | Example prompts | What you get |
 |---|---|---|---|
-| **Define** — what we measure | [bench-define](.agents/skills/bench-define/SKILL.md) | “Use bench-define to mine our merged PRs for bugfix tasks.” · “Use bench-define to build the pending backlog.” · “Refresh this expired task.” | Tasks taken from your real work. **PR mining** is the default source: a merged change with tests becomes a task, with its tests as the hidden grader and its code as proof the task is solvable. An interview covers work with no history. Orders tied to a decision land in `tasks/backlog.md`, and built tasks come with evidence in `reports/<task>-build.md`. |
-| **Measure** — run models on it | [bench-measure](.agents/skills/bench-measure/SKILL.md) | “Use bench-measure to compare our configured models within the budget.” · “A new model came out — measure it against what we use.” | Preflight (setup, keys, engine), preserved attempts, evaluation (a judge with tools per attempt), actual spend, a reliability-first table. |
-| **Decide** — what it means | [bench-decide](.agents/skills/bench-decide/SKILL.md) | “Use bench-decide to show which model and tool we should use for bugfixes.” · “Why did model X fail here?” | A one-page verdict. It covers pass rate with uncertainty, cost per acceptable result and review burden; class × model comparisons that count tasks, not trials; whether a difference is actually resolved; what your task set can resolve and how many tasks a closer call needs; and the time horizon (“reliably handles ~N-minute tasks in your repo”). |
+| **Create task** — what we measure | [bench-create-task](.agents/skills/bench-create-task/SKILL.md) | “Use bench-create-task.” · “Use bench-create-task to turn PR #412 into a task.” · “Use bench-create-task to build the pending backlog.” · “Refresh this expired task.” | Tasks taken from your real work, in a short conversation. Name a PR or commit and the agent finds it and confirms it with you; name nothing and a cheap subagent reviews the last quarter and proposes 3–5 candidates (a bugfix, a feature, a refactor) for you to pick from. A merged change with tests becomes a task, with its tests as the hidden grader and its code as proof the task is solvable. An interview covers work with no history. Orders tied to a decision land in `tasks/backlog.md`, and built tasks come with evidence in `reports/<task>-build.md`. |
+| **Evaluate** — run models and judge them | [bench-evaluate](.agents/skills/bench-evaluate/SKILL.md) | “Use bench-evaluate to compare our configured models within the budget.” · “A new model came out — measure it against what we use.” | Preflight (setup, keys, engine), preserved attempts, evaluation (a judge with tools per attempt), actual spend, a reliability-first table. |
+| **Analysis** — what it means | [bench-analysis](.agents/skills/bench-analysis/SKILL.md) | “Use bench-analysis to show which model and tool we should use for bugfixes.” · “Why did model X fail here?” | An agent-supported analysis in conversation, ending in a one-page HTML verdict. It covers pass rate with uncertainty, cost per acceptable result and review burden; class × model comparisons that count tasks, not trials; whether a difference is actually resolved; what your task set can resolve and how many tasks a closer call needs; and the time horizon (“reliably handles ~N-minute tasks in your repo”). |
 
 **Why mining matters:** comparing two models on the same tasks resolves
 small differences only with many tasks. 10 tasks tell apart a ~70-point
@@ -151,6 +154,6 @@ From the benchmark instance directory:
 | Tasks, evaluation materials, configuration, attempts, and results | You | Left untouched. |
 
 Review the proposed shared-file changes and the [changelog](CHANGELOG.md).
-Use **bench-measure** if the update requires a wiring check or when a
+Use **bench-evaluate** if the update requires a wiring check or when a
 scoring change calls for re-evaluation of
 preserved attempts.

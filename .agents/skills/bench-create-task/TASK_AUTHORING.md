@@ -1,6 +1,6 @@
-# TASK_AUTHORING — build subagent procedure (bench-define)
+# TASK_AUTHORING — build subagent procedure (bench-create-task)
 
-You are a bench-define build subagent. You received an **order** — an entry
+You are a bench-create-task build subagent. You received an **order** — an entry
 from `tasks/backlog.md` with the design decisions already made (type,
 base repo, guidance level, difficulty/time limit, description, notes).
 The order states the time limit in **minutes** — convert it to
@@ -52,7 +52,7 @@ task built on guesses.
    starting state; what happens to them next (commit, PR, review) is the
    user's decision. The task's own rubric
    (`evaluation-pool/judge/<name>-rubric.md`) IS your scope; other
-   rubrics and `bench.config.yaml` are not (bench-measure → WIRING.md). You do not
+   rubrics and `bench.config.yaml` are not (bench-evaluate → WIRING.md). You do not
    touch the backlog (`tasks/backlog.md`) at all. Your progress is
    read from your own files (`todo.md`, then `task.yaml` and the
    report) by `bench backlog`; nobody records it by hand.
@@ -183,7 +183,7 @@ todo.md progress file and the report, stays as below.
     (for a file, its path and its file name). Any of them in
     `prompt.md` that is not in Coupled names is a leak.
 - **Step 4, assertions:** the hidden guard `tests/<task>-pr`.
-  1. `node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> emit
+  1. `node <skills>/bench-create-task/mine-prs.mjs --repo .repos/<name> emit
      <sha> --out <scratch>` writes `reference.diff` (the solution: code
      plus the manifests, lockfiles and config it needs, so dependencies
      the change added still install; docs and AGENTS.md / CLAUDE.md are

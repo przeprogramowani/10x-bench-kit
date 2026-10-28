@@ -1,6 +1,6 @@
 # Order backlog template — `tasks/backlog.md`
 
-The backlog is the decision document of bench-define: its sources
+The backlog is the decision document of bench-create-task: its sources
 (INTERVIEW.md, MINING.md) append orders, and its build step (BUILD.md)
 turns them into tasks.
 The runner ignores it (in `tasks/` it reads only task directories), so
@@ -10,7 +10,7 @@ tree — git (commit, push) is managed by the user.
 **The backlog records decisions; the disk records progress.** The
 **Status** field carries only the two states a person decides:
 
-- `pending` — the order stands (set by bench-define);
+- `pending` — the order stands (set by bench-create-task);
 - `dropped` — the order was abandoned, with a one-sentence reason. Do
   not delete entries; the decision history stays.
 
@@ -25,7 +25,7 @@ and reports each order's stage:
 | `built` | `task.yaml` exists, the report `reports/<name>-build.md` has no filled `## Batch gate` section yet |
 | `ready` | the report carries the batch gate; no attempts yet |
 | `measuring` | attempts exist, but not every model in `defaults.models` has `defaults.trials` attempts evaluated in the current era |
-| `measured` | every cell has its target of current-era evaluations, so bench-decide can use it |
+| `measured` | every cell has its target of current-era evaluations, so bench-analysis can use it |
 
 A status nobody has to update cannot drift. When a session dies in the
 middle of a build, `bench backlog` shows the order as building (todo.md
@@ -47,7 +47,7 @@ Document template:
 ```markdown
 # Task order backlog
 
-Orders are created and built by the **bench-define** skill
+Orders are created and built by the **bench-create-task** skill
 (interview or PR mining, then build). Status: pending / dropped — progress (ordered →
 building → built → ready → measuring → measured) is derived from disk
 by `bench backlog`, never written here. Skills only edit this file —
@@ -78,7 +78,7 @@ git is managed by the user.
 - **Difficulty / time limit**: <easy|medium|hard> / <N> min
 - **Human time**: <~N min (confirmed | estimated: <basis>)> — how long
   this work takes a developer. It feeds the time-horizon report
-  (bench-decide: "this model reliably handles N-minute tasks"). An
+  (bench-analysis: "this model reliably handles N-minute tasks"). An
   estimate is marked as one, never written as a fact.
 - **Evaluation axis**: <what differentiates scores in this task — the
   user's do's and don'ts (e.g. "reward a minimal diff", "the public
@@ -118,7 +118,7 @@ git is managed by the user.
 - **Notes**: <optional: ideas for assertions/evaluation components,
   whether a judge component is expected, the verification expectation
   for the prompt, other decisions from the interview>
-- **Build log**: <optional, appended by bench-define only — one dated
+- **Build log**: <optional, appended by bench-create-task only — one dated
   line per failed build or failed batch gate: "<YYYY-MM-DD> refused —
   <reason>" / "<YYYY-MM-DD> gate red — <assertion, one line>". This is
   the order's history; its stage stays derived (`bench backlog`).>

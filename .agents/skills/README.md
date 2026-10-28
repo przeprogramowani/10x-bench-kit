@@ -13,7 +13,7 @@ to; the user's surface is the config, environment variables, and git. The
 benchmark runs LOCALLY (operator machine / VPS) — GitHub Actions is only
 readiness CI and leaderboard publication.
 
-One entry point and three concepts: **status, then define → measure → decide.** Each
+One entry point and three concepts: **status, then create task → evaluate → analysis.** Each
 SKILL.md is short and routes to the procedures beside it, loaded only
 when the step needs them:
 
@@ -21,7 +21,7 @@ when the step needs them:
   keys, base repos, models and judge, a green `bench validate`
   (warming the base image in the background), then one routed next
   step. The entry point of a fresh instance — there is no demo task.
-- **bench-define**: what we measure. Real work becomes tasks.
+- **bench-create-task**: what we measure. Real work becomes tasks.
   - **PR mining** is the default source (`MINING.md`, `mine-prs.mjs`).
     A merged change that brought tests becomes a task: the pin is its
     parent, its tests are a hidden fail-to-pass guard admitted only
@@ -32,7 +32,7 @@ when the step needs them:
     (`BUILD.md`) fans out one subagent per order (`TASK_AUTHORING.md`,
     `RUBRIC_AUTHORING.md`), runs a batch gate and writes evidence
     reports (`REPORT_TEMPLATE.md`). No git.
-- **bench-measure**: run models on it.
+- **bench-evaluate**: run models on it.
   - **Wiring changes and publication** (`WIRING.md`).
   - The matrix run: cost projection against the budget, preserved
     attempts, top-up.
@@ -40,7 +40,7 @@ when the step needs them:
     (`RATE_ATTEMPT.md`; verdicts signed with `--judge-mode`).
   - **Judge diagnostics** (`JUDGE_DIAGNOSTICS.md`), and the "new model
     came out" re-run on the same tasks.
-- **bench-decide**: what it means.
+- **bench-analysis**: what it means.
   - `summarize.mjs` + `analytics.mjs` compute the routing decision:
     pass rate with interval and pass^k per task × model; class × model
     with tasks as the unit; paired comparisons by sign test; the

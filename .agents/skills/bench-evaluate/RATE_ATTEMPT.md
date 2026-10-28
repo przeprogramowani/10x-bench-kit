@@ -1,4 +1,4 @@
-<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-evaluate** skill — loaded from its SKILL.md when needed. -->
 
 # rate-attempt — the judge with tools
 
@@ -218,7 +218,7 @@ engine settings are not the conditions the era was stamped with. Stop,
 run `bench doctor` (its `start kontenera` line names the fix) and hand
 the fix to the user; resume the remaining attempts afterwards.
 Summarize at the end: a table of attempt → total, skipped attempts with
-reasons, guard failures worth escalating to bench-decide (explain).
+reasons, guard failures worth escalating to bench-analysis (explain).
 
 ## Closing message
 

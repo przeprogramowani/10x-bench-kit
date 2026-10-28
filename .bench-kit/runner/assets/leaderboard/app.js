@@ -73,7 +73,7 @@ const ofUnit = (k, n, unit) => k + " z " + n + " " + unit;
 
 // Koszt jednego UŻYTECZNEGO wyniku = koszt prób ÷ liczba udanych. Gdy wejście
 // policzyło go dokładnie (suma faktycznych kosztów prób — tak robi
-// bench-decide), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
+// bench-analysis), bierzemy tę liczbę; leaderboard ma w raporcie tylko medianę
 // kosztu, więc tam jest to przybliżenie. Przy zerowym pass rate liczba nie
 // istnieje i musi zostać pokazana jako "brak" — to też informacja.
 // Koszt nieznany (żadna próba nie ma ceny — unknown_cost_trials) to nie $0:
@@ -110,7 +110,7 @@ function reliabilityCell(r) {
     '<span class="thin">' + fmt.score(r.w.lo) + "–" + fmt.score(r.w.hi) + '</span></div>';
 }
 
-// Wniosek liczony TU, z wierszy — zeby leaderboard i bench-decide nie mogly
+// Wniosek liczony TU, z wierszy — zeby leaderboard i bench-analysis nie mogly
 // pokazac dwoch roznych rekomendacji z tych samych danych.
 function verdictHtml(rows, taskName) {
   const ranked = rankRows(rows);
@@ -475,7 +475,7 @@ function howToRead() {
 }
 
 // NAGŁÓWEK — treść pochodzi z danych (DATA.heading), nie z kodu: ten sam
-// szablon obsługuje publiczny leaderboard i wewnętrzny raport bench-decide,
+// szablon obsługuje publiczny leaderboard i wewnętrzny raport bench-analysis,
 // a te dwie strony mówią do innych czytelników. Kod trzyma tylko domyślne
 // teksty — mechanika benchmarku jest opisana niżej, w "jak to czytać",
 // więc nagłówek ma prawo być zwykłym wstępem.

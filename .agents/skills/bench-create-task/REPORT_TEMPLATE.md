@@ -1,4 +1,4 @@
-# Task report template (bench-define)
+# Task report template (bench-create-task)
 
 The task remains as **files in the working tree** — the subagent does
 nothing in git. The report takes over the role of a change description:

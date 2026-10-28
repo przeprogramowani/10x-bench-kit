@@ -1,4 +1,4 @@
-# RUBRIC_AUTHORING — writing the task's rubric (bench-define subagent)
+# RUBRIC_AUTHORING — writing the task's rubric (bench-create-task subagent)
 
 The rubric is the task's **main assertion artifact**: the execution
 guards only say whether the workspace is still green, the rubric grades
@@ -10,7 +10,7 @@ below), by the empty-diff floor (`bench judge`), and then by real
 attempts — the first measurement is the calibration, and a rubric fix
 after it costs a re-evaluation of preserved attempts, never a re-run.
 
-The judge that reads this rubric is **rate-attempt** (bench-measure) — an agent with
+The judge that reads this rubric is **rate-attempt** (bench-evaluate) — an agent with
 tools working on a copy of the preserved workspace (it may run the
 tests, start the app, grep the code). Write for a senior reviewer who
 can verify what the diff claims, not for a text-only reader.
@@ -279,4 +279,4 @@ already computed with it, and re-evaluate the preserved attempts
 (rate-attempt / `bench evaluate`). If verdicts on similar diffs look
 *unstable* rather than *wrong* — or you want to know whether a
 different judge model reads the rubric the same way — that is
-the job of bench-measure's judge diagnostics (JUDGE_DIAGNOSTICS.md) (`bench calibrate` on the real attempts).
+the job of bench-evaluate's judge diagnostics (JUDGE_DIAGNOSTICS.md) (`bench calibrate` on the real attempts).

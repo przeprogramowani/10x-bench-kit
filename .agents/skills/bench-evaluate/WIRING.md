@@ -1,19 +1,19 @@
-<!-- Procedure of the **bench-measure** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-evaluate** skill — loaded from its SKILL.md when needed. -->
 
-# bench-measure (wiring) — changing what the instance measures with, and publishing it
+# bench-evaluate (wiring) — changing what the instance measures with, and publishing it
 
 Readiness of an instance (machine, keys, base repos, the first model
 and judge choice, a green `bench validate`) is **bench-status**. This
 procedure covers what comes after: changing the wiring of an instance
 that already has results, and publishing them. There is no smoke task:
-the first real task built by bench-define is the first end-to-end proof
+the first real task built by bench-create-task is the first end-to-end proof
 of the container path, and its first measurement is the first result.
 
 ## Hard rules
 
 1. **Output via PR.** Wiring changes `bench.config.yaml` (which affects
    scoring: models, judge, rubric versions) — branch
-   `bench-measure/<description>` + PR per [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md);
+   `bench-evaluate/<description>` + PR per [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md);
    a human merges. Exception: an instance with no results yet — there
    a commit to master is acceptable with the user's explicit consent
    (`bench changes` says which case applies).
@@ -56,7 +56,7 @@ the preserved attempts as part of the same PR's follow-up.
 
 On a fresh instance without results the change may go straight to
 master (rule 1). Otherwise: branch
-`bench-measure/<description>`, description per
+`bench-evaluate/<description>`, description per
 [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md): decisions ("template defaults" is
 also a decision) with justification, the environment checklist with
 status, proofs (`validate` output), a "Comparability impact" section (the first
@@ -66,7 +66,7 @@ future).
 ## Deferred decisions — they do not block wiring
 
 The template ships defaults for environment policy; return to them only
-when the first real task touches them (usually in bench-define), and
+when the first real task touches them (usually in bench-create-task), and
 drive changes via PR like any config change:
 
 - **Assertion dependency cache**: default `evaluation.deps_cache: true`
@@ -81,7 +81,7 @@ drive changes via PR like any config change:
   the model's fault.
 - **Verification policy in prompts** (whether the agent should run the
   project to verify): set by the task author in `prompt.md` — the
-  bench-define skill's contract, not wiring's.
+  bench-create-task skill's contract, not wiring's.
 - **VPS / scheduled runs**: a VPS is just a bigger operator machine
   with the same DX — defer until nightly matrix runs are actually
   wanted.

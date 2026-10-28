@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const MINE = resolve(dirname(fileURLToPath(import.meta.url)), "../../.agents/skills/bench-define/mine-prs.mjs");
+const MINE = resolve(dirname(fileURLToPath(import.meta.url)), "../../.agents/skills/bench-create-task/mine-prs.mjs");
 
 function repoWithPrs(count) {
   const dir = mkdtempSync(join(tmpdir(), "mine-prs-"));

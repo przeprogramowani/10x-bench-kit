@@ -1,7 +1,8 @@
 ---
-name: bench-decide
+name: bench-analysis
 description: >-
-  Turns results into a decision: which model (and which tool — Claude
+  Agent-supported analysis of the benchmark's results, in conversation
+  with the user, ending in a decision: which model (and which tool — Claude
   Code, Codex, OpenCode) gets which class of work, at what cost per
   acceptable result, with how much confidence. Computes everything
   deterministically with summarize.mjs over the tracked results/ tree —
@@ -11,18 +12,18 @@ description: >-
   how big a difference the task set can resolve, and the time horizon
   ("reliably handles N-minute tasks"). Renders a one-page HTML verdict
   and a short narrative; explains surprising results from preserved
-  attempts (EXPLAIN.md). Use after a measurement, when a new model is
-  compared with the incumbent, or when the user asks "summarize / what
-  do we use / why did X fail".
+  attempts (EXPLAIN.md). Use after bench-evaluate, when a new model is
+  compared with the incumbent, or when the user asks "analyse the
+  results / summarize / what do we use / why did X fail".
 ---
 
-# bench-decide — the one-peek answer
+# bench-analysis — the one-peek answer
 
 The third of the benchmark's three concepts:
 
-1. **define**: what we measure (bench-define);
-2. **measure**: run models on it (bench-measure);
-3. **decide**: what the results mean (this skill).
+1. **create task**: what we measure (bench-create-task);
+2. **evaluate**: run models on it and judge the attempts (bench-evaluate);
+3. **analysis**: what the results mean (this skill).
 
 A surprising single result is explained from its preserved attempt with
 [EXPLAIN.md](EXPLAIN.md) (template: [EXPLAIN_TEMPLATE.md](EXPLAIN_TEMPLATE.md)).
@@ -50,8 +51,8 @@ as a large one.
    exactly what this skill exists to prevent.
 2. **You never change scoring.** No edits to `results/`, `attempts/`,
    tasks, rubrics or `bench.config.yaml`. This skill reads and
-   renders. A wrong score is EXPLAIN.md's job (one anomaly) or bench-measure's
-   JUDGE_DIAGNOSTICS.md (unstable verdicts); a missing cell is bench-measure.
+   renders. A wrong score is EXPLAIN.md's job (one anomaly) or bench-evaluate's
+   JUDGE_DIAGNOSTICS.md (unstable verdicts); a missing cell is bench-evaluate.
 3. **Reliability first, price second — and ties are reported as ties.**
    Ranking runs on the LOWER bound of the pass-rate interval, never on
    the median score and never on price alone: a small sample is itself
@@ -89,7 +90,7 @@ as a large one.
    the difference is unresolved, and you name the gap the current
    task count *can* resolve (`resolvable_gap_pp`) and how many tasks a
    smaller gap needs (`power.tasks_needed`). More tasks, which are
-   cheap to mine (bench-define), is usually the honest next step.
+   cheap to mine (bench-create-task), is usually the honest next step.
 9. **Excluded attempts are visible.** Infrastructure failures and
    resource kills do not enter `n`. When a model has a high exclusion
    rate (a caveat in the JSON), its pass rate may be flattering it, and
@@ -256,9 +257,9 @@ the user's choice.
 - Not a diagnosis. A surprising score goes to [EXPLAIN.md](EXPLAIN.md)
   (one chain, one fault class, evidence from the attempt).
 - Not judge calibration. Unstable verdicts on similar diffs go to
-  **bench-measure**'s JUDGE_DIAGNOSTICS.md.
+  **bench-evaluate**'s JUDGE_DIAGNOSTICS.md.
 - Not a measurement. Missing cells and thin trial counts go back to
-  **bench-measure** — and "buy more trials on the cheap models" is
+  **bench-evaluate** — and "buy more trials on the cheap models" is
   frequently the right recommendation to end on, because pass rate is
   the only number the decision is truly sensitive to.
 

@@ -33,7 +33,7 @@ naturalnym — code review bez nitpickingu. Ukryte testy behawioralne
 szyte pod zadanie to konwencja wycofana.
 
 **Jedyny wyjątek: testy wykopane z historii** (`tests/<zadanie>-pr`,
-bench-define → MINING.md). To nie testy szyte przez autora zadania,
+bench-create-task → MINING.md). To nie testy szyte przez autora zadania,
 tylko testy, które prawdziwy developer napisał do prawdziwej zmiany.
 Są dopuszczone wyłącznie wtedy, gdy dotykają interfejsu istniejącego
 na pinie albo nazw, które prompt podaje dosłownie (pole "Coupled

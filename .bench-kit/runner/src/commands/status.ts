@@ -95,13 +95,13 @@ export interface NextStepInput {
 /**
  * Linia "następny krok" statusu. Zero prób to "jeszcze nic", nie "wszystko
  * ocenione"; instancja z samym zadaniem-demo potrzebuje prawdziwych zadań
- * (bench-define), a nie pełnej macierzy na demo.
+ * (bench-create-task), a nie pełnej macierzy na demo.
  */
 export function statusNextStep({ allTasks, preserved, running, toEvaluate, missing, pendingOrders = 0 }: NextStepInput): string {
   const demoOnly = allTasks.length > 0 && allTasks.every(isDemoTask);
-  const defineHint = "zdefiniuj prawdziwe zadania skillem bench-define (kopanie zmergowanych PR-ów na zadania)";
+  const defineHint = "zdefiniuj prawdziwe zadania skillem bench-create-task (kopanie zmergowanych PR-ów na zadania)";
   // Zlecenia już są (decyzje zapadły) — następny krok to budowa, nie kopanie od nowa.
-  const buildHint = `zlecenia w tasks/backlog.md czekające na budowę: ${pendingOrders} → bench-define (zbuduj backlog)`;
+  const buildHint = `zlecenia w tasks/backlog.md czekające na budowę: ${pendingOrders} → bench-create-task (zbuduj backlog)`;
   if (allTasks.length === 0) return pendingOrders > 0 ? `następny krok: ${buildHint}` : `następny krok: brak zadań — ${defineHint}`;
   const parts: string[] = [];
   if (toEvaluate > 0) parts.push(`${toEvaluate} zachowanych prób bez świeżej oceny → bench evaluate / rate-attempt`);

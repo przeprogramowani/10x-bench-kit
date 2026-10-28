@@ -1,6 +1,6 @@
 /**
  * bench judge — pojedyncze wywołanie sędziego LLM na zadanym diffie,
- * bez pełnego cyklu próby. Enabler kalibracji rubryk (diagnostyka sędziego, bench-measure):
+ * bez pełnego cyklu próby. Enabler kalibracji rubryk (diagnostyka sędziego, bench-evaluate):
  * ten sam buildJudgePrompt/parseVerdict co w `bench evaluate`, więc
  * werdykt jest tożsamy z pełnym cyklem.
  *

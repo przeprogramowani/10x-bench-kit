@@ -1,5 +1,5 @@
 ---
-name: bench-measure
+name: bench-evaluate
 description: >-
   Measures models on the benchmark's tasks on this machine — the matrix run (models ×
   tasks × trials, cost projection vs budget, `bench attempt` with
@@ -8,18 +8,20 @@ description: >-
   a reliability-first handover with the `bench changes` commit plan;
   changing models/judge on an instance with results and publishing
   (WIRING.md). Use when the user says "run the benchmark / measure
-  model X / a new model came out / re-evaluate / change the judge", or
-  after bench-define when tasks are ready. Instance readiness is
-  bench-status.
+  model X / evaluate the models / a new model came out / re-evaluate /
+  change the judge", or
+  after bench-create-task when tasks are ready. Instance readiness is
+  bench-status. Not the same as the runner's `bench evaluate` command
+  (the API judge), which this skill uses as one of its steps.
 ---
 
-# bench-measure — the measurement loop
+# bench-evaluate — the measurement loop
 
 The second of the benchmark's three concepts:
 
-1. **define**: what we measure (bench-define);
-2. **measure**: run models on it (this skill);
-3. **decide**: what the results mean (bench-decide).
+1. **create task**: what we measure (bench-create-task);
+2. **evaluate**: run models on it and judge the attempts (this skill);
+3. **analysis**: what the results mean (bench-analysis).
 
 The procedures live next to this file:
 
@@ -89,14 +91,14 @@ evaluated.
    built-in retry) is a diagnosis first (`agent.log`,
    `container.log`, `signal.json`), a re-run second — a blind re-run
    repeats the same failure and the same invoice. Surprising *scores*
-   go to bench-decide's EXPLAIN.md, not to another run.
+   go to bench-analysis's EXPLAIN.md, not to another run.
 6. **You never commit or push.** Results land in
    `results/<task>/<model>/trial-N/` — reviewing and committing them
    is the user's move, and only committed results feed the leaderboard.
 7. **Do not touch scoring while measuring.** No edits to tasks,
    rubrics, weights, or the config mid-run — that would fork the era
    between trials of the same run. Config changes go through
-   WIRING.md, rubric edits through bench-define's RUBRIC_AUTHORING.md
+   WIRING.md, rubric edits through bench-create-task's RUBRIC_AUTHORING.md
    (version bump + re-evaluation) — before or after a measurement.
    `bench status` treats an evaluation from another era (a changed
    task, rubric version, judge, judge path (`judge.mode`), pass
@@ -142,7 +144,7 @@ evaluated.
 (no engine, missing keys, a placeholder or unreachable base repo) means
 the bench-status skill first; the user's surface there is config,
 environment and git. An instance without tasks has nothing to measure —
-route to bench-define.
+route to bench-create-task.
 
 ### 1. Scope
 
@@ -267,7 +269,7 @@ This is the benchmark's recurring job, and the cheapest one to run:
 2. `bench attempt --models <new>`. It runs every task and tops up only
    that model's cells; existing models' preserved attempts are untouched.
 3. Evaluate its attempts on the same judge path as the incumbents
-   (same era), then hand over to **bench-decide**. Its paired comparison
+   (same era), then hand over to **bench-analysis**. Its paired comparison
    is on shared tasks, so the new model is compared with the incumbent
    on exactly the work the incumbent was measured on.
 
@@ -315,10 +317,10 @@ Close with:
   side of the matrix that got fewer trials than the other. This is the
   part an operator cannot reconstruct from the numbers and the part
   they will otherwise assume away;
-- next step: **bench-decide** when the question behind the run was
+- next step: **bench-analysis** when the question behind the run was
   "which model do we use for this work" — it computes the economics
   deterministically (cost per acceptable result, ties reported as
-  ties) and renders the one-page verdict; bench-decide's EXPLAIN.md for
+  ties) and renders the one-page verdict; bench-analysis's EXPLAIN.md for
   surprises; JUDGE_DIAGNOSTICS.md if judge verdicts on similar diffs look
   unstable (it calibrates on the attempts just preserved); more trials
   on the cheap models when a pass rate is still thin (step 3); or

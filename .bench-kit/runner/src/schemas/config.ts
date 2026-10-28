@@ -24,9 +24,9 @@ export const JudgeConfig = z.object({
   max_tokens: z.number().int().positive().default(8192),
   /**
    * Ścieżka oceny instancji — część bieżącej ery: "agent" (sędzia
-   * z narzędziami, werdykty przez bench-measure → RATE_ATTEMPT.md) albo
+   * z narzędziami, werdykty przez bench-evaluate → RATE_ATTEMPT.md) albo
    * "api" (sędzia API na diffie). Wyniki ocenione inną ścieżką `bench
-   * status` pokazuje jako nieświeże, z powodem; bench-decide nie miesza
+   * status` pokazuje jako nieświeże, z powodem; bench-analysis nie miesza
    * ich z bieżącymi. Smoke/CI może oceniać API — to jawnie inna era.
    */
   mode: z.enum(["agent", "api"]).default("agent"),

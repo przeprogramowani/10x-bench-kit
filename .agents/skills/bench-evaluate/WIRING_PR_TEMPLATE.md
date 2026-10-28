@@ -1,6 +1,6 @@
-# Instance wiring PR template (bench-measure (preflight))
+# Instance wiring PR template (bench-evaluate (preflight))
 
-Title: `bench-measure (preflight): <description, e.g. "astro-starter + models via OpenRouter">`
+Title: `bench-evaluate (preflight): <description, e.g. "astro-starter + models via OpenRouter">`
 
 ```markdown
 ## Decisions

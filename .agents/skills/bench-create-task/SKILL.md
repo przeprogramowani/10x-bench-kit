@@ -1,29 +1,34 @@
 ---
-name: bench-define
+name: bench-create-task
 description: >-
-  Defines what the benchmark measures: turns the company's real work into
-  benchmark tasks. Default source is PR mining — merged changes from the
-  base repo's history that brought their own tests become tasks (pin =
-  state before the change, the change's tests = hidden fail-to-pass
-  guard, the change itself = proof the task is solvable). Other sources:
-  a short interview (work that has no PR yet) and refreshing an expired
-  task. Orders land in tasks/backlog.md; building them produces task
-  files with evidence reports — no git. Use when the user wants tasks,
-  says "add tasks / build the backlog / mine our PRs / new task /
-  refresh task", or bench backlog shows a class without enough tasks.
+  Creates benchmark tasks from the company's real work, in a short
+  conversation. When the user names a change (PR number, commit, title
+  or a few words about it), finds that merged commit and confirms it
+  with them. When they name nothing, a cheap subagent (Sonnet- or
+  Flash-class) reviews the last quarter of git history and proposes 3–5
+  candidates — a bugfix, a feature, a refactor — and the user picks all,
+  a subset or something else. A merged change with tests becomes a task
+  (pin = state before the change, its tests = hidden fail-to-pass guard,
+  the change itself = proof the task is solvable). Other sources: a short
+  interview (work that has no PR yet) and refreshing an expired task.
+  Orders land in tasks/backlog.md; building them produces task files
+  with evidence reports — no git. Use when the user wants tasks, says
+  "create a task / add tasks / turn PR #123 into a task / build the
+  backlog / new task / refresh task", or bench backlog shows a class
+  without enough tasks.
   Also use to fix or edit a task's rubric ("the rubric scores this
   wrong / fix the rubric / tighten criterion X"): the edit follows
   RUBRIC_AUTHORING.md, bumps the rubric's version and re-evaluates the
   preserved attempts.
 ---
 
-# bench-define — from real work to tasks
+# bench-create-task — from real work to tasks
 
 This is the first of the benchmark's three concepts:
 
-1. **define**: what we measure (this skill);
-2. **measure**: run models on it (bench-measure);
-3. **decide**: what the results mean for routing work (bench-decide).
+1. **create task**: what we measure (this skill);
+2. **evaluate**: run models on it and judge the attempts (bench-evaluate);
+3. **analysis**: what the results mean for routing work (bench-analysis).
 
 Everything here produces one thing: **tasks a model can be fairly
 measured on, each tied to a decision the company will make.** The
@@ -31,7 +36,7 @@ procedures live next to this file and are loaded when needed:
 
 | Step | Procedure | When |
 |---|---|---|
-| Source: mine PRs | [MINING.md](MINING.md) + `mine-prs.mjs` | default — the base repo has history with tested changes |
+| Source: merged change | [MINING.md](MINING.md) + `mine-prs.mjs` | default — the user names a change (§1), or a subagent proposes 3–5 from the last quarter (§2) |
 | Source: interview | [INTERVIEW.md](INTERVIEW.md) | work that has no merged change to mine (new kinds of work, hypotheticals) |
 | Source: refresh | [REFRESH.md](REFRESH.md) | `bench validate` warns a task expired |
 | Backlog contract | [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md) | every order, whatever its source |
@@ -94,15 +99,26 @@ That is the SWE-bench recipe applied to the company's own repo.
    what each class's task count can resolve. A class whose resolution
    is too coarse for the decision it carries is where new tasks pay
    most.
-2. **Pick the source.** Mine when the base repo has history (MINING.md).
-   Interview when the work has no merged precedent (INTERVIEW.md).
-   Refresh when `validate` says a task expired (REFRESH.md). The
-   sources mix: a mined batch is usually 70–90% of a backlog, and the
-   interview fills classes the history lacks.
-3. **Write orders.** Use BACKLOG_TEMPLATE.md. Mined orders carry their
-   provenance (Source, Pin, Reference, Hidden tests, Coupled names,
-   Human time). Accept the batch with the user before writing,
-   ordered by decision value (rule 1).
+2. **Find the change — a conversation, not a scan dump.**
+   - **The user named one** (PR number, SHA, title, "the fix for the
+     login redirect"): find the merged commit (MINING.md §1) and show
+     what you found — SHA, title, date, files, whether it brought tests,
+     coupling. Ask "is this the one?" before anything else. Several
+     matches → show them all; none → say so and offer §2.
+   - **The user named nothing**: spawn one subagent on a cheap model
+     (Sonnet-class in Claude Code, a mini/Flash model elsewhere) to
+     review the last quarter and propose **3–5 candidates**, at least
+     one bugfix, one feature and one refactor when history has them
+     (MINING.md §2). Present the proposals in one table and ask: all of
+     them, a subset, or something else? "Something else" loops back to
+     the named-change path or another proposal round.
+   - **No merged precedent** for the work the user wants measured:
+     interview (INTERVIEW.md). **Expired task**: refresh (REFRESH.md).
+3. **Write orders.** Use BACKLOG_TEMPLATE.md for the accepted changes
+   (MINING.md §3–5: coupling, human time, the fields you propose).
+   Mined orders carry their provenance (Source, Pin, Reference, Hidden
+   tests, Coupled names, Human time). Accept the batch with the user
+   before writing, ordered by decision value (rule 1).
 4. **Build.** Follow BUILD.md: pool inventory, fan-out of one subagent
    per order, then one batch gate (`bench validate --assert`, smoke,
    discrimination counter-proof). Mined orders follow the "mined
@@ -112,4 +128,4 @@ That is the SWE-bench recipe applied to the company's own repo.
      reaches now.
    - `bench changes`: the commit plan, one group per new task with its
      guard, rubric and report.
-   - Next step: **bench-measure**.
+   - Next step: **bench-evaluate**.

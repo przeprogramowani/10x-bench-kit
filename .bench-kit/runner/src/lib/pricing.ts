@@ -1,7 +1,7 @@
 /**
  * Wycena próby z tokenów — dla harnessów, których własny koszt nie jest
  * wiarygodny albo go nie ma. Koszt to wejście budżetu biegu
- * (defaults.max_cost_usd) i ekonomii bench-decide, więc nigdy nie jest
+ * (defaults.max_cost_usd) i ekonomii bench-analysis, więc nigdy nie jest
  * zgadywany: każda wycena zapisuje w metrics.json źródło i stawki.
  *
  * Polityka per harness (costPolicy):
