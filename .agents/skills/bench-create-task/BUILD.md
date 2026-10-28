@@ -1,4 +1,4 @@
-<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-create-task** skill — loaded from its SKILL.md when needed. -->
 
 # Build — tasks from the backlog's orders
 
@@ -177,10 +177,10 @@ Run `bench backlog` and take the orders at stage `ordered` (name + one
 sentence from the entry). By default you build all of them; if the user
 named a subset in the invocation, build those. Read its notes before
 fanning out: an order flagged without a Decision is not built
-(bench-define SKILL.md rule 1 / INTERVIEW.md rule 7), and a `building`
+(bench-create-task SKILL.md rule 1 / INTERVIEW.md rule 7), and a `building`
 order whose todo.md has gone stale is a dead session. Tell the user about it; do not overwrite it with a
 second subagent. Orders incomplete against the entry
-schema (BACKLOG_TEMPLATE.md in bench-define) get set aside with a
+schema (BACKLOG_TEMPLATE.md in bench-create-task) get set aside with a
 list of gaps — for completion, not for building.
 
 ### 2. Preparation
@@ -230,7 +230,7 @@ is the claim `bench backlog` reads as `building`. Pass in its prompt:
   subagent verifies that its order makes sense on that commit, and any
   deviation requires a justification in the report;
 - an instruction to read and follow
-  `<skills>/bench-define/TASK_AUTHORING.md` — `<skills>` is the
+  `<skills>/bench-create-task/TASK_AUTHORING.md` — `<skills>` is the
   instance's skill root from `.bench-kit/instance.json` (e.g.
   `.claude/skills`), spelled out in the prompt — that is its procedure, with the hard
   rules and the report template;
@@ -338,7 +338,7 @@ subagents deliberately skipped (rule 9).
    **Read the smoke's judge verdict per criterion, not just the total.**
    The judge call is already paid for, and the smoke diff is the only
    real wrong-but-competent attempt the batch will see before the
-   matrix (bench-measure's JUDGE_DIAGNOSTICS.md calibrates on real attempts and fabricates no
+   matrix (bench-evaluate's JUDGE_DIAGNOSTICS.md calibrates on real attempts and fabricates no
    synthetic ones, so there is no other source). With
    `--no-write-results` nothing is written as a verdict; the `judge:`
    lines of that evaluate output carry it. Read each criterion's score and justification against the diff, and
@@ -412,10 +412,10 @@ intent per group instead of a flat list of paths. A blocked group (a
 leftover `todo.md`, a rubric edited without a version bump while results
 use it) is yours to fix before handing over. Typical transitions:
 
-- **A task with a judge component** → straight to **bench-measure**;
+- **A task with a judge component** → straight to **bench-evaluate**;
   the rubric is calibrated by the first real attempts (the report names
   the criterion to spot-check first). A rubric fix after that run
-  re-evaluates preserved attempts, never re-runs them. bench-measure's
+  re-evaluates preserved attempts, never re-runs them. bench-evaluate's
   JUDGE_DIAGNOSTICS.md is not a step here — it is a diagnostic for judge stability / judge
   comparison once attempts exist.
 - **Orders are back at `ordered`** (refused, gate red) → complete the
@@ -437,4 +437,4 @@ use it) is yours to fix before handing over. Typical transitions:
   budget raise listed under "awaits a human decision" — a full matrix
   that truncates mid-run wastes the spend and yields a partial,
   misleading leaderboard.
-- **Tasks ready and accepted by the user** → full run via **bench-measure**.
+- **Tasks ready and accepted by the user** → full run via **bench-evaluate**.

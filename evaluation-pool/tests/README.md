@@ -22,7 +22,7 @@ i złych implementacji.
 
 ## Wyjątek: testy PR-a (`tests/<zadanie>-pr`)
 
-Zadanie wykopane z historii (bench-define → MINING.md) niesie testy
+Zadanie wykopane z historii (bench-create-task → MINING.md) niesie testy
 zmiany, z której powstało. Guard jest **per zadanie** (nie
 współdzielony) i **binarny** (`score: binary`). Pliki testów w wersji
 po merge'u leżą w `files/`, a `check.yaml` kopiuje je na workspace

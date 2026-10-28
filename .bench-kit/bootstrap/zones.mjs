@@ -172,11 +172,11 @@ export function installWorkflows(targetDir, opts) {
 }
 
 /**
- * Skille wycofane przez konsolidację w trzy koncepty (define / measure /
- * decide): ich procedury żyją dziś jako pliki w bench-define/,
- * bench-measure/ i bench-decide/. syncDir nigdy nie kasuje, więc bez tej
- * listy instancja po update miałaby jedenaście skilli — trzy nowe i osiem
- * duchów z nieaktualnymi procedurami.
+ * Skille wycofane: najpierw konsolidacja w trzy koncepty (0.33.0), potem
+ * zmiana nazw define / measure / decide (0.35.0). Ich procedury żyją dziś
+ * jako pliki w bench-create-task/, bench-evaluate/ i bench-analysis/.
+ * syncDir nigdy nie kasuje, więc bez tej listy instancja po update
+ * trzymałaby duchy z nieaktualnymi procedurami.
  */
 export const RETIRED_SKILLS = [
   "bench-new-task",
@@ -187,6 +187,10 @@ export const RETIRED_SKILLS = [
   "bench-rubric",
   "bench-summary",
   "bench-explain-results",
+  // 0.35.0: define / measure / decide → create-task / evaluate / analysis
+  "bench-define",
+  "bench-measure",
+  "bench-decide",
 ];
 
 /**

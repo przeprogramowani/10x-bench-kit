@@ -6,14 +6,14 @@
  * „Batch gate", zachowane próby i świeże oceny. Komenda tylko czyta.
  *
  * Etapy (kolejno):
- *   ordered    — zlecenie bez katalogu zadania (czeka na bench-define)
+ *   ordered    — zlecenie bez katalogu zadania (czeka na bench-create-task)
  *   building   — tasks/<nazwa>/todo.md istnieje (subagent pracuje)
  *   built      — task.yaml jest, raport bez wypełnionej bramki partii
- *   ready      — raport z bramką partii; brak prób (czeka na bench-measure)
+ *   ready      — raport z bramką partii; brak prób (czeka na bench-evaluate)
  *   measuring  — są próby, ale nie każda komórka (model z defaults.models)
  *                ma defaults.trials świeżo ocenionych prób
  *   measured   — każda komórka ma cel prób ocenionych w bieżącej erze
- *                (materiał dla bench-decide)
+ *                (materiał dla bench-analysis)
  *   dropped    — zlecenie porzucone (decyzja, Status: dropped)
  *
  * Statusy legacy (in-progress / built / done) są czytane jako deklaracje;
@@ -150,7 +150,7 @@ export function backlogStates(root: string): { orders: OrderState[]; unordered: 
     if (entry.statusLines > 1) notes.push(`${entry.statusLines} linie Status — scal ręcznie (artefakt merge'a?)`);
     const decision = entry.fields.get("decision") ?? null;
     if (declared !== "dropped" && (!decision || decision.startsWith("<"))) {
-      notes.push("brak Decision — bench-define tego nie zbuduje");
+      notes.push("brak Decision — bench-create-task tego nie zbuduje");
     }
 
     const taskDir = join(root, "tasks", name);
@@ -234,7 +234,7 @@ export async function backlogCommand(args: string[]): Promise<number> {
       return problems.length > 0 ? 1 : 0;
     }
     if (!existsSync(join(root, "tasks", "backlog.md"))) {
-      console.log("bench backlog: brak tasks/backlog.md — zlecenia tworzy skill bench-define");
+      console.log("bench backlog: brak tasks/backlog.md — zlecenia tworzy skill bench-create-task");
       return 0;
     }
 
@@ -280,7 +280,7 @@ export async function backlogCommand(args: string[]): Promise<number> {
         );
       }
       console.log(
-        `  (na różnicę 30 pp potrzeba ~${tasksNeeded(0.3)} zadań, na 50 pp ~${tasksNeeded(0.5)} — źródło tanich zadań: kopanie PR-ów, bench-define)`,
+        `  (na różnicę 30 pp potrzeba ~${tasksNeeded(0.3)} zadań, na 50 pp ~${tasksNeeded(0.5)} — źródło tanich zadań: kopanie PR-ów, bench-create-task)`,
       );
     }
     if (unordered.length > 0) console.log(`\nzadania bez zlecenia w backlogu: ${unordered.join(", ")}`);
@@ -292,12 +292,12 @@ export async function backlogCommand(args: string[]): Promise<number> {
     const undecided = count("ordered") - buildable;
     const reevaluate = orders.reduce((acc, o) => acc + o.reevaluate, 0);
     const steps = [
-      buildable ? `${buildable} do zbudowania → bench-define (budowa)` : "",
-      undecided ? `${undecided} bez Decision → uzupełnij (bench-define)` : "",
-      count("built") ? `${count("built")} czeka na bramkę partii (bench-define, budowa)` : "",
-      count("ready") + count("measuring") ? `${count("ready") + count("measuring")} do pomiaru → bench-measure` : "",
-      reevaluate ? `${reevaluate} zachowanych prób ocenionych w innej erze → re-ocena (bench-measure)` : "",
-      count("measured") ? `${count("measured")} zmierzone → bench-decide` : "",
+      buildable ? `${buildable} do zbudowania → bench-create-task (budowa)` : "",
+      undecided ? `${undecided} bez Decision → uzupełnij (bench-create-task)` : "",
+      count("built") ? `${count("built")} czeka na bramkę partii (bench-create-task, budowa)` : "",
+      count("ready") + count("measuring") ? `${count("ready") + count("measuring")} do pomiaru → bench-evaluate` : "",
+      reevaluate ? `${reevaluate} zachowanych prób ocenionych w innej erze → re-ocena (bench-evaluate)` : "",
+      count("measured") ? `${count("measured")} zmierzone → bench-analysis` : "",
       uncommitted ? `${uncommitted} z plikami poza commitem → bench changes (plan commitów)` : "",
     ].filter(Boolean);
     console.log(`\nnastępny krok: ${steps.length ? steps.join("; ") : "nic nie czeka"}`);

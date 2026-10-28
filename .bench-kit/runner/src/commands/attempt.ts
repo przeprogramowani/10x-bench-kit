@@ -2,7 +2,7 @@
  * bench attempt — LOKALNE wykonanie prób macierzy model × zadanie × próba,
  * produkujące ZACHOWANE PRÓBY (kontrakt: .bench-kit/ATTEMPT_FORMAT.md).
  * Wykonanie nie wie nic o rubrykach — ocena to osobny proces
- * (`bench evaluate` / procedura rate-attempt skilla bench-measure), uruchamialny wielokrotnie.
+ * (`bench evaluate` / procedura rate-attempt skilla bench-evaluate), uruchamialny wielokrotnie.
  *
  * Przebieg:
  * 1. Plan: docelowa liczba prób per komórka (model × zadanie); istniejące
@@ -384,7 +384,7 @@ const EXPLICIT_EVALUATE_MAX = 3;
  * dokładnie tymi próbami — gołe `bench evaluate` bierze WSZYSTKIE zachowane
  * próby instancji (WIRING.md B4); większy bieg → forma zbiorcza.
  * Ścieżki względem korzenia instancji (absolutne, gdy --out poza nim).
- * Instancja z judge.mode agent ocenia wyniki sędzią-agentem (bench-measure,
+ * Instancja z judge.mode agent ocenia wyniki sędzią-agentem (bench-evaluate,
  * RATE_ATTEMPT.md); smoke idzie wtedy przez sędziego API tylko jako dowód
  * ścieżki oceny — bez zapisu do results/.
  */
@@ -401,7 +401,7 @@ export function nextStepLine(root: string, produced: string[], smoke: boolean, j
         ...[...shown].sort().map((d) => `  bench evaluate --attempt ${d} --no-write-results`),
       ].join("\n");
     }
-    return `następny krok: ocena ${produced.length} prób sędzią-agentem (skill bench-measure → RATE_ATTEMPT.md; \`bench status\` liczy nieocenione)`;
+    return `następny krok: ocena ${produced.length} prób sędzią-agentem (skill bench-evaluate → RATE_ATTEMPT.md; \`bench status\` liczy nieocenione)`;
   }
   if (smoke || produced.length <= EXPLICIT_EVALUATE_MAX) {
     return ["następny krok (ocena dokładnie tych prób → results/):", ...[...shown].sort().map((d) => `  bench evaluate --attempt ${d}`)].join("\n");
@@ -508,7 +508,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     // --- harnessy i ceny: ustalone PRZED wydaniem pieniędzy ---
     // Model, którego kosztu nie da się policzyć, nie startuje: koszt
-    // nieznany to budżet, który nie działa, i $0 w ekonomii bench-decide.
+    // nieznany to budżet, który nie działa, i $0 w ekonomii bench-analysis.
     const harnessSpecs = new Map<string, HarnessModel>();
     for (const model of new Set(plan.filter((c) => c.numbers.length > 0).map((c) => c.model))) {
       harnessSpecs.set(model, parseModelId(model));

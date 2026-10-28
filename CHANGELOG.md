@@ -6,6 +6,45 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.35.0 — 2026-10-28 (neutralny)
+
+**Skille pod nowymi nazwami i tworzenie zadań jako rozmowa.** Nic nie
+zmienia liczenia oceny, bramki ani schematów — wyniki 0.34.0 zostają
+w tej samej erze.
+
+#### Zmiany
+
+- **Nowe nazwy skilli:** `bench-define` → **bench-create-task**,
+  `bench-measure` → **bench-evaluate**, `bench-decide` →
+  **bench-analysis**. Koncepty: create task → evaluate → analysis.
+  `bench-kit update` usuwa stare katalogi skilli z instancji
+  (`RETIRED_SKILLS`); lokalne dostosowania zostają w historii gita.
+- **bench-create-task — rozmowa zamiast zrzutu skanu** (MINING.md §1–2):
+  - użytkownik wskazuje PR / SHA / tytuł → skill znajduje zmergowany
+    commit, pokazuje go (pliki, testy, sprzężenie) i pyta „to ten?”;
+  - użytkownik nie wskazuje nic → tani subagent (klasa Sonnet/Flash)
+    przegląda ostatni kwartał (`mine-prs.mjs --since 90`) i proponuje
+    3–5 kandydatów (bugfix, feature, refaktor); użytkownik wybiera
+    wszystkie, część albo coś innego. Wynik jak dotąd: zlecenia
+    w `tasks/backlog.md`.
+- **bench-status — brief instancji:** gdy doctor i validate są zielone,
+  przekazanie zaczyna się od skrótu: co testujemy, na jakich modelach,
+  sędzia, kształt biegu, wyniki. Przy otwartych problemach brief jest
+  pomijany.
+- **bench-analysis:** opis jako analiza wyników wspierana przez agenta,
+  w rozmowie; liczby i strona HTML bez zmian.
+- **Pierwszy prompt po init:** „Use bench-status to check this
+  instance, then bench-create-task to create our first tasks.”
+- **Domyślny config template'u:** modele `gpt-6.1-sol`,
+  `claude-sonnet-5.5`, `deepseek-v4.1-flash` (OpenRouter), sędzia
+  `claude-opus-5.5`. `validate` ostrzega o wspólnej rodzinie Sonnet/Opus.
+
+#### Migracja
+
+Wywołania skilli po starych nazwach w promptach i notatkach zespołu
+zamień na nowe. 10x-cli nie wymaga zmian (pierwszy krok bierze
+z template'u).
+
 ## 0.34.0 — 2026-10-27 (neutralny)
 
 **Pierwsze uruchomienie: od `bench-kit init` do zmierzonego zadania z

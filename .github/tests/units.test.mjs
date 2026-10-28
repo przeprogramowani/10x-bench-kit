@@ -103,9 +103,9 @@ test("context files: wyrównanie pary i wiszący symlink bez wywrotki", async ()
   assert.equal(readlinkSync(join(b, "AGENTS.md")), "missing.md");
 });
 
-test("power: runner i bench-decide liczą tę samą rozdzielczość; <6 zadań = żadna", async () => {
+test("power: runner i bench-analysis liczą tę samą rozdzielczość; <6 zadań = żadna", async () => {
   const runner = await lib("power.ts");
-  const decide = await skill("bench-decide/analytics.mjs");
+  const decide = await skill("bench-analysis/analytics.mjs");
   for (const n of [4, 5, 6, 10, 20, 40, 80]) assert.equal(runner.resolvableGap(n), decide.resolvableGap(n), `n=${n}`);
   assert.equal(decide.resolvableGap(5), null);
   assert.equal(decide.tasksNeeded(0.2), 57);
@@ -113,7 +113,7 @@ test("power: runner i bench-decide liczą tę samą rozdzielczość; <6 zadań =
 });
 
 test("analytics: test znaków dokładny, pass^k, bootstrap deterministyczny", async () => {
-  const { signTestP, passHatK, bootstrapMean } = await skill("bench-decide/analytics.mjs");
+  const { signTestP, passHatK, bootstrapMean } = await skill("bench-analysis/analytics.mjs");
   // Brute force: dwustronny dokładny test dwumianowy.
   const brute = (w, n) => {
     const c = (n, k) => { let r = 1; for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1); return r; };
@@ -130,7 +130,7 @@ test("analytics: test znaków dokładny, pass^k, bootstrap deterministyczny", as
 });
 
 test("analytics: horyzont bez ekstrapolacji poza obserwowany zakres", async () => {
-  const { timeHorizon } = await skill("bench-decide/analytics.mjs");
+  const { timeHorizon } = await skill("bench-analysis/analytics.mjs");
   const graded = [];
   [5, 10, 20, 40, 80, 160].forEach((m, i) => { for (let t = 0; t < 4; t++) graded.push({ task: `t${i}`, minutes: m, passed: t < [4, 4, 3, 2, 1, 0][i] }); });
   const h = timeHorizon(graded);
@@ -143,7 +143,7 @@ test("analytics: horyzont bez ekstrapolacji poza obserwowany zakres", async () =
 });
 
 test("analytics: parser backlogu zgodny z runnerem (pierwsze wystąpienie, kontynuacje, zakresy)", async () => {
-  const { parseBacklogMeta } = await skill("bench-decide/analytics.mjs");
+  const { parseBacklogMeta } = await skill("bench-analysis/analytics.mjs");
   const meta = parseBacklogMeta(
     "## a\n- **Class**: feature\n- **Class**: anchor\n- **Human time**: ~45-60 min (estimated)\n\n" +
       "## b\n- **Class**:\n  bugfix — scoped\n- **Human time**: 1,5 h (unconfirmed)\n\n## c\n- **Human time**: 30 min (confirmed)\n",
@@ -230,26 +230,26 @@ test("tmpdir: /tmp na tmpfs-ie bez TMPDIR → .bench-tmp instancji; jawny TMPDIR
   assert.equal(chooseTmpdir(undefined, null, true), null);
 });
 
-test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-define", async () => {
+test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-create-task", async () => {
   const { statusNextStep } = await command("status.ts");
   const empty = statusNextStep({ allTasks: ["demo-hello-bench"], preserved: 0, running: 0, toEvaluate: 0, missing: 3 });
   assert.doesNotMatch(empty, /ocenione/);
   assert.match(empty, /brak zachowanych prób/);
-  assert.match(empty, /bench-define/);
+  assert.match(empty, /bench-create-task/);
   assert.doesNotMatch(empty, /bench attempt/);
   const real = statusNextStep({ allTasks: ["demo-hello-bench", "fix-login"], preserved: 0, running: 0, toEvaluate: 0, missing: 6 });
   assert.match(real, /6 prób\(y\) brakuje do celu → bench attempt/);
-  assert.doesNotMatch(real, /bench-define/);
+  assert.doesNotMatch(real, /bench-create-task/);
   assert.match(statusNextStep({ allTasks: ["fix-login"], preserved: 3, running: 0, toEvaluate: 0, missing: 0 }), /wszystkie zachowane próby ocenione/);
-  assert.match(statusNextStep({ allTasks: [], preserved: 0, running: 0, toEvaluate: 0, missing: 0 }), /brak zadań.*bench-define/);
+  assert.match(statusNextStep({ allTasks: [], preserved: 0, running: 0, toEvaluate: 0, missing: 0 }), /brak zadań.*bench-create-task/);
   // Zero zadań, ale zlecenia w backlogu: budowa, nie kopanie od nowa.
   const ordered = statusNextStep({ allTasks: [], preserved: 0, running: 0, toEvaluate: 0, missing: 0, pendingOrders: 3 });
-  assert.match(ordered, /tasks\/backlog\.md czekające na budowę: 3 → bench-define \(zbuduj backlog\)/);
+  assert.match(ordered, /tasks\/backlog\.md czekające na budowę: 3 → bench-create-task \(zbuduj backlog\)/);
   assert.doesNotMatch(ordered, /brak zadań|kopanie/);
   // Zadania są, część zleceń niezbudowana: dodatkowa część linii.
   const mixed = statusNextStep({ allTasks: ["fix-login"], preserved: 0, running: 0, toEvaluate: 0, missing: 3, pendingOrders: 2 });
   assert.match(mixed, /3 prób\(y\) brakuje do celu → bench attempt/);
-  assert.match(mixed, /czekające na budowę: 2 → bench-define/);
+  assert.match(mixed, /czekające na budowę: 2 → bench-create-task/);
   assert.doesNotMatch(real, /backlog/, "bez niezbudowanych zleceń bez wzmianki o backlogu");
 });
 

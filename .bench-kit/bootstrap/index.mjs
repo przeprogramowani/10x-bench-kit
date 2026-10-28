@@ -139,9 +139,9 @@ All benchmark work goes through three skills (installed in \`${skillRoot}/\`):
 
 | Skill | Use it to |
 |---|---|
-| **bench-define** | Turn merged PRs (or an interview) into tasks: \`tasks/\`, \`evaluation-pool/\`, \`reports/\`. |
-| **bench-measure** | Set up the instance, run models on tasks within budget, evaluate attempts. |
-| **bench-decide** | Get a verdict: which model (and CLI) for which class of work, at what cost. |
+| **bench-create-task** | Turn a merged PR you name, or one of 3–5 proposed from the last quarter, into tasks: \`tasks/\`, \`evaluation-pool/\`, \`reports/\`. |
+| **bench-evaluate** | Run models on tasks within budget and judge the attempts. |
+| **bench-analysis** | Analyse the results with the agent and get a verdict: which model (and CLI) for which class of work, at what cost. |
 
 Skills leave files in the working tree and end with a commit plan; you review and commit.
 
@@ -515,7 +515,7 @@ function runUpdate(request) {
   skills.removed = retiredSkills.length;
   if (retiredSkills.length > 0) {
     warnings.push(
-      `Wycofane skille usunięte (procedury przeniesione do bench-define / bench-measure / bench-decide): ${retiredSkills.join(", ")}. ` +
+      `Wycofane skille usunięte (procedury przeniesione do bench-create-task / bench-evaluate / bench-analysis): ${retiredSkills.join(", ")}. ` +
         "Lokalne dostosowania tych skilli są w historii gita — przenieś je do nowych plików procedur, jeśli były.",
     );
   }
@@ -555,7 +555,7 @@ function runUpdate(request) {
 
 export const FIRST_STEP = {
   skill: "bench-status",
-  prompt: "Use bench-status to check this instance is ready, then use bench-define to mine our merged PRs for tasks.",
+  prompt: "Use bench-status to check this instance, then bench-create-task to create our first tasks.",
 };
 
 export function runBootstrap(request) {

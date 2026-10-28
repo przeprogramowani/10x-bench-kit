@@ -11,12 +11,12 @@ Strefa nietykalna przy `bench-kit update`.
 | `overlay/` | opcjonalne pliki nakładane na repo bazowe (np. seed buga) |
 
 Schemat `task.yaml`: `.bench-kit/runner/src/schemas/task.ts`. Zadania
-buduje skill **bench-define** (kopanie PR-ów albo wywiad) — opis pól
+buduje skill **bench-create-task** (kopanie PR-ów albo wywiad) — opis pól
 w jego `TASK_AUTHORING.md`.
 
 ## Backlog zleceń — `tasks/backlog.md`
 
-Dokument decyzji: skill **bench-define** dopisuje do niego zlecenia
+Dokument decyzji: skill **bench-create-task** dopisuje do niego zlecenia
 zadań — domyślnie z kopania PR-ów (`MINING.md`: zmergowana zmiana
 z testami), a dla pracy bez historii z krótkiego wywiadu
 (`INTERVIEW.md`). Krok budowy tego skilla (`BUILD.md`) zamienia
@@ -35,14 +35,14 @@ zarządza użytkownik.
   wyłącznie referencje `evaluation: [...]` do `evaluation-pool/`.
   Izolacja z konstrukcji, nie ze starannego wycinania.
 - Zadania powstają i są odświeżane skillami, ale skille nie dotykają
-  gita. Nowe zadania bench-define zostawia jako pliki w drzewie
+  gita. Nowe zadania bench-create-task zostawia jako pliki w drzewie
   roboczym z raportem dowodów ze stanu startowego per zadanie — commit, PR
-  czy odrzucenie to decyzja użytkownika. Odświeżenie (bench-define →
+  czy odrzucenie to decyzja użytkownika. Odświeżenie (bench-create-task →
   `REFRESH.md`) też zostawia pliki i raport odświeżenia
   (`reports/<zadanie>-refresh.md`); `bench changes` oznacza tę grupę
   jako zamykającą erę (PR), a PR otwiera **użytkownik** wg
   `REFRESH_PR_TEMPLATE.md`. Poprawka rubryki zadania to edycja wg
-  `RUBRIC_AUTHORING.md` w bench-define z bumpem `version` i re-oceną
+  `RUBRIC_AUTHORING.md` w bench-create-task z bumpem `version` i re-oceną
   zachowanych prób — również przez PR.
 - Zadanie ma datę ważności (`expires`) — repo bazowe ewoluuje, a zadanie
   jest przypięte do commita sprzed miesięcy. Odświeżenie (nowy pin,

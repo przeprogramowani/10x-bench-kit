@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Schemat attempt.json — metadane ZACHOWANEJ PRÓBY, jedyny punkt styku
  * między wykonaniem (`bench attempt`) a oceną (`bench evaluate` /
- * procedura rate-attempt skilla bench-measure). Pełny kontrakt katalogu próby (pliki, gwarancje,
+ * procedura rate-attempt skilla bench-evaluate). Pełny kontrakt katalogu próby (pliki, gwarancje,
  * wersjonowanie): .bench-kit/ATTEMPT_FORMAT.md.
  *
  * Katalog próby: attempts/<zadanie>/<model-sanitized>/trial-<n>/

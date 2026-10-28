@@ -1,4 +1,4 @@
-<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-create-task** skill — loaded from its SKILL.md when needed. -->
 
 # PR mining — tasks from the base repo's history
 
@@ -32,20 +32,18 @@ work they delivered.
   remote's tip. Pins must be commits that exist on the remote; taking
   them from the remote's first-parent history guarantees that.
 
-## 1. Scan
+## The scanner — `mine-prs.mjs`
 
 ```
-node <skills>/bench-define/mine-prs.mjs --repo .repos/<name> [--ref origin/HEAD] [--since 365] [--limit 30] [--json]
+node <skills>/bench-create-task/mine-prs.mjs --repo .repos/<name> [--ref origin/HEAD] [--since 90] [--limit 30] [--json]
+node <skills>/bench-create-task/mine-prs.mjs --repo .repos/<name> show <sha> [--json]
 ```
 
 The scan reads only local git: no network, and the only write is a
 coupling cache in the clone's `.git/` (`--no-cache` skips it). The
-coupling analysis runs on all cores (`--jobs <n>` to cap it): a first
-scan of a year in a mid-size monorepo takes a minute or two — start it
-and tell the user what it is doing; a re-scan reuses the cache and takes
-seconds, so widen `--since` or add `--all` freely. `--ref`
-defaults to `origin/HEAD` (see §0); pass another ref only on purpose.
-It lists
+coupling analysis runs on all cores (`--jobs <n>` to cap it); a first
+scan of a quarter takes seconds to a minute, a re-scan reuses the
+cache. `--ref` defaults to `origin/HEAD` (see §0). It lists
 first-parent changes that touched both code and tests, within size
 limits (`--max-files`, `--max-lines`). It excludes release commits,
 reverts, bots, and docs- or lockfile-only changes (`--all` shows the
@@ -72,15 +70,58 @@ recency. Coupling is a prompt-writing obligation, not a defect.
 `show <sha>` prints one candidate in full: message, files, coupling,
 and the PR branch's time span when it was a merge commit.
 
-## 2. Select — decision value, not volume
+## 1. The user named a change — find it, confirm it
 
-Pick candidates the way INTERVIEW.md orders an interview: by the
-decision they inform.
+Whatever the user gave you, resolve it to one merged commit on the
+remote's first-parent history:
 
-- **Class coverage first.** `bench backlog` prints, per class, the gap
-  its task count can resolve. Mine into the classes whose decisions are
-  open and whose resolution is too coarse. Twenty bugfixes do not answer
-  a question about feature work.
+| The user said | Look up |
+|---|---|
+| a PR number (`#412`, `!57`, "PR 412") | `git -C .repos/<name> log --first-parent origin/HEAD -E --grep '#412([^0-9]\|$)' --format='%H %ad %s' --date=short`, or the scan (`--since 730 --all --json`) filtered by its `pr` field; with GitHub access in the session, `gh pr view 412 --json mergeCommit,title,body` |
+| a SHA (full or short) | `git -C .repos/<name> rev-parse <sha>^{commit}`, then check it is on `origin/HEAD`'s first-parent line |
+| a title or a description | `git log --first-parent origin/HEAD -i --grep '<words>'`, widen to `-S`/file paths when the message is terse |
+
+Then run `mine-prs.mjs show <sha>` and present what you found in one
+short block:
+
+- SHA, title, merge date, author's PR number;
+- files touched (code / tests), size;
+- **tests:** did the change bring its own? (No tests → it can still be
+  a task, graded by the repo's suite guard plus the judge; say so.)
+- **coupling:** names the tests would force into the prompt;
+- the class hint and what kind of work it is (bugfix / feature /
+  refactor).
+
+Ask **"Is this the one?"** and wait. Several matches: list them (at
+most five) and ask which. No match: say what you searched and offer the
+proposals of §2 or an interview. Never build from a guess.
+
+## 2. The user named nothing — proposals from the last quarter
+
+Delegate the history review to **one subagent on a cheap, fast model**
+— Sonnet-class in Claude Code (`model: sonnet`), a mini or Flash model
+in Codex/OpenCode. Reading a quarter of commit messages and test diffs
+is skimming, not judgment; the judgment (decisions, coupling, the
+order's fields) stays with you.
+
+Brief the subagent with:
+
+- the clone path (`.repos/<name>`) and the scanner command:
+  `mine-prs.mjs --repo .repos/<name> --since 90 --limit 30 --json`;
+- the classes `bench backlog` reports as thin, and the tasks that
+  already exist (do not propose their changes again);
+- the selection rules below;
+- the output: **3–5 candidates**, at least one **bugfix**, one
+  **feature** and one **refactor** when the quarter has them, each as
+  one row — SHA, PR, title, kind, size, tests yes/no, coupling count,
+  one sentence on what a developer was asked to do, one sentence on why
+  it makes a good task. Nothing else: no diffs, no order drafts.
+
+Selection rules (for the subagent's brief and for your own check):
+
+- **Decision value, not volume.** Prefer the classes whose decisions
+  are open and whose resolution is too coarse. Twenty bugfixes do not
+  answer a question about feature work.
 - **Prefer uncoupled tests.** They check behaviour through interfaces
   that exist at the pin, so two correct implementations pass them
   equally. Coupled candidates go through step 3.
@@ -93,9 +134,20 @@ decision they inform.
   evaluation container cannot provide (databases, external APIs),
   unless the repo's own test setup provides them.
 
-Read the PR description and linked issue when you can (GitHub access in
-the session); they are the intent. Otherwise the commit message is the
-intent, which is thinner, so prefer directional guidance then.
+When the quarter has fewer than three usable candidates, the subagent
+widens to `--since 180` and says so.
+
+Present the proposals to the user in one table and ask one question:
+**all of them, a subset, or something else?** "Something else" means
+they name a change (→ §1), want another round with a different focus
+("more refactors", "only the payments module"), or want work with no
+history (→ INTERVIEW.md). Keep the conversation going until the user
+has accepted a set; only accepted candidates go on to §3.
+
+Read the PR description and linked issue for each accepted candidate
+when you can (GitHub access in the session); they are the intent.
+Otherwise the commit message is the intent, which is thinner, so prefer
+directional guidance then.
 
 ## 3. Coupling — what the tests force
 
@@ -114,7 +166,7 @@ builder treats it as a contract.
 
 ## 4. Human time
 
-The time-horizon report in bench-decide needs, per task, the minutes
+The time-horizon report in bench-analysis needs, per task, the minutes
 the work takes a developer. History gives an upper bound: for merge
 commits, the PR branch's span. Combine it with the diff size into an
 estimate, put the batch's estimates in front of the user in one table,
@@ -201,4 +253,4 @@ decision. A few anchors mined from public benchmark repos (for example
 the repositories behind SWE-bench Verified instances) let the instance
 check its harness and judge against published numbers. If the
 instance's numbers diverge wildly on anchors, suspect the setup before
-the models. bench-decide reports anchors apart from decision classes.
+the models. bench-analysis reports anchors apart from decision classes.

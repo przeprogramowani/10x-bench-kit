@@ -58,7 +58,7 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Wiring demo w CI: publiczne repo + pin + tani, niezawodny model
-      # próbny + sędzia — odpowiedniki decyzji z preflightu bench-measure (WIRING.md).
+      # próbny + sędzia — odpowiedniki decyzji z preflightu bench-evaluate (WIRING.md).
       BASE_REPO_URL: https://github.com/przeprogramowani/10x-astro-starter.git
       BASE_REPO_PIN: cc0bfebcdfb193b2bb2ec6a6604d29883f84a7e4
       TRIAL_MODEL: openrouter/anthropic/claude-haiku-4.5

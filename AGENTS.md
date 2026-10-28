@@ -7,7 +7,7 @@ zadania (`tasks/`), materiały oceny (`evaluation-pool/`)
 i konfigurację (`bench.config.yaml`). Liczeniem zajmuje się
 deterministyczny runner (`.bench-kit/` — strefa narzędzia, nie
 edytuj); wszystkim, co wymaga osądu, zajmują się trzy skille:
-define → measure → decide. Zanim
+create task → evaluate → analysis. Zanim
 zrobisz cokolwiek wpływającego na scoring, użyj właściwego skilla —
 każdy ma procedurę i twarde zasady, a tam, gdzie jego wynik ma
 utrwaloną formę, także jej szablon (raport budowy, opis PR-a, diagnoza).
@@ -19,16 +19,16 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 
 | Koncept | Skill | Przeznaczenie | Procedury |
 |---|---|---|---|
-| **status** — czy instancja jest gotowa | **bench-status** | Punkt wejścia: maszyna, klucze, repo bazowe, modele i sędzia, zielony `bench validate`, rozgrzanie obrazu bazowego w tle, jeden kolejny krok. Bez zadania-demo — pierwszym dowodem toru kontenerów jest pierwsze prawdziwe zadanie | `SKILL.md` |
-| **define** — co mierzymy | **bench-define** | Zadania z prawdziwej pracy firmy. Domyślne źródło to **kopanie PR-ów**: zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to dowód wykonalności, którego agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją, klasą i dzisiejszym kosztem pracy; budowa daje pliki zadań i raport `reports/<zadanie>-build.md` | `MINING.md` + `mine-prs.mjs`, `INTERVIEW.md` (praca bez historii), `REFRESH.md` (przeterminowane zadanie), `BUILD.md` → `TASK_AUTHORING.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
-| **measure** — uruchamiamy modele | **bench-measure** | Zmiany wiringu na instancji z wynikami i publikacja, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
-| **decide** — co z tego wynika | **bench-decide** | Decyzja routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań, horyzont czasowy | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
+| **status** — czy instancja jest gotowa | **bench-status** | Punkt wejścia: maszyna, klucze, repo bazowe, modele i sędzia, zielony `bench validate`, rozgrzanie obrazu bazowego w tle; gdy wszystko zielone — brief instancji (co testujemy, na jakich modelach, sędzia, budżet, wyniki); jeden kolejny krok. Bez zadania-demo — pierwszym dowodem toru kontenerów jest pierwsze prawdziwe zadanie | `SKILL.md` |
+| **create task** — co mierzymy | **bench-create-task** | Zadania z prawdziwej pracy firmy, w krótkiej rozmowie. Użytkownik wskazuje PR/commit → skill go znajduje i potwierdza; nie wskazuje nic → tani subagent (klasa Sonnet/Flash) przegląda ostatni kwartał historii i proponuje 3–5 kandydatów (bugfix, feature, refaktor), użytkownik wybiera wszystkie, część albo coś innego. Zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to dowód wykonalności, którego agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją, klasą i dzisiejszym kosztem pracy; budowa daje pliki zadań i raport `reports/<zadanie>-build.md` | `MINING.md` + `mine-prs.mjs`, `INTERVIEW.md` (praca bez historii), `REFRESH.md` (przeterminowane zadanie), `BUILD.md` → `TASK_AUTHORING.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
+| **evaluate** — uruchamiamy i oceniamy modele | **bench-evaluate** | Zmiany wiringu na instancji z wynikami i publikacja, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
+| **analysis** — co z tego wynika | **bench-analysis** | Analiza wyników wspierana przez agenta, w rozmowie, kończona decyzją routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań, horyzont czasowy | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
 - **Zmiany scoringu z dowodem i śladem** — rubryki i
   `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania buduje
-  bench-define jako pliki w drzewie roboczym z dowodami ze stanu
+  bench-create-task jako pliki w drzewie roboczym z dowodami ze stanu
   startowego w raporcie-pliku `reports/<zadanie>-build.md`
   (REPORT_TEMPLATE.md skilla; raport wyłącznie w wiadomości czatu =
   raport nieistniejący) — **do gita wnosi
@@ -37,7 +37,7 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
   overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR);
   dowód dla tego, co wspólne dla paczki (guardy reużyte na pinie,
   `bench validate --assert`, smoke), składa raz orkiestrator
-  bench-define na bramce partii — nie każdy subagent osobno.
+  bench-create-task na bramce partii — nie każdy subagent osobno.
   Benchmark nie PISZE implementacji referencyjnych: kierunek
   "da się zaliczyć" chroni zasada neutralności kształtu asercji
   (TASK_AUTHORING.md — skrypty to wyłącznie repo-natywne guardy

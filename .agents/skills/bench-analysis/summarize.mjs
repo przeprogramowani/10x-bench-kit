@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * bench-decide: deterministyczna ekonomia i statystyka decyzji.
+ * bench-analysis: deterministyczna ekonomia i statystyka decyzji.
  *
  * Czyta WYŁĄCZNIE drzewa śledzone przez gita — `results/**\/result.json`
  * (wynik, koszt, czas, stemple) oraz `attempts/**\/patch.diff` (koszt
@@ -520,7 +520,7 @@ const out = {
 const json = JSON.stringify(out, null, 2);
 if (outPath) {
   writeFileSync(outPath, json + "\n");
-  console.error(`bench-decide: ${tasks.length} zadań, ${[...eras].length} er(y) → ${outPath}`);
+  console.error(`bench-analysis: ${tasks.length} zadań, ${[...eras].length} er(y) → ${outPath}`);
 } else if (!htmlPath) {
   process.stdout.write(json + "\n");
 }
@@ -536,7 +536,7 @@ if (htmlPath) {
     console.error(`error: brak wspólnego szablonu w ${assets} — uruchom z --root wskazującym instancję benchmarku`);
     process.exit(1);
   }
-  const title = headTitle ?? (onlyTask ? `bench-decide — ${onlyTask}` : "bench-decide — który model do tej pracy");
+  const title = headTitle ?? (onlyTask ? `bench-analysis — ${onlyTask}` : "bench-analysis — który model do tej pracy");
   const escHtml = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // Kształt SiteData leaderboardu: jeden run, jedna era per zadanie.
@@ -573,5 +573,5 @@ if (htmlPath) {
       .split("__DATA__").join(JSON.stringify(site).replace(/</g, "\\u003c"))
       .split("/*__APP__*/").join(asset("app.js").trimEnd()),
   );
-  console.error(`bench-decide: → ${htmlPath}`);
+  console.error(`bench-analysis: → ${htmlPath}`);
 }

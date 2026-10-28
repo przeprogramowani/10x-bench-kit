@@ -1,4 +1,4 @@
-<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-create-task** skill — loaded from its SKILL.md when needed. -->
 
 # Interview — ordering a task into the backlog
 
@@ -14,7 +14,7 @@ commands.
 
 1. **Zero building.** You do not pick a pin, write `prompt.md`, an
    overlay, or assertions, and you do not call `bench` commands during
-   the interview (the `bench backlog` read in bench-define SKILL.md
+   the interview (the `bench backlog` read in bench-create-task SKILL.md
    step 1 happens before it). Building is the build step's job
    (BUILD.md). If the user wants to build right away, record the order
    and move on to the build step (BUILD.md) — do not build within this
@@ -91,7 +91,7 @@ two exceptions you always ask about:
     component / …). One task is a hypothesis about one class, never a
     routing rule for a repo: a model that is bad at locating code in
     an unfamiliar tree may be fine at a scoped bugfix. The class is
-    what lets bench-decide aggregate results into a **class × model**
+    what lets bench-analysis aggregate results into a **class × model**
     matrix instead of one row, and what shows which classes of your
     work are still unmeasured.
   - **What the work costs today** — roughly how often it comes up and
@@ -129,7 +129,7 @@ Remaining fields (ask only when the description does not settle them):
   contract, `.bench-kit/ATTEMPT_FORMAT.md` — so manual launch and the
   judge-with-tools always have the real state to work with.)
 - **Human time**: how long this work takes a developer, in minutes.
-  It feeds bench-decide's time horizon ("reliably handles N-minute
+  It feeds bench-analysis's time horizon ("reliably handles N-minute
   tasks"). The user's own estimate is fine; record it as "estimated"
   unless it is measured.
 - **Task name**: kebab-case, saying what is to be done

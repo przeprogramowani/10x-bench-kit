@@ -1,4 +1,4 @@
-<!-- Procedure of the **bench-define** skill — loaded from its SKILL.md when needed. -->
+<!-- Procedure of the **bench-create-task** skill — loaded from its SKILL.md when needed. -->
 
 # Refresh — task aging
 
@@ -32,7 +32,7 @@ to "new pin": its pin cannot move (see "Mined task" below).
    `reference` declaration, or overlay makes it into the PR "because it
    worked on the old pin" — re-run every proof on the new pin via
    `bench assert` / `bench validate --assert`. The shape-neutrality
-   rule from bench-define's TASK_AUTHORING.md applies unchanged —
+   rule from bench-create-task's TASK_AUTHORING.md applies unchanged —
    scripted assertions run only the repo's own commands, and a refresh
    is a fresh chance for the repo to have renamed those commands or
    moved its toolchain.
@@ -45,9 +45,9 @@ to "new pin": its pin cannot move (see "Mined task" below).
    (`task_hash` covers only the task directory). If an assertion needs
    changing and someone else uses it: create a new version in the pool
    (e.g. `tests/<name>-v2`) and swap it in this task's `evaluation[]`.
-6. **Isolation of evaluation materials.** As in bench-define: nothing
+6. **Isolation of evaluation materials.** As in bench-create-task: nothing
    from `evaluation-pool/` goes into `tasks/<name>/`; the task's
-   rubric and any calibration set (bench-measure's JUDGE_DIAGNOSTICS.md,
+   rubric and any calibration set (bench-evaluate's JUDGE_DIAGNOSTICS.md,
    from preserved attempts) live under `evaluation-pool/judge/`, never in `tasks/`.
 7. **Do not touch `.bench-kit/`** or other people's tasks.
 8. **Budget instead of a consent ritual.** Costs are guarded by
@@ -83,7 +83,7 @@ default branch already contains the solution: a "fresh" pin would
 hand the agent a finished task. Its refresh is therefore a re-proof on
 the **same pin**, not a move:
 
-1. **Regenerate the reference.** `node <skills>/bench-define/mine-prs.mjs
+1. **Regenerate the reference.** `node <skills>/bench-create-task/mine-prs.mjs
    --repo .repos/<name> emit <reference-sha> --out <scratch>` — the SHA
    is the order's Reference and the build report's; the clone must
    contain it (deepen once, as in step 2).
@@ -187,7 +187,7 @@ overlay file against its counterpart on the new pin: the overlay must
 differ from the new pin's file **solely by the bug seed**. If the repo
 file has drifted — port the bug seed onto its new version.
 
-Then redo the observability proof from scratch, as in bench-define
+Then redo the observability proof from scratch, as in bench-create-task
 (TASK_AUTHORING.md, step 2):
 
 - guard-observed seed: on the starting state (new pin + overlay) the
@@ -213,7 +213,7 @@ Then redo the observability proof from scratch, as in bench-define
 - **Shared assertions**: changes only via a new version in the pool
   (rule 5).
 - **Judge**: re-read the rubric against the new pin. The context it
-  gives the judge (mechanisms, surfaces, asymmetries — see bench-define's
+  gives the judge (mechanisms, surfaces, asymmetries — see bench-create-task's
   RUBRIC_AUTHORING.md) may have drifted: a wording update that keeps
   every criterion's meaning is part of the refresh (say so in the PR);
   a change of criteria, anchors or weights is a rubric change — a
@@ -242,7 +242,7 @@ collect the results together. In order, each must pass:
    scores low; for a guard-observed bug seed, the red guard at the
    start is additional evidence.
 3. Trial `bench attempt --smoke` + `evaluate` on one cheap model (the
-   instance budget guards costs — rule 8). As in bench-define, the
+   instance budget guards costs — rule 8). As in bench-create-task, the
    smoke run doubles as the solvability probe on the new pin: an
    assertion no attempt greens is suspect-harness — diagnose it before
    the PR, do not ship it.
