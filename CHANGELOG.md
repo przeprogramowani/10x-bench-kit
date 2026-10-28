@@ -6,6 +6,15 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.35.1 — 2026-10-28 (neutralny)
+
+**bench-status raportuje na bieżąco.** Każde sprawdzenie (doctor, repo
+bazowe, config, validate, backlog) daje jedną linię postępu (`✓` / `✗` /
+`!` / `…`) zaraz po wyniku, zanim ruszy następne — zamiast ciszy
+i werdyktu na końcu. Długie kroki są zapowiadane przed startem; `✗` nie
+przerywa przejścia, więc lista napraw jest pełna. Blok „Ready”
+w przekazaniu to już tylko podsumowanie wyświetlonych linii.
+
 ## 0.35.0 — 2026-10-28 (neutralny)
 
 **Skille pod nowymi nazwami i tworzenie zadań jako rozmowa.** Nic nie
