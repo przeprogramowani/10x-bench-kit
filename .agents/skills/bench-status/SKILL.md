@@ -49,6 +49,38 @@ variables, and git — never hand them a `bench …` command.
    (`bench changes` prints the plan and says which case applies).
 5. **Say what is true about the instance, not what this procedure calls
    its steps.**
+6. **Report as you go.** The user watches the instance come green check
+   by check, never one silent stretch followed by a verdict. See below.
+
+## Progress — one line per check, as it lands
+
+Print a short progress line **right after each check returns**, before
+you start the next one. Do not batch results for the handover and do not
+reason at length between checks — read the output, print the line, run
+the next command.
+
+```
+✓ doctor — podman, 22.9 GiB, OPENROUTER_API_KEY present (2.7 s)
+… base image building in the background (1–4 min)
+✓ base repo — przeprogramowani-edu, full history in .repos/
+✓ config — 3 models, judge claude-opus-5.5 (agent), 3 trials, $10
+… validate — checking repos, pins and model ids online
+✓ validate — 0 errors, 1 warning (Sonnet judged by Opus: same family)
+✓ backlog — 0 tasks, 0 orders
+```
+
+- `✓` passed, `✗` blocks measuring (name the fix in a few words; the
+  full fix goes in the handover), `!` a warning that does not block,
+  `…` started and still running — say so **before** a step that takes
+  more than a few seconds (full validate, the image build), so the
+  pause has a reason.
+- One line per check, with the proof that matters (a count, a name, a
+  duration). No paragraphs; details belong in the handover.
+- A `✗` does not stop the walk: keep going through the remaining checks
+  that do not depend on it, so the user gets the whole fix list at
+  once.
+- When step 3 needs the user's answer, the lines so far are already on
+  screen; ask, then continue with the next line.
 
 ## Procedure
 
@@ -165,9 +197,8 @@ list comes first.
 
 Then three short blocks and one ask:
 
-- **Ready** — each fact with its proof (`bench doctor: 0 missing`,
-  `bench validate: 0 errors`, `base image built (52 s)`, `3 models ×
-  judge confirmed`).
+- **Ready** — one line tallying the progress lines already on screen
+  (`6/6 checks green; base image built (52 s)`); do not repeat them.
 - **Fix first** — only what is open, numbered, each with the exact
   command or field (`export OPENROUTER_API_KEY=…` in your shell profile,
   then restart the agent from that shell). Omit the block when empty.
