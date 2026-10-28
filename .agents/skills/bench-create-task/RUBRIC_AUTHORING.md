@@ -5,15 +5,14 @@ guards only say whether the workspace is still green, the rubric grades
 the work — how far the attempt got and how well what landed is built.
 You write it here, as text, from the order's Evaluation axis and from
 the repo you have open at the pin. There is **no calibration step
-before the first run**: the rubric is proven by reading (the checklist
-below), by the empty-diff floor (`bench judge`), and then by real
-attempts — the first measurement is the calibration, and a rubric fix
-after it costs a re-evaluation of preserved attempts, never a re-run.
+before the first run**: the rubric is checked by reading (the checklist
+below) and calibrated by the first real attempts. A rubric fix after
+them costs a re-evaluation of preserved attempts, never a re-run.
 
-The judge that reads this rubric is **rate-attempt** (bench-evaluate) — an agent with
-tools working on a copy of the preserved workspace (it may run the
-tests, start the app, grep the code). Write for a senior reviewer who
-can verify what the diff claims, not for a text-only reader.
+The judge that reads this rubric is the API judge (`bench evaluate`):
+it reads the attempt's diff as text and runs nothing. The guards have
+already run the code; their result is a fact the judge doesn't need to
+re-check. Write for a senior reviewer reading a diff.
 
 ## Where it lives, what it is named
 
@@ -98,8 +97,7 @@ valid JSON = 0 for the judge component.
    judge reads their result as fact. The judge's turf is what review
    sees: completeness against the milestones, architecture and
    layering, scope discipline, whether real tests were written for the
-   new behaviour. rate-attempt *may* run things to verify a claim the
-   diff makes — the rubric does not require it.
+   new behaviour.
 
 ## Deriving the criteria
 
@@ -143,8 +141,7 @@ valid JSON = 0 for the judge component.
   observable — *dispatch this event, the counter moves; dispatch the
   rollback, it moves back* — then it is a test specification, and
   paying a judge to evaluate it by reading buys variance instead of
-  removing it. Hand that part to an execution guard (with its
-  counter-proof, BUILD.md rule 10) and leave the judge what only a
+  removing it. Hand that part to an execution guard and leave the judge what only a
   judge can score: scope discipline, convention-fit, the quality of the
   reasoning behind edge cases. A criterion is a judge's job when it
   requires taste or repo knowledge; it is an assertion's job when it
@@ -222,7 +219,7 @@ plausible readings. Anchors stay authoritative; the rules of thumb
 illustrate them. Keep them specific to *this* task's axes — a generic
 "seniors write tests" line adds nothing.
 
-## Read-only failure checklist (before `bench judge`)
+## Read-only failure checklist
 
 Four defects recur regardless of domain and are found by reading the
 rubric once — a minute instead of a wasted measurement:
@@ -258,17 +255,11 @@ anti-nitpicking clause and conciseness contract verbatim; `version`
 present; no criterion requiring execution; no path/symbol the prompt
 does not fix.
 
-## Proof
+## In the build report
 
-- `bench validate --offline` green (format contract).
-- The empty-diff floor: `bench judge --task <name> --patch <empty.diff>`
-  (API judge on the rubric text) scores clearly below
-  `defaults.pass_threshold`. This is the one judge call you make; it
-  proves the floor, not the resolution — resolution is proven by the
-  first real attempts.
-- The report carries: the rubric path, the criteria/weights table with
-  the source axis of each criterion, the checklist results, and the
-  empty-diff verdict pasted.
+The rubric path, the criteria/weights table with the source axis of
+each criterion, and the criterion you're least sure the judge will
+resolve.
 
 ## After the first run
 
@@ -276,7 +267,5 @@ The first measured attempts are the calibration material. If the
 scores disagree with a manual read of two or three `patch.diff`s, fix
 the rubric (same rules as above), bump `version` if results were
 already computed with it, and re-evaluate the preserved attempts
-(rate-attempt / `bench evaluate`). If verdicts on similar diffs look
-*unstable* rather than *wrong* — or you want to know whether a
-different judge model reads the rubric the same way — that is
-the job of bench-evaluate's judge diagnostics (JUDGE_DIAGNOSTICS.md) (`bench calibrate` on the real attempts).
+(`bench evaluate`). Verdicts on similar diffs that look *unstable*
+rather than *wrong* call for sharper anchors on that criterion.

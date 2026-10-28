@@ -20,51 +20,38 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 | Koncept | Skill | Przeznaczenie | Procedury |
 |---|---|---|---|
 | **status** — czy instancja jest gotowa | **bench-status** | Punkt wejścia: maszyna, klucze, repo bazowe, modele i sędzia, zielony `bench validate`, rozgrzanie obrazu bazowego w tle; gdy wszystko zielone — brief instancji (co testujemy, na jakich modelach, sędzia, budżet, wyniki); jeden kolejny krok. Bez zadania-demo — pierwszym dowodem toru kontenerów jest pierwsze prawdziwe zadanie | `SKILL.md` |
-| **create task** — co mierzymy | **bench-create-task** | Zadania z prawdziwej pracy firmy, w krótkiej rozmowie. Użytkownik wskazuje PR/commit → skill go znajduje i potwierdza; nie wskazuje nic → tani subagent (klasa Sonnet/Flash) przegląda ostatni kwartał historii i proponuje 3–5 kandydatów (bugfix, feature, refaktor), użytkownik wybiera wszystkie, część albo coś innego. Zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to dowód wykonalności, którego agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją, klasą i dzisiejszym kosztem pracy; budowa daje pliki zadań i raport `reports/<zadanie>-build.md` | `MINING.md` + `mine-prs.mjs`, `INTERVIEW.md` (praca bez historii), `REFRESH.md` (przeterminowane zadanie), `BUILD.md` → `TASK_AUTHORING.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
-| **evaluate** — uruchamiamy i oceniamy modele | **bench-evaluate** | Zmiany wiringu na instancji z wynikami i publikacja, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena (sędzia z narzędziami per próba), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `WIRING.md`, `RATE_ATTEMPT.md` (subagent per próba), `JUDGE_DIAGNOSTICS.md` (stabilność sędziego) |
+| **create task** — co mierzymy | **bench-create-task** | Zadania z prawdziwej pracy firmy, w krótkiej rozmowie. Użytkownik wskazuje PR/commit → skill go znajduje i potwierdza; nie wskazuje nic → tani subagent (klasa Sonnet/Flash) przegląda ostatni kwartał historii i proponuje 3–5 kandydatów (bugfix, feature, refaktor), użytkownik wybiera wszystkie, część albo coś innego. Zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to referencja, której agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją i klasą; budowa jest statyczna (pliki zadania, rubryka, raport `reports/<zadanie>-build.md`, zielony `bench validate`) — bez kontenerów, sędziego i prób | `MINING.md` + `mine-prs.mjs`, `BUILD.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
+| **evaluate** — uruchamiamy i oceniamy modele | **bench-evaluate** | Dowód nowych zadań na pinie (`bench validate --assert`) przed pierwszą próbą, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena `bench evaluate` (guardy + sędzia API na diffie), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `SKILL.md` |
 | **analysis** — co z tego wynika | **bench-analysis** | Analiza wyników wspierana przez agenta, w rozmowie, kończona decyzją routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań, horyzont czasowy | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
 
 - **Zmiany scoringu z dowodem i śladem** — rubryki i
   `bench.config.yaml` wychodzą wyłącznie przez PR; nowe zadania buduje
-  bench-create-task jako pliki w drzewie roboczym z dowodami ze stanu
-  startowego w raporcie-pliku `reports/<zadanie>-build.md`
+  bench-create-task jako pliki w drzewie roboczym z raportem-plikiem
+  `reports/<zadanie>-build.md`
   (REPORT_TEMPLATE.md skilla; raport wyłącznie w wiadomości czatu =
   raport nieistniejący) — **do gita wnosi
   je użytkownik**, skille nie commitują i nie pushują niczego.
-- **Udowodnij na stanie startowym, zanim zaproponujesz** — asercja czy
-  overlay bez dowodu z `bench assert` nie zostaje oddana (raport/PR);
-  dowód dla tego, co wspólne dla paczki (guardy reużyte na pinie,
-  `bench validate --assert`, smoke), składa raz orkiestrator
-  bench-create-task na bramce partii — nie każdy subagent osobno.
-  Benchmark nie PISZE implementacji referencyjnych: kierunek
-  "da się zaliczyć" chroni zasada neutralności kształtu asercji
-  (TASK_AUTHORING.md — skrypty to wyłącznie repo-natywne guardy
-  wykonania; treść implementacji ocenia rubryka sędziego opisem
-  dobrych i złych implementacji) i smoke run jako sonda wykonalności.
-  Wyjątek bez kosztu utrzymania: zadanie wykopane z historii
-  (MINING.md) ma referencję z gita, czyli samą zmianę. Jej testy
-  dowodzi się w obie strony (czerwone na pinie, zielone z
-  `--patch reference.diff`). Referencją jest zmergowany commit (SHA
-  w zleceniu i w raporcie budowy); jego diff odtwarza się w razie
-  potrzeby przez `mine-prs.mjs emit` i nigdy nie jest przechowywany
-  w instancji.
+- **Budowa statyczna, dowód na biegu** — bench-create-task kończy na
+  plikach i zielonym `bench validate`: bez `bench assert`, sędziego,
+  prób, pustych diffów i wariantów. Zanim bench-evaluate zapłaci za
+  pierwszą próbę nowego zadania, dowodzi go na pinie jednym
+  `bench validate --assert --tasks <nowe>` (guardy repo zielone,
+  `tests/<zadanie>-pr` czerwony); zadanie czerwone tam nie wchodzi do
+  macierzy. Wykonalność i rozdzielczość rubryki mierzy sam bieg.
+  Benchmark nie pisze implementacji referencyjnych: referencją jest
+  zmergowany commit (SHA w zleceniu i w raporcie budowy), nigdy
+  przechowywany w instancji.
 - **Zaliczenie to bramka, nie próg sumy** — próba zalicza, gdy każdy
   guard z wagą > 0 jest na 1 ORAZ sędzia sam przekracza
   `pass_threshold`. Czerwonego guarda nie da się nadrobić hojnym
   werdyktem. `total` zostaje miarą jakości, a decyzja jest w polu
   `passed` (`pass_reason` mówi, co zawiodło).
-- **Werdykt ma autora** — werdykt z pliku wchodzi tylko z deklaracją
-  (`--judge-mode agent --judge-model <id>` albo `--judge-mode human`).
-  Ścieżka oceny (`judge_mode`: api / agent / human) jest częścią ery,
-  więc werdykty sędziego API, sędziego z narzędziami i człowieka nigdy
-  nie mieszają się w jednej tabeli. Ścieżkę instancji wybiera
-  `judge.mode` w `bench.config.yaml` (`agent` domyślnie, albo `api`);
-  wynik oceniony inną ścieżką `bench status` pokazuje jako nieświeży
-  ("ścieżka oceny X→Y"), a masowe `bench evaluate` (sędzia API) pomija
-  wyniki ocenione przez agenta albo człowieka, chyba że dostanie
-  `--overwrite-judged`.
+- **Jeden sędzia** — oceną jest `bench evaluate`: guardy w kontenerze
+  i sędzia API na diffie (`judge.mode: api`). Ścieżka oceny jest
+  częścią ery, więc wynik oceniony inaczej `bench status` pokazuje jako
+  nieświeży ("ścieżka oceny X→Y").
 - **Świadomość er** — zmiany `task_hash`, rubryki, sędziego, ścieżki
   oceny (`judge.mode`) lub progu zaliczenia (`defaults.pass_threshold`)
   zamykają erę porównywalności; raport/PR mówi to wprost.
@@ -78,22 +65,20 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 - **Próba opłacona jest święta** — zachowane próby (`attempts/`,
   kontrakt .bench-kit/ATTEMPT_FORMAT.md) są nienaruszalne i nigdy nie
   są wyrzucane; zmiana rubryki/sędziego to RE-OCENA zachowanych prób
-  (`bench evaluate` / rate-attempt), nie nowy bieg. Wyniki żyją w
+  (`bench evaluate`), nie nowy bieg. Wyniki żyją w
   `results/` w repo — commituje je użytkownik, historię wersjonuje git.
 - **Bieg nie blokuje, tracker to dysk** — `bench attempt` zajmuje numer
   próby markerem `running.json` przed startem kontenera, więc kilka
   procesów (per model, w tle, na drugiej maszynie) dogania tę samą
   macierz bez kolizji; stan (zachowane / w toku / ocenione) czyta
-  `bench status`, ocena bierze to, co skończone. Ocena z narzędziami
-  biegnie tam, gdzie leży `workspace/`, i zawsze w kontenerze
-  (`bench shell`).
+  `bench status`, ocena bierze to, co skończone.
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
   `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
   nie deklaracja.
 - **Stan się wyprowadza, nie zapisuje** — postęp zlecenia (ordered →
-  building → built → ready → measuring → measured) czyta
-  `bench backlog` z faktów na dysku (todo.md, task.yaml, bramka partii
-  w raporcie, próby, oceny w bieżącej erze). W backlogu żyją wyłącznie
+  building → ready → measuring → measured) czyta
+  `bench backlog` z faktów na dysku (todo.md, task.yaml, próby, oceny
+  w bieżącej erze). W backlogu żyją wyłącznie
   decyzje (`pending` / `dropped`) i dziennik budowy, więc żaden skill
   nie przepisuje linii statusu. Świeżość oceny to cała era oceny
   (zadanie + sędzia + ścieżka oceny + wersje rubryk + scoring z progiem

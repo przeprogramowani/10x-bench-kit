@@ -1,327 +1,105 @@
 ---
 name: bench-evaluate
 description: >-
-  Measures models on the benchmark's tasks on this machine — the matrix run (models ×
-  tasks × trials, cost projection vs budget, `bench attempt` with
-  preserved attempts and top-up), evaluation (the judge with tools per
-  attempt: RATE_ATTEMPT.md; judge stability: JUDGE_DIAGNOSTICS.md) and
-  a reliability-first handover with the `bench changes` commit plan;
-  changing models/judge on an instance with results and publishing
-  (WIRING.md). Use when the user says "run the benchmark / measure
-  model X / evaluate the models / a new model came out / re-evaluate /
-  change the judge", or
-  after bench-create-task when tasks are ready. Instance readiness is
-  bench-status. Not the same as the runner's `bench evaluate` command
-  (the API judge), which this skill uses as one of its steps.
+  Measures models on the benchmark's tasks on this machine: proves new
+  tasks on their pin, runs the matrix (models × tasks × trials) within
+  the budget with `bench attempt`, evaluates the preserved attempts
+  with `bench evaluate` (guards + the API judge), and hands over the
+  results with the `bench changes` commit plan. Use when the user says
+  "run the benchmark / measure model X / evaluate the models / a new
+  model came out / re-evaluate", or after bench-create-task when tasks
+  are ready. Instance readiness is bench-status; what the numbers mean
+  is bench-analysis.
 ---
 
-# bench-evaluate — the measurement loop
+# bench-evaluate — run and evaluate
 
-The second of the benchmark's three concepts:
+The second of three skills: create task (bench-create-task) →
+**evaluate** (this one) → analysis (bench-analysis).
 
-1. **create task**: what we measure (bench-create-task);
-2. **evaluate**: run models on it and judge the attempts (this skill);
-3. **analysis**: what the results mean (bench-analysis).
-
-The procedures live next to this file:
-
-| Need | Procedure |
-|---|---|
-| Fresh instance, `bench doctor` red, keys or base repos missing | the **bench-status** skill |
-| Changing models / judge on an instance with results; publication | [WIRING.md](WIRING.md) (PR template [WIRING_PR_TEMPLATE.md](WIRING_PR_TEMPLATE.md)) |
-| Judge one preserved attempt with tools (one subagent per attempt) | [RATE_ATTEMPT.md](RATE_ATTEMPT.md) |
-| Verdicts on similar diffs look unstable, or choosing a judge model | [JUDGE_DIAGNOSTICS.md](JUDGE_DIAGNOSTICS.md) |
-
-You are the operator's hands for a matrix run. The user's surface is
-consent, the config, and git — **never `bench …` commands**: you run
-the runner yourself (from the instance root:
-`node --experimental-strip-types .bench-kit/runner/src/index.ts
-<command>`, hereafter `bench <command>`; one-time prerequisite
-`npm ci --prefix .bench-kit/runner`).
-
-**The deliverable of a run is a pass rate with an interval, per
-(task × model) — not a median score.** Everything below is ordered by
-that: how many trials a cell needs, when to stop buying them, and what
-the handover is allowed to claim. A median says how good a *successful*
-attempt was; a pass rate says how often you get one. Only the second
-one routes work, and it is the number the smallest samples get most
-wrong.
-
-The loop you own end to end:
+Everything here is a runner command; you run them yourself, never hand
+them to the user. `bench <command>` means `node --experimental-strip-types
+.bench-kit/runner/src/index.ts <command>` from the instance root
+(one-time: `npm ci --prefix .bench-kit/runner`).
 
 ```
-scope matrix → project cost vs budget → bench attempt (preserved
-attempts, detached) → bench status → evaluation of what is done
-(rate-attempt / API judge) → results table → user commits results/
+preflight → scope + cost → bench attempt (detached) → bench evaluate → hand over
 ```
-
-The loop is non-blocking by construction: attempts are claimed on
-disk (`running.json`) before their container starts, so several
-`bench attempt` processes — one per model, one in the background, one
-on another machine sharing the tree through git — top up the same
-matrix without coordination, and evaluation picks up whatever has
-finished. `bench status` is the tracker: it reads `attempts/` and
-`results/` and shows per cell what is preserved, running, stale, and
-evaluated.
 
 ## Hard rules
 
-1. **Reliability is the unit; cost is a tiebreaker.** Never rank or
-   recommend models by median score or by price across cells whose
-   pass-rate intervals do not overlap. A cheaper model that fails more
-   often is not "cheaper per result" in any sense the operator can
-   act on until you have priced the retry AND the review of the
-   failures (see rule 11). State every pass rate as `k/n` with its
-   95% interval, never as a bare percentage.
-2. **Validate before you spend.** `bench validate` must be green before
-   the first attempt of a session — a broken instance burns provider
-   money on trials that cannot be evaluated.
-3. **Budget instead of a consent ritual.** `defaults.max_cost_usd` caps
-   the WHOLE matrix run; `bench attempt` projects the cost from
-   `results/` history before starting and stops commissioning trials
-   past the ceiling. Do not ask permission per launch — ask only when
-   the projection exceeds the budget (options: narrow the matrix, or
-   the user raises the budget) and report the actual cost afterwards.
-4. **Preserved attempts are sacred.** Top-up is the default (existing
-   attempts count toward `--trials`); `--force` re-runs set the old
-   attempt aside (`trial-N.superseded-*`) and need a stated reason.
-   Never delete anything under `attempts/`.
-5. **Failures are triaged, not re-bought.** An attempt flagged
-   `infra_failure` / `resource_kill` / `provider_error` (after its
-   built-in retry) is a diagnosis first (`agent.log`,
-   `container.log`, `signal.json`), a re-run second — a blind re-run
-   repeats the same failure and the same invoice. Surprising *scores*
-   go to bench-analysis's EXPLAIN.md, not to another run.
-6. **You never commit or push.** Results land in
-   `results/<task>/<model>/trial-N/` — reviewing and committing them
-   is the user's move, and only committed results feed the leaderboard.
-7. **Do not touch scoring while measuring.** No edits to tasks,
-   rubrics, weights, or the config mid-run — that would fork the era
-   between trials of the same run. Config changes go through
-   WIRING.md, rubric edits through bench-create-task's RUBRIC_AUTHORING.md
-   (version bump + re-evaluation) — before or after a measurement.
-   `bench status` treats an evaluation from another era (a changed
-   task, rubric version, judge, judge path (`judge.mode`), pass
-   threshold or scoring version) as not evaluated and prints the
-   reason, so a rubric bump shows up as re-evaluation work
-   instead of passing silently as "all evaluated".
-8. **Long runs are detached, never awaited in the foreground.** A
-   matrix run is hours of mostly waiting on provider APIs; start it
-   detached (a `tmux` session or `nohup … > <log> &`) and wait with
-   `bench status --wait` (add `--until-evaluated` to also wait for
-   evaluations, `--timeout <s>` to cap it; exit 124 on timeout),
-   right after the launch: the run's own marker covers image
-   preparation, before any trial has started. Keep each blocking
-   call under your tool's time limit and re-issue it on exit 124. Never write
-   your own waiter (`pgrep -f` loops match their own shell and never
-   end), never sit blocking on the runner's stdout,
-   and never re-launch a cell that `bench status` shows as running —
-   the marker exists precisely so a second launch skips it.
-9. **Evaluate where the workspace lives.** Attempt metadata travels
-   through git; `workspace/` does not. rate-attempt (and `bench
-   shell`) run on the machine that executed the attempt.
-
-10. **A cell with fewer than 3 trials makes no reliability claim.**
-   Report it as measured-but-unresolved and say so in the handover: at
-   n=2 a perfect cell and a coin flip are the same evidence. This is a
-   reporting rule, not a spending mandate — an expensive model may
-   legitimately stop at n=2 (the existence proof in step 3), but then
-   the conclusion stops there too.
-
-11. **Price the failures, not just the trials.** Expected cost per
-   acceptable result (`cost ÷ pass rate`) assumes a retry costs only
-   tokens. Before handing that number over, check how a failure
-   *presents*: if the execution guards are green on it, the cost of
-   catching it lands on human review and the arithmetic understates
-   the true price. Say which of the two worlds the run is in — it
-   routinely flips the recommendation.
+1. **Budget, not consent.** `defaults.max_cost_usd` caps the whole run;
+   `bench attempt` projects the cost before it starts and stops
+   commissioning past the ceiling. Ask the user only when the
+   projection exceeds the budget (narrow the matrix or raise the
+   budget). Report the actual cost afterwards.
+2. **Preserved attempts are sacred.** Never delete anything under
+   `attempts/`. Top-up is the default: existing trials count toward
+   `--trials`. `--force` needs a stated reason.
+3. **Fix the cause, don't buy the failure again.** An attempt flagged
+   `infra_failure` / `resource_kill` / `provider_error` gets a look at
+   its `agent.log` and `container.log` before any re-run.
+4. **No scoring edits mid-run.** Tasks, rubrics, weights and
+   `bench.config.yaml` change before or after a run, never between its
+   trials. A rubric edit bumps its `version`, then `bench evaluate`
+   re-judges the preserved attempts; it never re-runs them.
+5. **Zero git.** Results land in `results/`; the user commits them.
 
 ## Procedure
 
-### 0. Preflight
+### 1. Preflight
 
-`bench doctor` and `bench validate`. Green means go on to step 1. Red
-(no engine, missing keys, a placeholder or unreachable base repo) means
-the bench-status skill first; the user's surface there is config,
-environment and git. An instance without tasks has nothing to measure —
-route to bench-create-task.
+- `bench doctor` and `bench validate`. Red → the bench-status skill.
+- **New tasks** (`ready` in `bench backlog`, no attempts yet):
+  `bench validate --assert --tasks <new tasks>`. One container pass, no
+  model: repo guards must be green on the pin, `tests/<task>-pr` red.
+  A task that fails stays out of the matrix; paste its output in the
+  handover. A `-pr` guard that's green on the pin measures nothing; one
+  that crashes needs a different install or test command
+  (bench-create-task, BUILD.md step 2).
 
-### 1. Scope
+### 2. Scope and cost
 
-Establish the matrix from the request and the instance state: which
-models (`defaults.models` unless the user names others; the id's
-prefix is the harness, so `claude-code:X` and `codex:X` are separate
-contestants from `X` in OpenCode, and a comparison across prefixes
-measures the tool, not just the model), which tasks
-(all of `tasks/` unless narrowed), how many trials
-(`defaults.trials`) — and treat that trial count as a **floor set by
-the reliability you need to claim**, not as the scope. If the run is
-meant to answer "which model do we route this to", a matrix of n=2
-cells cannot answer it at any budget; say that at scoping time rather
-than at handover. Check what already exists — `bench attempt` will
-top up, so tell the user upfront which cells are already covered.
-Gate: `bench validate` (rule 2); doctor first if the environment looks
-cold (engine down, keys missing).
+Models: `defaults.models` unless the user names others (a model id's
+prefix is its harness, so `claude-code:X` and `X` are separate
+contestants). Tasks: all of `tasks/` unless narrowed. Trials:
+`defaults.trials`. A new model is just `--models <new>`: the same
+tasks, only its cells get filled.
 
-### 2. Projection and consent
+`bench status` shows what's preserved, running and missing. The
+projection printed by `bench attempt` is what you'll pay; over budget,
+stop and ask (rule 1).
 
-Run `bench status` first: it shows what is already preserved, what
-another process is still running, and how many trials each cell is
-missing — that is the scope you will actually pay for. Then run
-`bench attempt` — it prints the projection before executing. If
-the projection exceeds the budget, stop at the printed warning and put
-the decision to the user (rule 3). Cells without cost history (first
-measurement of a pair) are flagged in the projection as unknown — say
-so rather than pretending precision.
+### 3. Run
 
-### 3. Execute
+```
+nohup bench attempt --tasks … --models … [--trials n] [--parallel n] > <log> 2>&1 &
+bench status --wait [--timeout <s>]
+```
 
-`bench attempt --tasks … --models … [--trials n] [--parallel n]`,
-detached (rule 8); a matrix can be split into several processes
-(e.g. one per model) — they will not collide. Progress: `bench
-status` (running cells with elapsed time, preserved counts) plus the
-runner log of each process; after the run summarize per cell:
-completed / timeout / failed, with cost so far. A cell `bench status`
-marks as STALE (a marker older than timeout + 15 min) means a runner
-process died — diagnose the log before re-launching; the next
-`bench attempt` sets the partial directory aside as
-`trial-N.aborted-*` and redoes the trial. **A task's first measurement
-is its rubric's calibration**: flag the tasks measured for the first
-time — their build report names the criterion to spot-check first —
-and read 2–3 of their `patch.diff`s against the verdicts before
-treating the numbers as settled. A disagreement is a rubric edit
-(RUBRIC_AUTHORING.md, version bump if results were written) followed by
-re-evaluation of the preserved attempts, never a re-run.
-
-**Spend trials where they buy information.** `defaults.trials` is a
-floor, not a quota to apply evenly. Trial cost across models of one
-matrix differs by one to two orders of magnitude, and the number the
-decision rests on — the pass rate — needs samples:
-
-- **Cheap models deserve more.** At cents per trial, going from 2 to 5
-  or 8 trials costs less than one trial of the expensive model and
-  turns "it passed twice" into a usable failure rate. `bench attempt`
-  tops up, so this is a second invocation with a higher `--trials`,
-  not a fresh matrix.
-- **Expensive models deserve an existence proof, then an exit.** Once
-  a model has failed every trial it has been given and its per-trial
-  cost dominates the budget, further trials buy precision about a
-  model already out of contention. Stop, and say that it stopped for
-  economic reasons rather than reporting it as fully measured.
-- **"Both pass everything" at n=2 is not a tie — it is two unmeasured
-  cells.** Two-for-two gives a 95% interval of roughly 0.34–1.00: it
-  cannot distinguish a model that always works from one that works two
-  times in three. Resolving such a pair on price is the single most
-  common way this skill produces a wrong recommendation. Buy trials
-  until the intervals separate, or hand over the tie *as a tie* with
-  both intervals printed. Price decides only between cells whose
-  reliability is genuinely comparable.
-- **Keep the sample symmetric enough to compare.** Topping up only the
-  cheap side is the natural move (it is affordable) and it quietly
-  produces a well-measured cheap model against a barely-measured
-  expensive one — an asymmetry that flatters whichever side has fewer
-  trials, because small samples cannot show failures. If you top up
-  one side, say so explicitly in the handover and name what the
-  comparison therefore cannot support.
-
-Say which split you used and why — an even matrix in which no cell has
-enough trials to act on is a worse use of the same ceiling.
+Always detached; re-issue `bench status --wait` on exit 124 (timeout).
+Several processes (one per model, another machine) can fill the same
+matrix: each attempt is claimed on disk before it starts. A cell marked
+STALE means a runner process died; read its log, then the next
+`bench attempt` redoes that trial.
 
 ### 4. Evaluate
 
-Evaluate what `bench status` shows as preserved without a fresh
-evaluation — this can start while other cells are still running.
+`bench evaluate`: guards in a container, then the API judge on the
+diff, results written to `results/<task>/<model>/trial-N/`. It can run
+while other cells are still going. Pass is a gate: every guard with
+weight > 0 green **and** the judge ≥ `pass_threshold`.
 
-The instance's evaluation path is `judge.mode` in `bench.config.yaml`:
-`agent` (the default) or `api`. It is part of the current era —
-results judged on the other path show in `bench status` as stale
-("ścieżka oceny X→Y").
-
-- **Default (real tasks, `judge.mode: agent`): rate-attempt per
-  attempt.** This is the judge with tools. Launch one subagent per attempt with
-  RATE_ATTEMPT.md as its procedure; verdicts stay independent. It runs
-  the guards (`bench evaluate --skip-judge`), investigates the preserved
-  workspace in a container (`bench shell`), and folds its verdict via
-  `bench evaluate --verdict <file> --judge-mode agent --judge-model <id>`.
-- **Smoke / demo / explicitly cheap runs, or an instance on
-  `judge.mode: api`:** plain `bench evaluate` (the API judge on the
-  diff). A bulk `bench evaluate` skips results already judged by an
-  agent or a human — it never overwrites them unless given
-  `--overwrite-judged`, which is a deliberate era change, not a
-  shortcut. An invalid API-judge verdict is an evaluation error (no
-  result written, the raw response in the attempt's `judge.json`), not
-  a model failure — fix the cause and re-evaluate.
-
-The two paths are separate eras by construction (`judge_mode` is part of
-the stamps), so they never mix in a table. Still say which one produced
-the numbers you hand over. Pass is a gate: every guard with weight > 0
-green **and** the judge ≥ `pass_threshold`. A red guard is a fail
-however good the verdict.
-
-Skipped attempts (infra flags) are listed with their reason — rule 5.
-
-### A new model came out
-
-This is the benchmark's recurring job, and the cheapest one to run:
-
-1. Add the model id to the run's `--models` (and to `defaults.models`
-   through the wiring PR of WIRING.md, if it should stay).
-2. `bench attempt --models <new>`. It runs every task and tops up only
-   that model's cells; existing models' preserved attempts are untouched.
-3. Evaluate its attempts on the same judge path as the incumbents
-   (same era), then hand over to **bench-analysis**. Its paired comparison
-   is on shared tasks, so the new model is compared with the incumbent
-   on exactly the work the incumbent was measured on.
-
-The question to answer is "does it beat what we route this class to
-today, by a margin these tasks can resolve?", not "where does it
-rank". `bench backlog` shows the resolution per class before you spend.
+On a task's first run, read 2–3 `patch.diff`s against their verdicts.
+A rubric that ranks them wrong is a rubric fix (rule 4). A guard no
+model ever turns green is flagged as a possible task fault, not
+reported as a model result.
 
 ### 5. Hand over
 
-Close with:
-
-- **a reliability table first**: task × model → `k/n` passes, pass rate
-  with its 95% interval, cost per trial, cost per acceptable result —
-  ordered by reliability, with cost as a column rather than a ranking
-  key. The per-trial detail (guards, judge, total, cost, duration)
-  goes below it, not above; `bench report --run results/` gives the
-  aggregate when the run spans many cells. Never lead with a median:
-  it is the answer to a question nobody is routing work on.
-- **what a failure looks like**, for every model that failed at least
-  once: whether the execution guards caught it or it shipped green
-  (rule 11). A failure mode that passes lint, types, build and the
-  suite is a review cost, and it belongs next to the price, not in a
-  footnote;
-- **the commit plan from `bench changes`**, not a flat list of
-  `results/…` paths. It splits the uncommitted tree by intent: new
-  evaluations and re-evaluations per task, attempt metadata with them,
-  and anything that closes an era (a rubric bump with its re-evaluated
-  results, a config change to the judge or limits) marked for a PR. The
-  user reviews and commits each group; the leaderboard workflow
-  rebuilds on push. A blocked group (for example a rubric edited
-  without a version bump while results carry that version) is yours to
-  resolve before handing over, never the user's to discover;
-- actual spend vs budget, and how each harness's cost was produced. OpenCode
-  and Claude Code (native) report their own cost. Codex and Claude Code
-  through OpenRouter are priced from tokens at list rates
-  (`metrics.json` → `cost_source`). Comparing those two kinds of cost is
-  close but not exact; say so whenever a recommendation rests on a price
-  gap across harnesses;
-- **which guard components discriminated nothing**, if any — a
-  component scoring identically across every attempt of the run told
-  you nothing at its weight, and that is a finding about the task
-  (BUILD.md rule 10), not about the models;
-- **which comparisons this sample cannot support** — name them. Cells
-  under 3 trials (rule 10), pairs whose intervals overlap, and any
-  side of the matrix that got fewer trials than the other. This is the
-  part an operator cannot reconstruct from the numbers and the part
-  they will otherwise assume away;
-- next step: **bench-analysis** when the question behind the run was
-  "which model do we use for this work" — it computes the economics
-  deterministically (cost per acceptable result, ties reported as
-  ties) and renders the one-page verdict; bench-analysis's EXPLAIN.md for
-  surprises; JUDGE_DIAGNOSTICS.md if judge verdicts on similar diffs look
-  unstable (it calibrates on the attempts just preserved); more trials
-  on the cheap models when a pass rate is still thin (step 3); or
-  nothing — a clean measurement is a finished job.
+- `bench status`: per task × model, passes `k/n` and cost.
+- Actual spend vs budget.
+- Attempts skipped for infra reasons, with the reason.
+- Tasks kept out by the preflight, with the pasted output.
+- `bench changes`: paste its commit plan.
+- Next step: **bench-analysis** for what the numbers mean.

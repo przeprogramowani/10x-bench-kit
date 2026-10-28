@@ -35,9 +35,9 @@ workspace'ie bez resetu, więc pozostawione testy PR-a zobaczyłby
 następny guard (np. suita repo); z tego samego powodu
 `tests/<zadanie>-pr` stoi **ostatni** w `evaluation[]`. Warunki
 dopuszczenia: testy dotykają wyłącznie interfejsu istniejącego na pinie albo nazw
-podanych dosłownie w prompcie; czerwone na pinie z właściwego powodu
-(asercje zmiany, nie crash ani brak modułu); zielone z kodem zmiany.
-Wzorzec: TASK_AUTHORING.md → "Mined orders".
+podanych dosłownie w prompcie. Czerwień na pinie sprawdza
+`bench validate --assert` w bench-evaluate przed pierwszą próbą.
+Wzorzec: bench-create-task → BUILD.md, krok 2.
 
 ## Konwencje
 

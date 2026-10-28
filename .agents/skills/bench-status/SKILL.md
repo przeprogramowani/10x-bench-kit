@@ -124,7 +124,7 @@ Gaps:
 
 ### 3. Models and judge — confirm once
 
-Show the current `defaults.models`, `judge.model`, `judge.mode`,
+Show the current `defaults.models`, `judge.model`,
 `defaults.trials` and `defaults.max_cost_usd` in one short block and
 ask whether they answer the user's question. Keep the defaults unless
 the user says otherwise. Guidance when they do:
@@ -138,9 +138,8 @@ the user says otherwise. Guidance when they do:
   catalog by `bench validate`; a model without a price needs
   `pricing["<id>"]`.
 - **Judge**: strong, stable, a different provider family than every
-  model under test (validate warns otherwise). Changing the judge, its
-  path (`agent` = judge with tools per attempt, the default; `api` =
-  cheaper, diff only), the pass threshold or a rubric version closes a
+  model under test (validate warns otherwise). Changing the judge, the
+  pass threshold or a rubric version closes a
   comparability era — cheap to redo (re-evaluate preserved attempts),
   but do it before results pile up.
 - **Budget** (`defaults.max_cost_usd`) caps a whole matrix run; raising
@@ -160,7 +159,7 @@ precondition for any spend.
 | State | Next step |
 |---|---|
 | Anything MISSING in steps 1–4 | The user's fix list; nothing else until it is green |
-| No tasks, no backlog | **bench-create-task** — the user names a merged PR, or a subagent proposes 3–5 from the last quarter; interview for work without history |
+| No tasks, no backlog | **bench-create-task** — the user names a merged PR, or a subagent proposes 3–5 from the last quarter |
 | Orders in `tasks/backlog.md` not built | **bench-create-task** — build the pending backlog |
 | Tasks built, cells missing trials | **bench-evaluate** — run the matrix within budget |
 | Preserved attempts not evaluated / stale era | **bench-evaluate** — evaluate |
@@ -184,7 +183,7 @@ status` (no extra checks):
   classes; backlog orders still pending.
 - **On which models** — each `defaults.models` id with its harness
   (OpenCode / Claude Code / Codex) and route (direct / OpenRouter).
-- **How we judge** — `judge.model`, `judge.mode`,
+- **How we judge** — `judge.model`,
   `defaults.pass_threshold` (0.7 when absent).
 - **Run shape** — `defaults.trials`, `defaults.max_cost_usd`,
   `defaults.parallel`, `resources.memory_mb`.

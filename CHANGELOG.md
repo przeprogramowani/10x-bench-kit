@@ -6,6 +6,45 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.36.0 — 2026-10-28 [scoring-breaking]
+
+**Budowa zadania jest statyczna, a ocena to komendy runnera.** Dwa skille
+uproszczone do ścieżki, która daje większość wartości.
+
+#### bench-create-task
+
+- Budowa kończy się na plikach zadania, rubryce, raporcie i zielonym
+  `bench validate`. Bez `bench assert`, `bench judge`, smoke runu,
+  bramki partii, pustych/probe diffów i celowych złamań.
+- Jedynym źródłem zadań są zmergowane PR-y z testami. Usunięte:
+  `TASK_AUTHORING.md` (scalony w krótki `BUILD.md`), `INTERVIEW.md`,
+  `REFRESH.md`, `REFRESH_PR_TEMPLATE.md`; nowe zadania bez overlayów
+  i bez `expires`.
+- `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` i `MINING.md` skrócone.
+- Runner: `bench backlog` nie ma etapu `built` (`ready` = jest
+  `task.yaml`), `bench changes` nie wymaga sekcji „Batch gate”.
+
+#### bench-evaluate
+
+- Przed pierwszą próbą nowego zadania jeden
+  `bench validate --assert --tasks <nowe>` (guardy repo zielone,
+  `tests/<zadanie>-pr` czerwony); zadanie czerwone nie wchodzi do
+  macierzy.
+- Ocena to `bench evaluate` (guardy + sędzia API na diffie). Usunięte:
+  `RATE_ATTEMPT.md` (sędzia-agent per próba), `JUDGE_DIAGNOSTICS.md`,
+  `WIRING.md`, `WIRING_PR_TEMPLATE.md`. Strategia prób i interpretacja
+  wyników należą do bench-analysis.
+
+#### Dlaczego `[scoring-breaking]`
+
+Domyślne `judge.mode` w schemacie i w `bench.config.yaml` to teraz
+`api` (było `agent`). Ścieżka oceny jest częścią ery, więc wyniki
+ocenione sędzią-agentem pokażą się jako nieświeże („ścieżka oceny
+agent→api”). **Migracja:** re-ocena zachowanych prób `bench evaluate
+--overwrite-judged` (bez nowego biegu) albo jawne `judge.mode: agent`
+w `bench.config.yaml`, żeby zostać w starej erze. Runner nadal
+przyjmuje werdykty z pliku (`--verdict --judge-mode agent|human`).
+
 ## 0.35.1 — 2026-10-28 (neutralny)
 
 **bench-status raportuje na bieżąco.** Każde sprawdzenie (doctor, repo
