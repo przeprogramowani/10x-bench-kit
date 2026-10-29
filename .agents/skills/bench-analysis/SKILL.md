@@ -9,12 +9,11 @@ description: >-
   per task: pass rate with interval, pass^k, cost per acceptable
   result, review burden, excluded attempts; across tasks: class × model
   (tasks as the unit), paired comparisons on shared tasks (sign test),
-  how big a difference the task set can resolve, and the time horizon
-  ("reliably handles N-minute tasks"). Renders a one-page HTML verdict
-  and a short narrative; explains surprising results from preserved
-  attempts (EXPLAIN.md). Use after bench-evaluate, when a new model is
-  compared with the incumbent, or when the user asks "analyse the
-  results / summarize / what do we use / why did X fail".
+  and how big a difference the task set can resolve. Renders a one-page
+  HTML verdict and a short narrative; explains surprising results from
+  preserved attempts (EXPLAIN.md). Use after bench-evaluate, when a new
+  model is compared with the incumbent, or when the user asks "analyse
+  the results / summarize / what do we use / why did X fail".
 ---
 
 # bench-analysis — the one-peek answer
@@ -97,7 +96,7 @@ as a large one.
    that goes into the narrative.
 10. **Anchors are not decisions.** Tasks in class `anchor` (mined from
     public repos, MINING.md) check the setup against published numbers.
-    `summarize.mjs` keeps them out of `paired`, `horizons` and `power`
+    `summarize.mjs` keeps them out of `paired` and `power`
     and reports them in a separate `anchors` block (`classes` still
     lists the anchor class). Report them apart; never route work on
     them.
@@ -170,16 +169,11 @@ resolve it; `cheapest_in_tie` is context, never the pick.
 - `paired`: every model pair on shared tasks, overall and per class,
   with wins/ties/losses, mean difference, sign-test p and `resolved`;
 - `power`: what the task set can resolve and what a smaller gap needs;
-- `horizons`: per model, the human-minutes length of task it passes
-  50% / 80% of the time. It is fitted from each order's **Human time**,
-  needs ≥5 tasks spanning ≥4×, and is otherwise null with a reason.
-  `horizons[model].estimated_share` is the share of those tasks whose
-  Human time is estimated rather than confirmed;
 - `anchors`: the `anchor`-class tasks (rule 10), reported per model on
-  their own — excluded from `paired`, `horizons` and `power`, so a
+  their own — excluded from `paired` and `power`, so a
   public-repo task never moves a routing comparison.
 
-Class and Human time come from `tasks/backlog.md`.
+Class comes from `tasks/backlog.md`.
 
 ### 3. Ask for the header
 
@@ -225,11 +219,6 @@ say. Keep it to a few lines and include, when true:
   result. It is a *class* decision only when the class view says
   `class` and the paired comparison is `resolved`; otherwise it is a
   per-task observation, and you say so;
-- **the horizon**, when computed: "X reliably (80%) handles tasks of
-  about N developer-minutes here". This is the sentence an engineering
-  leader repeats upward, so give it only when it was computed — and
-  when Human time is mostly estimated (`estimated_share`), say so in
-  the same sentence: the horizon is then measured in estimated minutes;
 - **the anchors**, when any exist: whether the instance's numbers on
   them sit near the published ones. A wild divergence points at the
   setup (harness, judge) before the models;

@@ -82,8 +82,7 @@ Record it in **Coupled names** and **Hidden tests**.
 One entry per candidate, per BACKLOG_TEMPLATE.md.
 
 - **From history:** Source, Pin, Reference, Hidden tests, Coupled
-  names. Human time: for a merge commit, the PR branch's span combined
-  with the diff size, marked `estimated`.
+  names.
 - **Proposed by you:** Guidance level (a symptom-only issue reads as
   product-level, a PR naming the module as directional), Time limit,
   Evaluation axis (what reviewers asked for or pushed back on),

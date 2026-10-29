@@ -129,28 +129,15 @@ test("analytics: test znaków dokładny, pass^k, bootstrap deterministyczny", as
   assert.deepEqual(bootstrapMean([1, 0, 1, 1, 0.5]), bootstrapMean([1, 0, 1, 1, 0.5]));
 });
 
-test("analytics: horyzont bez ekstrapolacji poza obserwowany zakres", async () => {
-  const { timeHorizon } = await skill("bench-analysis/analytics.mjs");
-  const graded = [];
-  [5, 10, 20, 40, 80, 160].forEach((m, i) => { for (let t = 0; t < 4; t++) graded.push({ task: `t${i}`, minutes: m, passed: t < [4, 4, 3, 2, 1, 0][i] }); });
-  const h = timeHorizon(graded);
-  assert.ok(h.horizon50_min > 20 && h.horizon50_min < 80, JSON.stringify(h));
-  const allFail = [];
-  [5, 10, 20, 40, 60].forEach((m, i) => { for (let t = 0; t < 3; t++) allFail.push({ task: `t${i}`, minutes: m, passed: false }); });
-  const f = timeHorizon(allFail);
-  assert.equal(f.horizon50_min, null);
-  assert.equal(f.horizon50_bound, "<5");
-});
-
-test("analytics: parser backlogu zgodny z runnerem (pierwsze wystąpienie, kontynuacje, zakresy)", async () => {
+test("analytics: parser backlogu zgodny z runnerem (pierwsze wystąpienie, kontynuacje, nieznane pola)", async () => {
   const { parseBacklogMeta } = await skill("bench-analysis/analytics.mjs");
   const meta = parseBacklogMeta(
     "## a\n- **Class**: feature\n- **Class**: anchor\n- **Human time**: ~45-60 min (estimated)\n\n" +
-      "## b\n- **Class**:\n  bugfix — scoped\n- **Human time**: 1,5 h (unconfirmed)\n\n## c\n- **Human time**: 30 min (confirmed)\n",
+      "## b\n- **Class**:\n  bugfix — scoped\n\n## c\n- **Time limit**: 30 min\n",
   );
-  assert.deepEqual(meta.get("a"), { class: "feature", human_minutes: 52.5, human_estimated: true });
-  assert.deepEqual(meta.get("b"), { class: "bugfix", human_minutes: 90, human_estimated: true });
-  assert.equal(meta.get("c").human_estimated, false);
+  assert.deepEqual(meta.get("a"), { class: "feature" });
+  assert.deepEqual(meta.get("b"), { class: "bugfix" });
+  assert.deepEqual(meta.get("c"), { class: null });
 });
 
 test("attempt path: surowe id modelu → katalog komórki; brak → lista istniejących prób", async () => {
