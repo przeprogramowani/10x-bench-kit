@@ -75,6 +75,12 @@ export const AttemptSchema = z.object({
   infra_failure: z.boolean(),
   provider_error: z.boolean(),
   resource_kill: z.boolean(),
+  /**
+   * Próba zatrzymana na żądanie (stop.json: budżet supervisora `bench run`,
+   * `bench run cancel`) — artefakty częściowe zachowane, infra_failure
+   * true (bez oceny). null / brak pola = nie zatrzymywana.
+   */
+  stopped: z.object({ reason: z.string(), requested_at: z.string(), by: z.string() }).nullable().optional(),
   /** Liczba podejść (retry przy awarii providera / kill'u sygnałem). */
   attempts: z.number().int().positive(),
   execution: ExecutionSchema.nullable(),

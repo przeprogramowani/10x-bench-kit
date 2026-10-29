@@ -12,6 +12,7 @@ import type { BenchConfig } from "../schemas/config.ts";
 import { hashTaskDir, rubricVersionStamp } from "./era.ts";
 import { loadTask } from "./instance.ts";
 import { sanitize } from "./prepare.ts";
+import { EVALUATING_FILE, heartbeatAgeS, readProgress, type Progress } from "./progress.ts";
 
 export interface TrialState {
   trial: number;
@@ -23,6 +24,14 @@ export interface TrialState {
   /** Dlaczego ocena jest nieświeża — puste dla fresh / braku oceny. */
   stale_reasons: string[];
   total: number | null;
+  /** Ocena w toku (żywy evaluating.json — `bench evaluate` właśnie ocenia tę próbę). */
+  evaluating: boolean;
+  /** Puls próby w toku (progress.json od `bench attempt`); null = brak pulsu. */
+  progress: Progress | null;
+  /** Wiek pulsu z kontenera w sekundach — duży przy próbie "w toku" = coś utknęło. */
+  heartbeat_age_s: number | null;
+  /** Dlaczego próba jest infra: "zatrzymana: <powód>" / "kill sygnałem" / "awaria infrastruktury". */
+  infra_reason: string | null;
 }
 
 export interface CellStatus {
@@ -207,6 +216,8 @@ export function cellStatus(root: string, task: string, model: string, target: nu
         const metrics = readJson(join(dir, "metrics.json"));
         const result = readJson(join(resultsCell, name, "result.json"));
         const reasons = result ? staleReasons((result.stamps ?? {}) as Record<string, unknown>, era) : [];
+        const stopped = attempt.stopped as { reason?: unknown } | null | undefined;
+        const evaluating = existsSync(join(dir, EVALUATING_FILE)) && runningMarkerState(readJson(join(dir, EVALUATING_FILE))) === "running";
         trials.push({
           trial,
           state: attempt.infra_failure === true ? "infra" : "done",
@@ -215,9 +226,21 @@ export function cellStatus(root: string, task: string, model: string, target: nu
           evaluated: result ? (reasons.length === 0 ? "fresh" : "old") : null,
           stale_reasons: reasons,
           total: typeof result?.total === "number" ? result.total : null,
+          evaluating,
+          progress: null,
+          heartbeat_age_s: null,
+          infra_reason:
+            attempt.infra_failure !== true
+              ? null
+              : stopped
+                ? `zatrzymana: ${String(stopped.reason ?? "?")}`
+                : attempt.resource_kill === true
+                  ? "kill sygnałem"
+                  : "awaria infrastruktury",
         });
       } else if (existsSync(join(dir, "running.json"))) {
         const marker = readJson(join(dir, "running.json"));
+        const progress = readProgress(dir);
         trials.push({
           trial,
           state: runningMarkerState(marker),
@@ -226,6 +249,10 @@ export function cellStatus(root: string, task: string, model: string, target: nu
           evaluated: null,
           stale_reasons: [],
           total: null,
+          evaluating: false,
+          progress,
+          heartbeat_age_s: heartbeatAgeS(dir),
+          infra_reason: null,
         });
       }
     }

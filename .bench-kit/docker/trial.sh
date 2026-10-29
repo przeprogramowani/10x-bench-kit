@@ -40,13 +40,31 @@ find . -maxdepth 3 \( -name node_modules -o -name .git \) -prune -o -type f \
 # zdarzenia i transkrypt do tej chwili (SIGTERM gubi bufor stdout Claude
 # Code), więc adapter odtworzy tokeny także z próby po timeoucie.
 # SIGKILL 30 s po sygnale, gdy CLI nie zejdzie samo.
+#
+# Agent biegnie w tle, a PID jego `timeout` trafia do /bench/agent.pid:
+# runner zatrzymuje próbę (budżet, `bench run cancel`) przez
+# `<engine> exec <kontener> sh -c 'kill -INT "$(cat /bench/agent.pid)"'` —
+# timeout przekazuje sygnał agentowi, więc zatrzymana próba zostawia
+# transkrypt, patch.diff i metryki jak po timeoucie.
+#
+# Puls (heartbeat.mjs) co HEARTBEAT_S sekund zapisuje heartbeat.json:
+# czas, ostatnią czynność agenta i tokeny/koszt w trakcie — to czyta
+# `bench status` / `bench run status` bez wchodzenia do kontenera.
 start_epoch=$(date +%s)
+HEARTBEAT_S=20
+(
+  while sleep "$HEARTBEAT_S"; do
+    node /bench/heartbeat.mjs "$harness" "$out" "$start_epoch" >/dev/null 2>&1
+  done
+) &
+heartbeat_pid=$!
+agent_pid=""
 case "$harness" in
   opencode)
     timeout --kill-after=15 "$timeout_s" \
       opencode run --model "$model" "$(cat /bench/prompt.md)" \
-      >"$out/agent.log" 2>&1
-    agent_exit=$?
+      </dev/null >"$out/agent.log" 2>&1 &
+    agent_pid=$!
     ;;
   claude-code)
     export CLAUDE_CONFIG_DIR=/bench/claude-home
@@ -74,8 +92,8 @@ case "$harness" in
       claude -p --model "$model" \
       --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
-      </bench/prompt.md >"$out/agent.log" 2>"$out/agent.stderr.log"
-    agent_exit=$?
+      </bench/prompt.md >"$out/agent.log" 2>"$out/agent.stderr.log" &
+    agent_pid=$!
     ;;
   codex)
     export CODEX_HOME=/bench/codex-home
@@ -104,14 +122,22 @@ EOF
       codex exec --json \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
       -C /workspace -m "$model" - \
-      </bench/prompt.md >"$out/agent.log" 2>"$out/agent.stderr.log"
-    agent_exit=$?
+      </bench/prompt.md >"$out/agent.log" 2>"$out/agent.stderr.log" &
+    agent_pid=$!
     ;;
   *)
     echo "bench: nieznany harness \"$harness\" (opencode | claude-code | codex)" >"$out/agent.log"
-    agent_exit=2
     ;;
 esac
+if [ -n "$agent_pid" ]; then
+  echo "$agent_pid" >/bench/agent.pid
+  wait "$agent_pid"
+  agent_exit=$?
+else
+  agent_exit=2
+fi
+kill "$heartbeat_pid" 2>/dev/null
+wait "$heartbeat_pid" 2>/dev/null
 end_epoch=$(date +%s)
 wall_s=$((end_epoch - start_epoch))
 
