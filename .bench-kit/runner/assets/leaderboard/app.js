@@ -85,7 +85,7 @@ const costPerPass = r => (r.passed > 0 && !costUnknown(r)
 
 const TIPS = {
   reliability: "Jak często model kończy zadanie na zaliczeniu. Liczba to udane próby ÷ wszystkie próby. Pasek pokazuje 95% przedział ufności: im mniej prób, tym szerszy. Ranking idzie po LEWYM końcu paska, nie po samej liczbie — dwie próby na dwie udane to jeszcze nie dowód niezawodności.",
-  conservative: "Ostrożna ocena niezawodności: lewy koniec 95% przedziału. Mówi „co najmniej tyle”, więc mała liczba prób sama ją obniża. Dzięki temu „domierz więcej prób” i „model jest gorszy” działają w tym samym kierunku.",
+  conservative: "Jaką część prób model zalicza co najmniej, z marginesem na przypadek. Trzy zaliczone na trzy dają tu 0.44, dziesięć na dziesięć — 0.72. Mało prób obniża wynik, więc jeden udany start nie wygrywa rankingu. Liczba to średnia ze wszystkich zadań.",
   trialsPassed: "Ile POJEDYNCZYCH PRÓB tego modelu na tym zadaniu przeszło próg zaliczenia.",
   tasksPassed: "Ile ZADAŃ (nie prób) model zalicza — zadanie liczy się jako zdane, gdy mediana jego prób sięga progu.",
   costTrial: "Średni koszt jednej próby: tokeny modelu za jedno podejście, niezależnie od tego, czy się udało.",
@@ -141,7 +141,7 @@ function verdictHtml(rows, taskName) {
   return '<div class="verdict' + (caveats.length ? " weak" : "") + '">' +
     '<div class="vlabel">Wniosek — ' + esc(taskName) + '</div>' +
     '<div class="vpick">' + esc(short(pick.model)) + '</div>' +
-    '<div class="vprice">udane ' + pick.passed + ' z ' + pick.trials + ' prób · ostrożna ocena ' +
+    '<div class="vprice">udane ' + pick.passed + ' z ' + pick.trials + ' prób · niezawodność co najmniej ' +
       fmt.score(pick.w.lo) + ' · ' + (cpp === null ? "brak" : fmt.cost(cpp)) + ' za jeden dobry wynik</div>' +
     (tied.length ? '<div class="vwhy">Tej próby nie wystarcza, żeby odróżnić go od: ' +
       tied.map(r => esc(short(r.model))).join(", ") + '.</div>' : "") +
@@ -187,6 +187,64 @@ function tableHtml(rows, threshold) {
     '<p class="note">Wiersze są ułożone od najbardziej do najmniej niezawodnego — po lewym końcu przedziału, nie po ocenie. ' +
     'Koszt decyduje tylko między modelami o praktycznie tej samej niezawodności (różnica < ' + RELIABILITY_TIE.toFixed(2) + '). ' +
     'Najedź na nagłówek kolumny, żeby zobaczyć, co dokładnie liczy.</p>';
+}
+
+// JAK OCENIANE JEST ZADANIE. Jedna karta odpowiada na dwa pytania naraz:
+// "co tu w ogóle sprawdzano" (nagłówki + opisy pod tabelą) i "na czym który
+// model stracił" (komórki). Opisy są na stronie, nie tylko w dymkach — dymek
+// nie działa na telefonie, a bez opisu nazwa kryterium nic nie mówi.
+// Pole evaluation jest opcjonalne: podaje je bench-analysis, leaderboard nie.
+function criteriaHtml(spec, rows) {
+  const gates = spec.gates ?? [];
+  const judge = spec.judge;
+  const crit = judge?.criteria ?? [];
+  if (!gates.length && !crit.length) return "";
+  const sorted = rankRows(rows);
+  const blocking = gates.filter(g => g.gate);
+  const rule = [
+    blocking.length ? (blocking.length === 1 ? "przejdzie bramka" : "przejdą wszystkie bramki") : "",
+    judge ? "sędzia da co najmniej " + fmt.score(judge.threshold) : "",
+  ].filter(Boolean).join(", a ");
+  const pct = w => Math.round(w * 100) + "%";
+
+  const gateCell = g => {
+    const v = g && g.of ? g : null;
+    if (!v) return '<td class="num muted">—</td>';
+    const cls = v.passed === v.of ? " pass" : v.passed === 0 ? " fail" : " partial";
+    return '<td class="num' + cls + '">' + v.passed + " z " + v.of + "</td>";
+  };
+  const critCell = v => v === null || v === undefined
+    ? '<td class="num muted">—</td>'
+    : '<td class="num"><div class="critcell"><span class="minibar"><span style="width:' + (v * 100) + '%"></span></span>' +
+      fmt.score(v) + "</div></td>";
+
+  const head2 = gates.map(g => '<th class="num" ' + tipAttr(g.what) + ">" + esc(g.label) + "</th>").join("") +
+    crit.map(c => '<th class="num" ' + tipAttr(c.full || c.question) + ">" + esc(c.name) +
+      ' <span class="w">' + pct(c.weight) + "</span></th>").join("");
+  const head1 = (gates.length ? '<th class="grp" colspan="' + gates.length + '">Bramki — próby, które przeszły</th>' : "") +
+    (crit.length ? '<th class="grp" colspan="' + crit.length + '">Sędzia — mediana ocen (waga w ocenie)</th>' : "");
+  const body = sorted.map(r => {
+    const b = r.breakdown || {};
+    return "<tr>" +
+      '<td class="model"><span class="swatch" style="background:' + colorOf(r.model) + '"></span>' + esc(short(r.model)) + "</td>" +
+      gates.map(g => gateCell(b.gates?.[g.ref])).join("") +
+      crit.map(c => critCell(b.criteria?.[c.name])).join("") + "</tr>";
+  }).join("");
+
+  const legend = gates.map(g =>
+      "<div><dt>" + esc(g.label) + ' <span class="kind">' + (g.gate ? "bramka" : "tylko do sumy jakości") + "</span></dt>" +
+      "<dd>" + esc(g.what) + "</dd></div>").join("") +
+    crit.map(c =>
+      "<div><dt>" + esc(c.name) + ' <span class="kind">' + pct(c.weight) + " oceny sędziego</span></dt>" +
+      "<dd" + (c.full && c.full !== c.question ? " " + tipAttr(c.full) : "") + ">" + esc(c.question) + "</dd></div>").join("");
+
+  return '<div class="card crit"><h3>Jak oceniane jest to zadanie</h3>' +
+    (rule ? '<p class="crit-rule">Próba jest zaliczona, gdy ' + rule + ". Dobra ocena sędziego nie nadrobi czerwonej bramki.</p>" : "") +
+    "<table><thead><tr><th></th>" + head1 + "</tr><tr><th>Model</th>" + head2 + "</tr></thead><tbody>" + body + "</tbody></table>" +
+    '<dl class="crit-legend">' + legend + "</dl>" +
+    (judge?.ref ? '<p class="note">Rubryka <code>' + esc(judge.ref) + "</code>" + (judge.version ? " v" + esc(judge.version) : "") +
+      ". Pełne brzmienie kryterium po najechaniu na nagłówek.</p>" : "") +
+    "</div>";
 }
 
 // przybliżona szerokość etykiety w jednostkach viewBoxu (font 11px/600)
@@ -398,7 +456,7 @@ function overallHtml() {
     'Średnie nieważone po bieżących erach zadań, więc to orientacja, nie pomiar.</p>' +
     '<div class="card"><table><thead><tr>' +
     '<th>Model</th>' +
-    '<th class="num" ' + tipAttr(TIPS.conservative) + '>Niezawodność — ostrożna ocena <span class="q">?</span></th>' +
+    '<th class="num" ' + tipAttr(TIPS.conservative) + '>Niezawodność (co najmniej) <span class="q">?</span></th>' +
     '<th class="num" ' + tipAttr(TIPS.tasksPassed) + '>Zdane zadania <span class="q">?</span></th>' +
     '<th class="num" ' + tipAttr(TIPS.spend) + '>Koszt prób razem <span class="q">?</span></th>' +
     '<th class="num" ' + tipAttr(TIPS.score) + '>Ocena (średnia median) <span class="q">?</span></th>' +
@@ -438,6 +496,7 @@ function eraHtml(era, threshold, taskName) {
   let html = '<p class="era-meta">' + eraMeta(era.stamps, era.runs) + "</p>" +
     (taskName ? verdictHtml(rows, taskName) : "") +
     '<div class="card">' + tableHtml(rows, threshold) + "</div>" +
+    (era.evaluation ? criteriaHtml(era.evaluation, rows) : "") +
     '<div class="charts"><div class="card"><h3>Niezawodność vs koszt (najświeższy wynik per model)</h3>' + scatterSvg(rows) + "</div>";
   if (era.runs.length >= 2) {
     html += '<div class="card"><h3>Trend median między runami</h3>' + trendSvg(era.runs, threshold) +
