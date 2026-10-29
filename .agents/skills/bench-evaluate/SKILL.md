@@ -128,7 +128,11 @@ green **and** the judge ≥ `pass_threshold`.
 On a task's first run, read 2–3 `patch.diff`s against their verdicts.
 A rubric that ranks them wrong is a rubric fix (rule 4). A guard no
 model ever turns green is flagged as a possible task fault, not
-reported as a model result.
+reported as a model result. So are failures that cluster on one hidden
+case across models in attempts the judge scores high: check the case
+against `prompt.md` and the build report's Guard audit, then fix it per
+bench-create-task BUILD.md, "After the first run" (a pool fix plus
+re-evaluation; a prompt fix needs new attempts).
 
 ### 5. Hand over
 

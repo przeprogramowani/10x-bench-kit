@@ -46,6 +46,14 @@
  * już na pinie — dwie poprawne implementacje przechodzą je tak samo.
  * To heurystyka (wzorce składni, nie parser): "nie wykryto" znaczy
  * "przeczytaj testy", nie "na pewno brak".
+ *
+ * Kształt (shape): dodane linie testów, które przypinają sposób
+ * implementacji referencji, a nie zachowanie — kolejność i liczba wywołań
+ * mocków, dokładny tekst błędu, dokładna treść UI, struktura DOM,
+ * snapshoty. Nazwa może istnieć na pinie, a asercja i tak odrzuci inną
+ * poprawną implementację. Każdy wpis to pytanie do budującego: kontrakt
+ * (prompt podaje to dosłownie) czy przypadek (poluzować / odrzucić) —
+ * MINING.md §3, BUILD.md krok 5. Też heurystyka, linia po linii.
  */
 import { execFileSync, spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
@@ -659,6 +667,7 @@ function describe(sha, meta = null) {
     branch_span_hours: branchSpanHours,
     new_identifiers: null, // liczone w addCoupling — tylko dla kandydatów po tanich wykluczeniach
     coupled: null,
+    shape: null,
     excluded: reasons,
   };
 }
@@ -670,6 +679,7 @@ function describe(sha, meta = null) {
 function addCoupling(c) {
   c.new_identifiers = [];
   c.coupled = [];
+  c.shape = [];
   if (!c.src_files.length || !c.test_files.length) return c;
   // Jeden diff kodu i testów, jedno czytanie obrazów po zmianie.
   const patched = lexAdded(parsePatch(git(...DIFF, c.pin, c.sha, "--", ...c.src_files, ...c.test_files)), c.sha);
@@ -711,8 +721,94 @@ function addCoupling(c) {
     const stem = path.split("/").pop().replace(/\.[^.]+$/, "");
     if (stem.length > 2 && testRaw.includes(stem)) c.coupled.push(`file:${path}`);
   }
+  c.shape = shapeFlags(c, testFiles, srcFiles);
   return c;
 }
+
+// --- kształt: asercje na sposób implementacji, nie na zachowanie ----------------
+// Wzorce na linii `code` (bez komentarzy, z treścią stringów), tylko linie
+// DODANE przez zmianę: przypadki istniejące na pinie przechodzą na pinie.
+// Wyrażenie rozbite na kilka linii umyka — heurystyka, nie parser.
+const SHAPE = [
+  [
+    "call-order",
+    /\b(?:toHaveBeenNthCalledWith|nthCalledWith|toHaveBeenLastCalledWith|lastCalledWith|toHaveBeenCalledBefore|toHaveBeenCalledAfter)\(|\binvocationCallOrder\b|\.calls\b(?!\s*\[)[^;]*\.(?:toEqual|toStrictEqual)\(|\bassert_has_calls\(|\.(?:mock_calls|call_args_list)\s*==|==\s*[\w.]+\.(?:mock_calls|call_args_list)\b/,
+  ],
+  ["call-count", /\b(?:toHaveBeenCalledTimes|toBeCalledTimes)\(\s*[1-9]|\.call_count\s*==\s*[1-9]/],
+  [
+    "exact-error",
+    /\b(?:toThrow|toThrowError)\(\s*['"`]|\.message\s*\)?\s*\.(?:toBe|toEqual|toStrictEqual)\(\s*['"`]|\bpytest\.raises\([^)]*\bmatch\s*=|\bassertRaisesRegexp?\(/,
+  ],
+  [
+    "exact-copy",
+    /\b(?:get|query|find)(?:All)?By(?:Text|LabelText|PlaceholderText|DisplayValue|Title|AltText)\(\s*['"`]|\btoHaveTextContent\(\s*['"`]|\btoHaveAccessibleName\(\s*['"`]|ByRole\([^)]*\bname\s*:\s*['"`]|\.textContent\s*\)?\s*\.(?:toBe|toEqual)\(\s*['"`]/,
+  ],
+  [
+    "dom-structure",
+    /\.(?:querySelector|querySelectorAll|closest)\(|\.(?:parentElement|parentNode|children|childNodes|firstChild|lastChild|firstElementChild|lastElementChild|nextElementSibling|previousElementSibling|innerHTML|outerHTML|className|classList)\b|\b(?:toContainHTML|toHaveClass)\(/,
+  ],
+  [
+    "snapshot",
+    /\b(?:toMatchSnapshot|toMatchInlineSnapshot|toMatchFileSnapshot|toThrowErrorMatchingSnapshot|toThrowErrorMatchingInlineSnapshot)\(|\bsnapshot\s*==|\bassert_match_snapshot\(/,
+  ],
+];
+const SNAPSHOT_FILE = /\.snap$|(^|\/)__snapshots__\//i;
+// Tekst (komunikat błędu, treść UI, selektor) liczy się tylko, gdy WPROWADZIŁ
+// go kod zmiany: literał z pinu to zachowanie pinu, a dane fixture'a testu
+// ('Treść 1', licznik '2') to nie treść implementacji.
+const STRING_LIT = /(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g;
+const literals = (code) => [...code.matchAll(STRING_LIT)].map((m) => m[2]);
+const TEXT_KINDS = new Set(["exact-error", "exact-copy"]);
+const SELECTOR_CALL = /\.(?:querySelector|querySelectorAll)\(/;
+function shapeFlags(c, testFiles, srcFiles) {
+  const out = [];
+  // Fragmenty stringów z dodanych linii kodu, pocięte na wstawkach (`${x}`, `{x}`, %s),
+  // minus te, które plik zmiany miał już na pinie (przeniesiona/przeformatowana linia).
+  let introduced = [
+    ...new Set(
+      srcFiles
+        .flatMap((f) => f.lines.filter((l) => l.added).flatMap((l) => literals(l.code)))
+        .flatMap((t) => t.split(/\$\{[^}]*\}|\{\{?[^}]*\}?\}|%[sdif]/))
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 4 && /\p{L}/u.test(t)),
+    ),
+  ];
+  if (introduced.length) {
+    const atPin = new Set(
+      (tryGit("grep", "-h", "-o", "-I", "-F", ...introduced.flatMap((t) => ["-e", t]), c.pin, "--", ...c.src_files) ?? "")
+        .split("\n")
+        .filter(Boolean),
+    );
+    introduced = introduced.filter((t) => !atPin.has(t));
+  }
+  const srcText = srcFiles.flatMap((f) => f.lines.filter((l) => l.added).map((l) => l.code)).join("\n");
+  const introducedText = (code) =>
+    // Literał testu zawiera wprowadzony fragment, albo (fraza, nie samo słowo
+    // jak 'button') jest jego częścią.
+    literals(code).some((t) => introduced.some((f) => t.includes(f) || (/\s/.test(t.trim()) && f.includes(t.trim()))));
+  const introducedSelector = (code) =>
+    literals(code).some((t) => [...t.matchAll(/[.#]([A-Za-z_][\w-]{2,})|\[([\w-]{3,})/g)].some((m) => wordRe(m[1] ?? m[2]).test(srcText)));
+  for (const path of c.test_files) if (SNAPSHOT_FILE.test(path)) out.push({ kind: "snapshot", path, line: null, text: "plik snapshotu" });
+  for (const f of testFiles) {
+    if (SNAPSHOT_FILE.test(f.path)) continue;
+    for (const l of f.lines) {
+      if (!l.added) continue;
+      for (const [kind, re] of SHAPE) {
+        if (!re.test(l.code)) continue;
+        if (TEXT_KINDS.has(kind) && !introducedText(l.code)) continue;
+        // querySelector po klasie/atrybucie z pinu to stabilny uchwyt; structural (.closest, .children) zostaje zawsze.
+        if (kind === "dom-structure" && SELECTOR_CALL.test(l.code) && !re.test(l.code.replace(/\.querySelector(?:All)?\(/g, "")) && !introducedSelector(l.code)) continue;
+        out.push({ kind, path: f.path, line: l.n, text: l.raw.trim().slice(0, 140) });
+      }
+    }
+  }
+  return out;
+}
+const shapeSummary = (shape) => {
+  const counts = new Map();
+  for (const s of shape) counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
+  return [...counts].map(([k, n]) => `${k} ${n}`).join(", ");
+};
 
 const prLabel = (pr) => (pr === null ? "" : pr.startsWith("!") ? pr : `#${pr}`);
 const NO_COUPLING = "sprzężenia nie wykryto (heurystyka — przeczytaj testy)";
@@ -815,7 +911,7 @@ if (mode === "scan") {
     for (const c of todo) Object.assign(c, bySha[c.sha]);
   }
   if (cachePath !== null && todo.length) {
-    for (const c of todo) cache[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled };
+    for (const c of todo) cache[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled, shape: c.shape };
     try {
       writeFileSync(`${cachePath}.tmp`, JSON.stringify({ version, coupling: cache }));
       renameSync(`${cachePath}.tmp`, cachePath);
@@ -861,14 +957,15 @@ if (mode === "scan") {
         `${c.sha.slice(0, 10)} ${prLabel(c.pr).padEnd(6)} ${c.size} ${String(c.class_hint ?? "?").padEnd(11)} ` +
           `${c.src_files.length} kod / ${c.test_files.length} test  ${c.title.slice(0, 70)}`,
       );
-      console.log(`             ${coupling}${c.excluded.length ? ` | wykluczony: ${c.excluded.join(", ")}` : ""}`);
+      const shape = c.shape?.length ? ` | kształt: ${shapeSummary(c.shape)}` : "";
+      console.log(`             ${coupling}${shape}${c.excluded.length ? ` | wykluczony: ${c.excluded.join(", ")}` : ""}`);
     }
   }
 } else if (mode === "couple") {
   const out = {};
   for (const sha of positional.slice(1)) {
     const c = addCoupling(describe(sha));
-    out[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled };
+    out[c.sha] = { new_identifiers: c.new_identifiers, coupled: c.coupled, shape: c.shape };
   }
   console.log(JSON.stringify(out));
 } else if (mode === "show") {
@@ -895,6 +992,14 @@ if (mode === "scan") {
         ? `SPRZĘŻENIE: testy używają ${c.coupled.join(", ")} — prompt musi podać ten interfejs dosłownie, albo te testy odpadają`
         : "sprzężenie: nie wykryto (heurystyka — przeczytaj testy); testy wyglądają na sprawdzające zachowanie przez interfejs istniejący na pinie",
     );
+    if (c.shape.length) {
+      console.log(
+        `KSZTAŁT: ${c.shape.length} dodanych linii testów przypina sposób implementacji (${shapeSummary(c.shape)}) — ` +
+          "każda: kontrakt (prompt podaje to dosłownie) albo przypadek (poluzuj lub odrzuć), MINING.md §3",
+      );
+      for (const s of c.shape.slice(0, 15)) console.log(`  [${s.kind}] ${s.path}${s.line === null ? "" : `:${s.line}`}  ${s.text}`);
+      if (c.shape.length > 15) console.log(`  … i ${c.shape.length - 15} więcej (--json)`);
+    } else console.log("kształt: nie wykryto (heurystyka — przeczytaj testy)");
     if (c.branch_span_hours !== null) console.log(`czas gałęzi PR-a: ~${c.branch_span_hours} h (górna granica czasu pracy człowieka)`);
     if (c.excluded.length) console.log(`wykluczenia: ${c.excluded.join(", ")}`);
   }
@@ -943,4 +1048,5 @@ if (mode === "scan") {
       `${c.manifest_files.length ? ` + ${c.manifest_files.length} manifestów` : ""} — dowód, nigdy do zadania); files/ (${snapshots.length} plików testów po merge'u)`,
   );
   if (c.coupled.length) console.log(`  UWAGA sprzężenie: ${c.coupled.join(", ")} — prompt musi to podać dosłownie albo testy odpadają`);
+  if (c.shape.length) console.log(`  UWAGA kształt: ${shapeSummary(c.shape)} — meta.json \`shape\`; audyt BUILD.md krok 5`);
 }

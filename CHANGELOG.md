@@ -6,6 +6,60 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.40.0 — 2026-10-29
+
+**bench-create-task: ukryty guard odporny na uprawnioną zmienność.**
+Próba, która robi to, o co prosi `prompt.md`, przechodzi guard także
+wtedy, gdy zbudowano ją inaczej niż referencję tam, gdzie prompt
+zostawił swobodę. Guard dalej jest fail-to-pass i ścisły wobec
+żądanego zachowania — znikają fałszywe negatywy, nie ostrość.
+
+#### bench-create-task
+
+- `SKILL.md`, zasada 3: ukryte testy sprawdzają tylko to, o co prosi
+  prompt. Każda asercja ma źródło w zdaniu `prompt.md` albo w zachowaniu
+  pinu; decyzje referencji (przypadek brzegowy, którego prompt nie
+  rozstrzyga, kolejność wywołań, dokładny tekst) trafiają do promptu,
+  są luzowane albo odpadają — z zapisem w raporcie.
+- `MINING.md` §3 "Coupling and shape": obok nazw wprowadzonych przez
+  zmianę klasyfikacja kształtu (`call-order`, `call-count`,
+  `exact-error`, `exact-copy`, `dom-structure`, `snapshot`) na kontrakt
+  (prompt podaje go dosłownie) albo przypadek (luzować).
+- `BUILD.md` krok 5 (nowy): audyt asercja → zdanie promptu, z listą
+  przypadków brzegowych, w których chowają się decyzje referencji
+  (puste wejście, "all", limity, stan częściowo załadowany, ścieżki
+  błędów, kolejność), i dozwolonymi technikami luzowania skopiowanych
+  testów (wolno tylko poszerzyć zbiór implementacji zgodnych z promptem;
+  przypadek dalej czerwony na pinie; każda edycja z komentarzem
+  `bench:` i wierszem w raporcie). Kroki 5–8 przesunięte na 6–9.
+- `BUILD.md`, nowa sekcja "After the first run": porażki skupione na
+  jednym ukrytym przypadku u wielu modeli przy wysokiej ocenie sędziego
+  to podejrzenie błędu zadania. Domyślnie poprawka puli + re-ocena
+  zachowanych prób (asercje puli nie wchodzą do klucza ery, więc
+  re-ocenę trzeba zlecić); zmiana promptu to nowy `task_hash` i nowe
+  próby (`bench attempt --tasks <zadanie> --force`).
+- `REPORT_TEMPLATE.md`: sekcja **Guard audit** (asercja → źródło →
+  decyzja, edycje testów z powodem, przypadek najmniej pewny na start
+  pierwszego biegu); `BACKLOG_TEMPLATE.md`: decyzje kształtu w **Hidden
+  tests**.
+- `mine-prs.mjs`: pole `shape` w `scan --json` / `show` / `emit`
+  (`meta.json`) — dodane linie testów przypinające kształt, z
+  plik:linia; tekst błędu/UI i selektory liczą się tylko, gdy wprowadził
+  je kod zmiany (literał z pinu i dane fixture'a nie są flagowane).
+  Cache sprzężenia przelicza się sam (nowa wersja skryptu).
+
+#### bench-evaluate
+
+- Krok 4: porażki skupione na jednym ukrytym przypadku przy wysokiej
+  ocenie sędziego są zgłaszane jako możliwy błąd zadania z odesłaniem
+  do bench-create-task (BUILD.md, "After the first run").
+
+#### Migracja
+
+Brak. Scoring, schematy i istniejące zadania bez zmian; nowa procedura
+dotyczy zadań budowanych od tej wersji. Istniejące zadania można
+przejrzeć krokiem 5 — poprawka samej puli to re-ocena, nie nowy bieg.
+
 ## 0.39.0 — 2026-10-29
 
 **`bench run`: bieg macierzy pod nadzorem w tle.** Agent nie blokuje tury

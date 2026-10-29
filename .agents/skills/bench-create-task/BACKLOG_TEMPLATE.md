@@ -41,7 +41,8 @@ dropped. Progress comes from `bench backlog`.
   beyond Coupled names>
 - **Pin**: <full SHA, the change's parent>
 - **Reference**: <full SHA of the change, never shown to the agent>
-- **Hidden tests**: <test files used; files or cases dropped and why>
+- **Hidden tests**: <test files used; files or cases dropped and why;
+  shape flags kept as contract (stated in the prompt) or to loosen>
 - **Coupled names**: <names the tests assert that the change introduced,
   each stated verbatim in the prompt, or "none">
 - **Build log**: <optional: "<YYYY-MM-DD> refused — <reason>">
