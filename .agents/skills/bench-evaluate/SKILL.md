@@ -23,14 +23,14 @@ them to the user. `bench <command>` means `node --experimental-strip-types
 (one-time: `npm ci --prefix .bench-kit/runner`).
 
 ```
-preflight → scope + cost → bench attempt (detached) → bench evaluate → hand over
+preflight → scope + cost → one subagent per attempt (attempt + evaluate) → hand over
 ```
 
 ## Hard rules
 
 1. **Budget, not consent.** `defaults.max_cost_usd` caps the whole run;
-   `bench attempt` projects the cost before it starts and stops
-   commissioning past the ceiling. Ask the user only when the
+   you project the cost before the first wave and stop dispatching
+   once the reported spend passes the ceiling (step 3). Ask the user only when the
    projection exceeds the budget (narrow the matrix or raise the
    budget). Report the actual cost afterwards.
 2. **Preserved attempts are sacred.** Never delete anything under
@@ -66,28 +66,67 @@ contestants). Tasks: all of `tasks/` unless narrowed. Trials:
 `defaults.trials`. A new model is just `--models <new>`: the same
 tasks, only its cells get filled.
 
-`bench status` shows what's preserved, running and missing. The
-projection printed by `bench attempt` is what you'll pay; over budget,
-stop and ask (rule 1).
+`bench status` shows what's preserved, running and missing, and each
+cell's cost so far. Projection = missing attempts × median cost per
+attempt in that cell. A cell with no history uses the same model's
+median on other tasks, and you mark that number as an estimate. Over
+budget, stop and ask (rule 1).
 
-### 3. Run
+### 3. Run — one subagent per attempt
+
+An attempt is one `task × model × trial`. Each one runs in its own
+subagent (cheap class: Sonnet/Haiku/Flash), so a crashed process, a
+hung container or a lost shell kills that attempt only, never the
+matrix. The runner already isolates attempts inside one process; this
+isolates the process. A tool without subagents gets one detached
+`bench attempt` process per attempt instead, with the same brief.
+
+List the missing attempts from `bench status` (top-up: preserved
+trials are not in it). Dispatch them in waves of `defaults.parallel`
+(or `--parallel`). Put one attempt per task in the first wave, so each
+task image gets built once instead of by several subagents at once.
+
+Brief for each subagent (fill in `<task>`, `<model>`, `<n>` and
+`<trial dir>` = `attempts/<task>/<model dir>/trial-<n>`, with the model
+directory named as in `attempts/`):
 
 ```
-nohup bench attempt --tasks … --models … [--trials n] [--parallel n] > <log> 2>&1 &
-bench status --wait [--timeout <s>]
+Instance root: <root>. `bench` = node --experimental-strip-types
+.bench-kit/runner/src/index.ts. Run exactly one attempt and evaluate it:
+1. mkdir -p attempts/.logs; nohup bench attempt --tasks <task> --models <model> --trial-index <n>
+     > attempts/.logs/<task>-<model dir>-<n>.log 2>&1 &
+2. bench status --tasks <task> --models <model> --wait --timeout 540;
+   repeat on exit 124 until it exits 0.
+3. If <trial dir>/attempt.json is missing,
+   or has infra_failure: true, stop and report it with the last 30
+   lines of the log and of container.log or signal.json.
+4. Otherwise: bench evaluate --attempt <trial dir>
+5. Reply with ONE line: <task> | <model> | trial <n> | preserved/infra/
+   timeout/provider_error | cost $ (metrics.json) | PASS/FAIL/eval error
+   + pass_reason or error.
+Do not retry, do not use --force, do not delete or edit any file,
+do not touch git.
 ```
 
-Always detached; re-issue `bench status --wait` on exit 124 (timeout).
-Several processes (one per model, another machine) can fill the same
-matrix: each attempt is claimed on disk before it starts. A cell marked
-STALE means a runner process died; read its log, then the next
-`bench attempt` redoes that trial.
+Subagents only run and report; decisions stay with you. After each
+wave, add up the reported costs. Once the spend passes
+`defaults.max_cost_usd`, dispatch no more waves (rule 1). Running
+attempts finish on their own. An infra failure is not retried in the
+next wave. Look at it first (rule 3), then commission it again with
+`--trial-index n --force` and a stated reason.
+
+`bench status` stays the source of truth: a subagent that never
+replies leaves a cell that reads STALE or still running there. Read
+its log under `attempts/.logs/`; the next dispatch redoes that trial.
 
 ### 4. Evaluate
 
-`bench evaluate`: guards in a container, then the API judge on the
-diff, results written to `results/<task>/<model>/trial-N/`. It can run
-while other cells are still going. Pass is a gate: every guard with
+Each subagent evaluates its own attempt (`bench evaluate --attempt …`):
+guards in a container, then the API judge on the diff, results in
+`results/<task>/<model>/trial-N/`. An evaluation error stays with
+that attempt. Once the cause is fixed, re-run
+`bench evaluate --attempt <dir>` for it; a bare `bench evaluate`
+re-evaluates every preserved attempt. Pass is a gate: every guard with
 weight > 0 green **and** the judge ≥ `pass_threshold`.
 
 On a task's first run, read 2–3 `patch.diff`s against their verdicts.
