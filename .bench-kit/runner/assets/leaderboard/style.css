@@ -186,3 +186,25 @@ td.muted { color: var(--ink-muted); }
 .verdict.weak .vprice { color: var(--warn-text); }
 .vwhy { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
 .vcav { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--warn-text); line-height: 1.55; }
+
+/* --- jak oceniane jest zadanie: bramki i kryteria sędziego per model --- */
+.crit-rule { font-size: 12.5px; color: var(--ink-2); margin: -4px 0 12px; max-width: 76ch; }
+.crit th.grp {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-muted); border-bottom: 1px solid var(--grid); text-align: center; padding-right: 12px;
+}
+.crit th .w { font-weight: 400; color: var(--ink-muted); }
+.crit td.fail { color: var(--s8); font-weight: 600; }
+.crit td.partial { color: var(--warn-text); font-weight: 600; }
+.critcell { display: inline-flex; align-items: center; gap: 8px; }
+.minibar { display: inline-block; position: relative; width: 36px; height: 4px; background: var(--grid); border-radius: 4px; }
+.minibar span { position: absolute; inset: 0 auto 0 0; background: var(--s1); border-radius: 4px; }
+.crit-legend {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px 24px; margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--grid);
+}
+.crit-legend dt { font-size: 12.5px; font-weight: 600; }
+.crit-legend dt .kind { font-weight: 400; color: var(--ink-muted); font-size: 11.5px; margin-left: 4px; }
+.crit-legend dd { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); text-wrap: pretty; }
+.crit-legend dd[data-tip] { cursor: help; }
+.crit code { font-family: ui-monospace, monospace; font-size: 11px; }

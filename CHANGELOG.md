@@ -6,6 +6,32 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.41.0 — 2026-10-29
+
+**bench-analysis: strona pokazuje, jak oceniane było każde zadanie.**
+Neutralny — scoring, ery i rubryki bez zmian; zmienia się wyłącznie
+prezentacja i wyjście `summarize.mjs`.
+
+#### bench-analysis
+
+- Karta "Jak oceniane jest to zadanie" w sekcji każdego zadania:
+  zasada zaliczenia jednym zdaniem, tabela model × (bramki + kryteria
+  sędziego z wagami) — ile prób przeszło każdą bramkę, mediana każdego
+  kryterium — i pod nią opis każdej bramki i kryterium wprost na stronie
+  (pełne brzmienie kryterium w dymku nagłówka).
+- `summarize.mjs` czyta `task.yaml`, rubrykę zadania,
+  `results/**/judge.json` i `attempts/**/checks.json`; w JSON-ie nowe
+  pola `tasks[].evaluation` i `tasks[].models[].breakdown`.
+- `SKILL.md`: opis karty i nowych wejść.
+
+#### Szablon leaderboardu (wspólny)
+
+- Karta kryteriów renderuje się tylko, gdy dane ją podają (bench-analysis);
+  `bench leaderboard` wygląda jak dotąd.
+- Poprawiona kopia niezawodności: nagłówek "Niezawodność (co najmniej)",
+  nowe objaśnienie z przykładami (3/3 → 0.44, 10/10 → 0.72), baner
+  wniosku mówi "niezawodność co najmniej" zamiast "ostrożna ocena".
+
 ## 0.40.0 — 2026-10-29
 
 **bench-create-task: ukryty guard odporny na uprawnioną zmienność.**

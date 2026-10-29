@@ -88,6 +88,128 @@ function reviewBurden(attemptDir) {
 
 const threshold = passThreshold();
 
+// --- jak oceniane jest zadanie: bramki z task.yaml, kryteria z rubryki ---
+// Odczyt bez zależności yaml, jak reszta tego pliku: interesuje nas lista
+// asercji, wagi składowych i wagi kryteriów — nic więcej.
+const readIf = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null);
+const yamlBlock = (text, key) =>
+  text.match(new RegExp(`^${key}:\\s*\\n((?:[ \\t]+.*\\n?)*)`, "m"))?.[1] ??
+  text.match(new RegExp(`^${key}:\\s*([\\[{].*)$`, "m"))?.[1] ??
+  "";
+
+function taskSpec(task) {
+  const text = readIf(join(root, "tasks", task, "task.yaml"));
+  if (!text) return null;
+  const evaluation = [...yamlBlock(text, "evaluation").matchAll(/["']?((?:static|tests|e2e|judge)\/[A-Za-z0-9._-]+)/g)].map((m) => m[1]);
+  const weights = { static: 0, tests: 0, e2e: 0, judge: 0 };
+  for (const m of yamlBlock(text, "weights").matchAll(/(static|tests|e2e|judge)\s*:\s*([0-9.]+)/g)) weights[m[1]] = Number(m[2]);
+  return { evaluation, weights };
+}
+
+function gateSpec(ref, task, weights) {
+  const [type, name] = ref.split("/");
+  const checkYaml = readIf(join(root, "evaluation-pool", type, name, "check.yaml")) ?? "";
+  const commands = [...checkYaml.matchAll(/^\s*-\s*name:\s*["']?([^"'\n#]+?)["']?\s*$/gm)].map((m) => m[1]);
+  // Guard z wagą 0 liczy się do sumy jakości, ale nie blokuje zaliczenia.
+  const gate = weights[type] > 0;
+  if (type === "tests" && name === `${task}-pr`) {
+    return {
+      ref, gate, label: "testy z PR-a",
+      what: "Testy, które autor napisał razem z oryginalną zmianą. Agent ich nie widzi. Na starcie są czerwone, poprawne rozwiązanie je zazielenia.",
+    };
+  }
+  const kind = {
+    static: "Lint, typy albo build repo",
+    tests: "Testy repo, które przechodziły przed zmianą — nic nie może przestać działać",
+    e2e: "Scenariusze e2e w przeglądarce",
+  }[type];
+  const listed = commands.filter((c) => c !== name);
+  return { ref, gate, label: name, what: kind + (listed.length ? `: ${listed.join(", ")}` : "") + "." };
+}
+
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function rubricSpec(ref) {
+  const text = readIf(join(root, "evaluation-pool", "judge", `${ref.split("/")[1]}.md`));
+  if (!text) return null;
+  const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+  const body = text.slice(text.indexOf("---", 3) + 3);
+  const version = front.match(/^version:\s*["']?([^"'\s]+)/m)?.[1] ?? null;
+  const criteria = [...yamlBlock(front, "weights").matchAll(/^\s+([A-Za-z0-9_-]+):\s*([0-9.]+)/gm)].map(([, name, w]) => {
+    // Opis kryterium = tekst po "**nazwa** (waga …) —" do kotwic albo
+    // następnego kryterium. Pierwsze zdanie idzie na stronę, całość do dymka.
+    const raw = body.match(
+      new RegExp(`\\*\\*${escRe(name)}\\*\\*[^\\n]*?[—–]\\s*([\\s\\S]*?)(?=\\n\\s*-\\s|\\n\\s*\\d+\\.\\s+\\*\\*|\\n#|$)`),
+    )?.[1] ?? "";
+    const full = raw.replace(/\s+/g, " ").replace(/\s*(Kotwice|Anchors):?\s*$/i, "").trim();
+    const first = full.split(/(?<=\?)\s|;\s|(?<=\.)\s(?=[A-ZĄĆĘŁŃÓŚŹŻ])/)[0] ?? full;
+    const question = first.charAt(0).toUpperCase() + first.slice(1);
+    return { name, weight: Number(w), question, full };
+  });
+  return { ref, version, criteria };
+}
+
+function evaluationSpec(task) {
+  const spec = taskSpec(task);
+  if (!spec) return null;
+  const judgeRef = spec.weights.judge > 0 ? spec.evaluation.find((r) => r.startsWith("judge/")) : null;
+  return {
+    gates: spec.evaluation.filter((r) => !r.startsWith("judge/")).map((r) => gateSpec(r, task, spec.weights)),
+    judge: judgeRef ? { threshold, ...rubricSpec(judgeRef) } : null,
+  };
+}
+
+/**
+ * Rozbicie oceny modelu na zadaniu: ile prób przeszło każdą bramkę, mediana
+ * każdego kryterium sędziego. Bez checks.json bramka bierze wynik składowej
+ * z result.json — ale tylko gdy składowa ma jedną asercję, inaczej nie wiemy,
+ * która z nich zawiodła.
+ */
+function breakdownOf(trials, evaluation) {
+  if (!evaluation) return null;
+  const gates = {};
+  for (const g of evaluation.gates) {
+    const type = g.ref.split("/")[0];
+    const alone = evaluation.gates.filter((x) => x.ref.startsWith(type + "/")).length === 1;
+    const known = trials
+      .map((t) => t.breakdown.gates[g.ref] ?? (alone ? t.breakdown.scores[type] : null))
+      .filter((v) => typeof v === "number");
+    gates[g.ref] = known.length ? { passed: known.filter((v) => v >= 1).length, of: known.length } : null;
+  }
+  const criteria = {};
+  for (const c of evaluation.judge?.criteria ?? []) {
+    criteria[c.name] = median(trials.map((t) => t.breakdown.criteria[c.name]).filter((v) => typeof v === "number"));
+  }
+  return { gates, criteria };
+}
+
+/** Wynik każdej asercji w próbie: guardy z checks.json, kryteria sędziego z judge.json. */
+function trialBreakdown(resultDir, attemptDir, result) {
+  const gates = {};
+  const checks = readIf(join(attemptDir, "checks.json"));
+  if (checks) {
+    try {
+      for (const [ref, c] of Object.entries(JSON.parse(checks))) gates[ref] = c?.score ?? 0;
+    } catch {
+      // nieczytelny checks.json — kolumna bramki zostaje pusta, nie zerowa
+    }
+  }
+  const criteria = {};
+  const judge = readIf(join(resultDir, "judge.json"));
+  if (judge) {
+    try {
+      for (const v of JSON.parse(judge)) {
+        for (const [name, c] of Object.entries(v?.parsed?.criteria ?? {})) {
+          if (typeof c?.score === "number") criteria[name] = c.score;
+        }
+      }
+    } catch {
+      // jw.
+    }
+  }
+  return { gates, criteria, scores: result.scores ?? {} };
+}
+
 /** Klucz ery jak w runnerze (lib/era.ts → eraKey) — ta sama krotka, ta sama kolejność. */
 const eraKeyOf = (s = {}) =>
   JSON.stringify([
@@ -194,6 +316,7 @@ const eras = new Set();
 for (const task of dirs(resultsRoot)) {
   if (onlyTask && task !== onlyTask) continue;
   const models = [];
+  const evaluation = evaluationSpec(task);
 
   // Najpierw wszystkie wyniki zadania — bieżąca era wybierana nad całością,
   // żeby żaden model nie liczył się w innej erze niż reszta.
@@ -233,6 +356,7 @@ for (const task of dirs(resultsRoot)) {
         cost_known: r.cost_source !== null,
         duration_s: r.duration_s ?? null,
         scores: r.scores ?? {},
+        breakdown: trialBreakdown(join(resultsRoot, task, modelDir, trialDir), join(attemptsRoot, task, modelDir, trialDir), r),
         review: reviewBurden(join(attemptsRoot, task, modelDir, trialDir)),
       });
     }
@@ -297,6 +421,7 @@ for (const task of dirs(resultsRoot)) {
             removed: Math.round(reviews.reduce((s, r) => s + r.removed, 0) / reviews.length),
           }
         : null,
+      breakdown: breakdownOf(trials, evaluation),
       trials_detail: trials,
     });
   }
@@ -412,12 +537,14 @@ for (const task of dirs(resultsRoot)) {
     pass_at_1: m.pass_rate,
     pass_at_k: m.passes > 0 ? 1 : 0,
     pass_hat_k: m.pass_hat_k.value,
+    breakdown: m.breakdown,
   }));
 
   tasks.push({
     task,
     site_rows: siteRows,
     site_stamps: rawStamps,
+    evaluation,
     pass_threshold: threshold,
     // kolejność prezentacji = kolejność rankingu (niezawodność, potem cena),
     // nie mediana: mediana mówi jak dobra była udana próba, nie jak często
@@ -542,6 +669,9 @@ if (htmlPath) {
           judge_model: "?", rubric_version: "none",
         },
         current: true,
+        // Jak oceniane jest zadanie — pole opcjonalne szablonu; leaderboard
+        // go nie podaje, więc tam karta kryteriów się nie pojawia.
+        evaluation: t.evaluation,
         runs: [{ run_id: "summary", generated_at: out.generated_at, rows: t.site_rows }],
       }],
     })),

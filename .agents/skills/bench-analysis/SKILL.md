@@ -120,8 +120,11 @@ page falls back to the template's neutral default; pass `""` to drop
 that element entirely.
 
 It reads only git-tracked trees — `results/**/result.json` for score,
-cost, duration and stamps, `attempts/**/patch.diff` for review burden —
-so it works on a fresh clone, without `workspace/`. It writes nothing
+cost, duration and stamps, `results/**/judge.json` for per-criterion
+judge scores, `attempts/**/checks.json` for per-guard results,
+`attempts/**/patch.diff` for review burden, and the task's `task.yaml`
+plus its rubric for what the task is graded on — so it works on a fresh
+clone, without `workspace/`. It writes nothing
 except the files you name.
 
 **There is one presentation in this kit, and it is the leaderboard
@@ -134,6 +137,18 @@ up disagreeing; one template cannot. The output is a single
 self-contained file (no bundler, no network, assets inlined). Changing
 the presentation therefore means editing those three shared files, and
 it changes both surfaces at once — which is the point.
+
+Each task section carries a **"Jak oceniane jest to zadanie"** card:
+the gates (guards with weight > 0 — every one must pass) and the judge's
+rubric criteria with their weights, one row per model — how many trials
+passed each gate, the median score on each criterion — and under the
+table one plain sentence per gate and criterion (the first sentence of
+the rubric's criterion text; the full text is in the header tooltip).
+Only this skill supplies that data (`evaluation` on the era, `breakdown`
+on each row); `bench leaderboard` does not, so the card is absent there.
+The same breakdown lands in the JSON as `tasks[].evaluation` and
+`tasks[].models[].breakdown` — use it to answer "where does this model
+lose points" instead of opening judge.json by hand.
 
 `--html` needs `--root` to point at an instance, because that is where
 the shared template lives.
