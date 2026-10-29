@@ -23,11 +23,13 @@ Local git only, no network. The scan lists first-parent changes that
 touched both code and tests, within size limits, without release
 commits, reverts, bots and docs- or lockfile-only changes (`--all`
 shows the excluded ones with reasons). Per candidate: PR number,
-size S/M/L, a class hint, and **coupling**, i.e. the names the change
-*introduces* that its tests *use*. Product work ranks above
-maintenance, low coupling above high, M/S above L, recent above old.
-`show` prints one candidate in full; `emit` extracts it for the build
-(BUILD.md step 1).
+size S/M/L, a class hint, **coupling**, i.e. the names the change
+*introduces* that its tests *use*, and **shape**: added test lines that
+pin call order or counts, error text or copy the change introduced, DOM
+structure, snapshots (§3). Product work ranks above maintenance, low
+coupling above high, M/S above L, recent above old. `show` prints one
+candidate in full, shape lines with file:line; `emit` extracts it for
+the build (BUILD.md step 1).
 
 ## 1. The user named a change
 
@@ -55,7 +57,8 @@ on what the developer was asked to do, one on why it makes a good task.
 Brief it with the classes `bench backlog` reports as thin and the
 existing tasks (don't propose those again). It prefers:
 
-- uncoupled or lightly coupled tests (two correct implementations pass
+- uncoupled or lightly coupled tests that assert effects rather than
+  call sequences or exact strings (two correct implementations pass
   them alike);
 - S/M size: L changes are often several intents in one PR;
 - tests that run without external services (databases, APIs) the
@@ -64,10 +67,14 @@ existing tasks (don't propose those again). It prefers:
 Fewer than three usable candidates: widen to `--since 180` and say so.
 Show the table; ask: all, a subset, or something else?
 
-## 3. Coupling
+## 3. Coupling and shape
 
-Read each accepted candidate's test diff yourself; the scanner's list
-is a heuristic.
+Read each accepted candidate's test diff yourself; the scanner's lists
+are a heuristic. One question decides every new assertion: **would a
+different correct implementation of the same request pass it?** If
+not, the assertion becomes a stated requirement or leaves the guard.
+
+**Names** (`coupled` in `show`):
 
 | The tests assert on | Decision |
 |---|---|
@@ -75,7 +82,23 @@ is a heuristic.
 | a few **contract** names the change introduced (a request field, CLI flag, config key, route) | keep; the prompt states each verbatim |
 | internal structure the change introduced (module paths, helper names) | drop those tests or cases; if nothing is left, drop the candidate |
 
-Record it in **Coupled names** and **Hidden tests**.
+**Shape** (`shape` in `show`: added test lines by kind, with
+file:line). A name can exist at the pin and the assertion can still
+pin the reference's implementation:
+
+| Kind | Typical form | Contract when… | Otherwise (incidental) |
+|---|---|---|---|
+| `call-order` | `toHaveBeenNthCalledWith`, `expect(x.mock.calls).toEqual([…])`, a recorded builder chain, `assert_has_calls` | the order is observable or required (write A before B so a failure strands B) | assert the effect or the set of calls |
+| `call-count` | `toHaveBeenCalledTimes(n)`, `call_count ==` | the count is the behaviour ("one request", "no query for an empty list") | `toHaveBeenCalled()`, or drop |
+| `exact-error` | `toThrow('<literal>')`, `pytest.raises(match=)`, `.message).toBe(` | the text reaches a caller or user (API error code, CLI message) | the error type or a stable fragment |
+| `exact-copy` | `getByText('…')`, `toHaveTextContent('…')`, `ByRole(…, { name: '…' })` | the copy or accessible name is part of the request | role or test id, or a fragment |
+| `dom-structure` | `querySelector`, `.closest`, `.children`, `toHaveClass`, `innerHTML` | the structure is required (a button outside the link) | role queries and visible behaviour |
+| `snapshot` | `toMatchSnapshot`, `.snap` files | almost never | drop the case: a snapshot is the reference's output |
+
+A contract shape costs a prompt sentence, like a coupled name. A
+candidate whose core cases pin many incidental shapes is a poor task.
+Record the decisions in **Coupled names** and **Hidden tests**; the
+full audit, edge cases included, runs at build time (BUILD.md step 5).
 
 ## 4. Write the orders
 

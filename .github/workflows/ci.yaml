@@ -44,7 +44,7 @@ jobs:
         run: npm run typecheck --prefix .bench-kit/runner
       - name: testy bootstrapu (kontrakt init/update/repair)
         run: node --test .github/tests/bootstrap.test.mjs
-      - name: testy kopania PR-ów (skan równoległy i cache = skan szeregowy)
+      - name: testy kopania PR-ów (skan równoległy i cache = skan szeregowy, flagi kształtu)
         run: node --test .github/tests/mining.test.mjs
       - name: testy jednostkowe (harness, wycena, ery, statystyka decyzji)
         run: node --experimental-strip-types --test .github/tests/units.test.mjs

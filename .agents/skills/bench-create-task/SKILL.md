@@ -16,7 +16,8 @@ description: >-
   build the backlog / new task", or bench backlog shows a class without
   enough tasks. Also use to fix a task's rubric ("the rubric scores
   this wrong / tighten criterion X"): edit per RUBRIC_AUTHORING.md,
-  bump the rubric's version, re-evaluate the preserved attempts.
+  bump the rubric's version, re-evaluate the preserved attempts; or a
+  hidden guard that fails correct work (BUILD.md, after the first run).
 ---
 
 # bench-create-task — from merged changes to tasks
@@ -37,9 +38,9 @@ for:
 
 | Step | File |
 |---|---|
-| Find candidates, check coupling | [MINING.md](MINING.md) + `mine-prs.mjs` |
+| Find candidates, check coupling and shape | [MINING.md](MINING.md) + `mine-prs.mjs` |
 | Order format | [BACKLOG_TEMPLATE.md](BACKLOG_TEMPLATE.md) |
-| Build one order | [BUILD.md](BUILD.md) |
+| Build one order, audit the guard, fix it after a run | [BUILD.md](BUILD.md) |
 | Write the rubric | [RUBRIC_AUTHORING.md](RUBRIC_AUTHORING.md) |
 | Build report | [REPORT_TEMPLATE.md](REPORT_TEMPLATE.md) |
 
@@ -55,11 +56,16 @@ for:
    The prompt comes from the change's intent, never from its diff.
    Tests and rubrics live in `evaluation-pool/`; nothing from there is
    copied into `tasks/`.
-3. **Hidden tests must not encode implementation shape.** A test that
-   asserts a name the change *introduced* is admissible only if the
-   prompt states that name verbatim. Tests that assert internal
-   structure (new module paths, helper names) are dropped (MINING.md
-   §3).
+3. **Hidden tests assert only what the prompt asks.** A correct
+   implementation that differs from the reference where the prompt left
+   it open must pass. A test that asserts a name the change
+   *introduced* is admissible only if the prompt states that name
+   verbatim; internal structure (new module paths, helper names) is
+   dropped (MINING.md §3). Every assertion traces to a sentence of
+   `prompt.md` or to behaviour at the pin; reference decisions (an edge
+   the prompt doesn't settle, a call order, an exact string) are stated
+   in the prompt, loosened or dropped, and recorded in the report
+   (BUILD.md step 5). Strict on the request, never on the reference.
 4. **Zero git.** Orders are edits to `tasks/backlog.md`; built tasks are
    files plus `reports/<task>-build.md`. At handover, `bench changes`
    prints the commit plan, and the user commits.
