@@ -15,7 +15,7 @@
  * przemilczane), koszt nieznany jako nieznany. Ponad zadaniami
  * (analytics.mjs): widok klasa × model z jednostką = zadanie, porównania
  * parowe modeli na wspólnych zadaniach, rozdzielczość (ile zadań na jaką
- * różnicę), horyzont czasowy z pola Human time backlogu.
+ * różnicę).
  *
  *   node summarize.mjs --root <instancja> [--task <slug>] [--out <plik.json>] [--html <plik.html>]
  *
@@ -27,7 +27,7 @@
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { classView, pairedComparisons, parseBacklogMeta, passHatK, resolvableGap, tasksNeeded, timeHorizon } from "./analytics.mjs";
+import { classView, pairedComparisons, parseBacklogMeta, passHatK, resolvableGap, tasksNeeded } from "./analytics.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback = null) => {
@@ -455,7 +455,7 @@ for (const task of dirs(resultsRoot)) {
   });
 }
 
-// --- ponad zadaniami: klasy, porównania parowe, rozdzielczość, horyzont ---
+// --- ponad zadaniami: klasy, porównania parowe, rozdzielczość ---
 const backlogPath = join(root, "tasks", "backlog.md");
 const backlogMeta = existsSync(backlogPath) ? parseBacklogMeta(readFileSync(backlogPath, "utf8")) : new Map();
 const classOf = new Map([...taskRates.keys()].map((t) => [t, backlogMeta.get(t)?.class ?? null]).filter(([, c]) => c));
@@ -474,23 +474,6 @@ const paired = {
       .map((c) => [c.class, pairedComparisons(decisionRates, new Set([...decisionRates.keys()].filter((t) => (classOf.get(t) ?? "(bez klasy)") === c.class)))]),
   ),
 };
-const horizonModels = [...new Set([...decisionRates.values()].flatMap((m) => [...m.keys()]))];
-const horizons = Object.fromEntries(
-  horizonModels.map((model) => {
-    const obs = [];
-    const tasksUsed = new Set();
-    for (const [task, m] of decisionRates) {
-      const minutes = backlogMeta.get(task)?.human_minutes;
-      const cell = m.get(model);
-      if (!minutes || !cell) continue;
-      tasksUsed.add(task);
-      for (const passed of cell.outcomes) obs.push({ task, minutes, passed });
-    }
-    const estimated = [...tasksUsed].filter((t) => backlogMeta.get(t)?.human_estimated).length;
-    // Horyzont jest tak dobry jak minuty pod nim — udział szacunków jedzie z liczbą.
-    return [model, { ...timeHorizon(obs), estimated_share: tasksUsed.size ? estimated / tasksUsed.size : null }];
-  }),
-);
 
 const out = {
   generated_at: new Date().toISOString(),
@@ -500,7 +483,6 @@ const out = {
   tasks,
   classes,
   paired,
-  horizons,
   anchors: {
     tasks: [...anchorTasks],
     paired: pairedComparisons(anchorRates),

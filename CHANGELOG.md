@@ -6,6 +6,30 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.37.0 — 2026-10-29
+
+**Bez pola Human time i bez horyzontu czasowego.** Pole zlecenia, którego
+nic poza jedną metryką nie czytało, i ta metryka znikają.
+
+#### bench-create-task
+
+- `BACKLOG_TEMPLATE.md`: usunięte pole **Human time**; `MINING.md` nie
+  każe go już szacować przy pisaniu zleceń.
+
+#### bench-analysis
+
+- `summarize.mjs` nie liczy `horizons` (wyjście JSON nie ma tego klucza),
+  `analytics.mjs` nie ma `timeHorizon`, a `parseBacklogMeta` zwraca samą
+  klasę. Z `SKILL.md` znika zdanie o horyzoncie w narracji.
+- Powód: horyzont wymagał ≥5 zadań o rozpiętości ≥4×, więc w typowej
+  instancji był null, a minuty pod nim były w praktyce szacunkiem z
+  rozmiaru diffu. Pole kosztowało pytanie przy każdym zleceniu.
+
+#### Migracja
+
+Brak. Istniejące wpisy `Human time` w `tasks/backlog.md` są ignorowane
+(można je zostawić albo usunąć). Scoring, guardy, sędzia i ery bez zmian.
+
 ## 0.36.0 — 2026-10-28 [scoring-breaking]
 
 **Budowa zadania jest statyczna, a ocena to komendy runnera.** Dwa skille

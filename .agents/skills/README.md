@@ -41,7 +41,7 @@ when the step needs them:
   - `summarize.mjs` + `analytics.mjs` compute the routing decision:
     pass rate with interval and pass^k per task × model; class × model
     with tasks as the unit; paired comparisons by sign test; the
-    resolution of the task set; the time horizon.
+    resolution of the task set.
   - Output is one HTML verdict plus a narrative. `EXPLAIN.md` diagnoses
     a surprising result from its preserved attempt.
 

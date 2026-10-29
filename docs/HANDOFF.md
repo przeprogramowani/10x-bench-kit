@@ -82,8 +82,8 @@ pin bump.
 
 ### 4. Leaderboard parity with bench-analysis
 
-`bench-analysis/summarize.mjs` computes class views, paired comparisons,
-time horizons and the anchors block; the leaderboard
+`bench-analysis/summarize.mjs` computes class views, paired comparisons
+and the anchors block; the leaderboard
 (`.bench-kit/runner/assets/leaderboard/app.js`) shows gated pass and
 unknown cost but none of those. Either render them from `report.json`
 (move the computation into `bench report` so both consume one source)

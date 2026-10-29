@@ -164,68 +164,7 @@ export function pairedComparisons(taskRates, tasksFilter = null) {
 }
 
 /**
- * Horyzont czasowy (METR): przy jakiej długości zadania (minuty pracy
- * CZŁOWIEKA) model zalicza w 50% / 80% przypadków. Regresja logistyczna
- * P(zaliczenie) = σ(a + b·log2(minuty)) po próbach, z lekką regularyzacją
- * (mało danych). Wyznaczalny tylko przy ≥5 zadaniach z czasem człowieka,
- * rozpiętości ≥4× i spadku sukcesu z długością (b < 0) — inaczej null
- * z powodem, nigdy liczba z sufitu.
- */
-export function timeHorizon(observations) {
-  const tasks = new Set(observations.map((o) => o.task));
-  const minutes = observations.map((o) => o.minutes);
-  if (tasks.size < 5) return { horizon50_min: null, horizon80_min: null, reason: `${tasks.size} zadań z czasem człowieka (potrzeba ≥5)` };
-  if (Math.max(...minutes) / Math.min(...minutes) < 4) return { horizon50_min: null, horizon80_min: null, reason: "za mała rozpiętość długości zadań (<4×)" };
-  let a = 0;
-  let b = 0;
-  const lambda = 0.1;
-  for (let iter = 0; iter < 50; iter++) {
-    let ga = -lambda * a;
-    let gb = -lambda * b;
-    let haa = -lambda;
-    let hab = 0;
-    let hbb = -lambda;
-    for (const o of observations) {
-      const x = Math.log2(o.minutes);
-      const p = 1 / (1 + Math.exp(-(a + b * x)));
-      const y = o.passed ? 1 : 0;
-      ga += y - p;
-      gb += (y - p) * x;
-      const w = p * (1 - p);
-      haa -= w;
-      hab -= w * x;
-      hbb -= w * x * x;
-    }
-    const det = haa * hbb - hab * hab;
-    if (Math.abs(det) < 1e-12) break;
-    const da = (hbb * ga - hab * gb) / det;
-    const db = (haa * gb - hab * ga) / det;
-    a -= da;
-    b -= db;
-    if (Math.abs(da) + Math.abs(db) < 1e-9) break;
-  }
-  if (!(b < 0)) return { horizon50_min: null, horizon80_min: null, reason: "sukces nie spada z długością zadania — brak horyzontu w tym zakresie" };
-  const at = (p) => 2 ** ((Math.log(p / (1 - p)) - a) / b);
-  // Bez ekstrapolacji: horyzont poza obserwowanym zakresem długości zadań
-  // to "krócej niż najkrótsze" / "dłużej niż najdłuższe", nie liczba.
-  const lo = Math.min(...minutes);
-  const hi = Math.max(...minutes);
-  const bounded = (h) => (h < lo ? { value: null, bound: `<${lo}` } : h > hi ? { value: null, bound: `>${hi}` } : { value: Math.round(h), bound: null });
-  const h50 = bounded(at(0.5));
-  const h80 = bounded(at(0.8));
-  return {
-    horizon50_min: h50.value,
-    horizon80_min: h80.value,
-    horizon50_bound: h50.bound,
-    horizon80_bound: h80.bound,
-    observed_range_min: [lo, hi],
-    tasks: tasks.size,
-    reason: h50.bound || h80.bound ? `horyzont poza zakresem obserwowanych zadań (${lo}–${hi} min) — bez ekstrapolacji` : null,
-  };
-}
-
-/**
- * Pola zlecenia z tasks/backlog.md: klasa i czas człowieka per zadanie.
+ * Pola zlecenia z tasks/backlog.md: klasa per zadanie.
  * Ta sama gramatyka co parseBacklog w runnerze (commands/backlog.ts):
  * `- **Pole**: wartość` z kontynuacjami wcięć, PIERWSZE wystąpienie
  * wygrywa, klasa = tekst do "—" / "(" / ";" (max 32 znaki).
@@ -257,20 +196,7 @@ export function parseBacklogMeta(text) {
   for (const [name, f] of entries) {
     const rawClass = f.get("class");
     const klass = rawClass && !rawClass.startsWith("<") ? rawClass.split(/\s+[—–-]\s+|\(|;/)[0]?.trim().toLowerCase().slice(0, 32) || null : null;
-    let minutes = null;
-    let estimated = false;
-    const human = f.get("human time");
-    if (human && !human.startsWith("<")) {
-      // "~45 min", "45-60 min" (środek), "1,5 h" (przecinek dziesiętny).
-      const m = human.replace(",", ".").match(/~?\s*(\d+(?:\.\d+)?)(?:\s*[-–]\s*(\d+(?:\.\d+)?))?\s*(min|h)/i);
-      if (m) {
-        const value = m[2] ? (Number(m[1]) + Number(m[2])) / 2 : Number(m[1]);
-        minutes = value * (m[3].toLowerCase() === "h" ? 60 : 1);
-        // Szacunek, chyba że jawnie potwierdzony ("unconfirmed" to szacunek).
-        estimated = !/(?<!un)confirmed|potwierdzon/i.test(human);
-      }
-    }
-    meta.set(name, { class: klass, human_minutes: minutes, human_estimated: estimated });
+    meta.set(name, { class: klass });
   }
   return meta;
 }

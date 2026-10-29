@@ -2,7 +2,7 @@
 
 One entry per accepted change. The runner doesn't score it; `bench
 backlog` reads it to derive each order's stage, and bench-analysis
-reads Class and Human time.
+reads Class.
 
 **Status** is only a decision: `pending` (the order stands) or
 `dropped` (with a one-sentence reason; entries are never deleted).
@@ -35,7 +35,6 @@ dropped. Progress comes from `bench backlog`.
 - **Base repo**: <name from base_repos>
 - **Guidance level**: <product-level / directional / surgical>
 - **Time limit**: <N> min
-- **Human time**: <~N min (confirmed | estimated: <basis>)>
 - **Evaluation axis**: <do's and don'ts from the PR description and
   review comments; becomes the rubric>
 - **Description**: <2–6 sentences of intent, nothing from the diff
