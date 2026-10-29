@@ -2,8 +2,10 @@
  * bench status — stan macierzy z dysku: zachowane próby (attempts/),
  * próby w toku (running.json), oceny (results/). Tracker benchmarku to
  * pliki w drzewie instancji — ta komenda je tylko czyta, niczego nie
- * zmienia. Pozwala prowadzić bieg nieblokująco: `bench attempt` w tle
- * (albo na drugiej maszynie), a tu widać, co gotowe do oceny.
+ * zmienia. Pozwala prowadzić bieg nieblokująco: `bench run` (albo
+ * `bench attempt`) w tle lub na drugiej maszynie, a tu widać, co gotowe
+ * do oceny, co właśnie robi każda próba w toku (puls: czynność, koszt
+ * ~$, cisza pulsu), co jest oceniane i które biegi `bench run` trwają.
  *
  * Per komórka (zadanie × model): cel prób (defaults.trials), zachowane,
  * w toku, nieinterpretowalne (infra/kill), ocenione (results/ w bieżącej
@@ -27,6 +29,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { findInstanceRoot, isDemoTask, listTaskNames, loadConfig } from "../lib/instance.ts";
 import { cellStatus, currentEvalEra, liveRuns, modelsInAttempts, type CellStatus } from "../lib/matrix.ts";
 import { backlogStates } from "./backlog.ts";
+import { activeRunLines } from "./run.ts";
+import { QUIET_HEARTBEAT_S } from "../lib/progress.ts";
 
 interface Options {
   root: string;
@@ -112,7 +116,7 @@ export function statusNextStep({ allTasks, preserved, running, toEvaluate, missi
       `jedyne zadania to demo (${allTasks.join(", ")}) — mierzą rury, nie pracę firmy; ${defineHint}, zamiast dogrywać macierz na demo`,
     );
   } else if (missing > 0) {
-    parts.push(`${missing} prób(y) brakuje do celu → bench attempt (dogania braki)`);
+    parts.push(`${missing} prób(y) brakuje do celu → bench run (dogania braki w tle, z oceną)`);
   }
   if (pendingOrders > 0) parts.push(buildHint);
   return `następny krok: ${parts.join("; ")}`;
@@ -129,6 +133,8 @@ function pendingOrderCount(root: string): number {
 
 export interface WaitProgress {
   running: number;
+  /** Zachowane próby, które `bench evaluate` właśnie ocenia (żywy evaluating.json). */
+  evaluating: number;
   preserved: number;
   target: number;
   /** Zachowane próby ze świeżą oceną. */
@@ -140,6 +146,7 @@ export function waitProgress(cells: CellStatus[]): WaitProgress {
   const trials = cells.flatMap((c) => c.trials);
   return {
     running: trials.filter((t) => t.state === "running").length,
+    evaluating: trials.filter((t) => t.evaluating === true).length,
     preserved: trials.filter((t) => t.state === "done").length,
     target: cells.reduce((acc, c) => acc + c.target, 0),
     evaluated: trials.filter((t) => t.state === "done" && t.evaluated === "fresh").length,
@@ -147,11 +154,22 @@ export function waitProgress(cells: CellStatus[]): WaitProgress {
 }
 
 export const waitLine = (p: WaitProgress, untilEvaluated: boolean): string =>
-  `${p.running} w toku, ${p.preserved}/${p.target} zachowanych` + (untilEvaluated ? `, ${p.evaluated}/${p.preserved} ocenionych` : "");
+  `${p.running} w toku, ${p.preserved}/${p.target} zachowanych` +
+  (untilEvaluated ? `, ${p.evaluated}/${p.preserved} ocenionych` : "") +
+  (p.evaluating ? `, ${p.evaluating} oceniane` : "");
 
-/** Koniec czekania: nic w toku (i — z --until-evaluated — nic bez świeżej oceny). */
+/** Koniec czekania: nic w toku (i — z --until-evaluated — nic bez świeżej oceny ani w trakcie oceny). */
 export const waitDone = (p: WaitProgress, untilEvaluated: boolean): boolean =>
-  p.running === 0 && (!untilEvaluated || p.evaluated >= p.preserved);
+  p.running === 0 && (!untilEvaluated || (p.evaluating === 0 && p.evaluated >= p.preserved));
+
+/** Szczegół próby w toku: czynność z pulsu, koszt w trakcie, ostrzeżenie o ciszy pulsu. */
+export function runningDetail(t: Pick<CellStatus["trials"][number], "progress" | "heartbeat_age_s">): string {
+  const parts: string[] = [];
+  if (t.progress?.activity) parts.push(t.progress.activity);
+  if (typeof t.progress?.cost_usd === "number") parts.push(`~$${t.progress.cost_usd.toFixed(2)}`);
+  if (t.heartbeat_age_s !== null && t.heartbeat_age_s > QUIET_HEARTBEAT_S) parts.push(`BRAK PULSU od ${t.heartbeat_age_s} s — utknęła?`);
+  return parts.join(" · ");
+}
 
 export async function statusCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
@@ -198,11 +216,11 @@ export async function statusCommand(args: string[]): Promise<number> {
         // luka między próbami): to nadal praca, nie koniec.
         const runs = liveRuns(join(root, "attempts"));
         const preparing = runs > 0 && progress.running === 0;
-        const line = waitLine(progress, opts.untilEvaluated) + (preparing ? ` — bench attempt w toku (${runs}), próby jeszcze nie wystartowały` : "");
+        const line = waitLine(progress, opts.untilEvaluated) + (preparing ? ` — bieg w toku (${runs}), żadna próba teraz nie biegnie (przygotowanie, kolejka albo ocena)` : "");
         // Przy --json postęp idzie na stderr — stdout zostaje czystym JSON-em.
         const say = opts.json ? console.error : console.log;
         if (last === "" && runs === 0 && progress.running === 0 && progress.preserved < progress.target) {
-          say("info: nic nie jest w toku — żaden bench attempt nie biegnie dla tej instancji");
+          say("info: nic nie jest w toku — żaden bench run / bench attempt nie biegnie dla tej instancji");
         }
         if (line !== last) say(`[${new Date().toISOString().slice(11, 19)}] ${line}`);
         last = line;
@@ -266,10 +284,23 @@ export async function statusCommand(args: string[]): Promise<number> {
     const stale = cells.flatMap((c) => c.trials.filter((t) => t.state === "stale").map((t) => ({ ...t, task: c.task, model: c.model })));
     if (running.length > 0) {
       console.log("\nw toku:");
-      for (const t of running) console.log(`  ${t.task} × ${t.model} × próba ${t.trial} — od ${elapsed(t.started_at)}`);
+      for (const t of running) {
+        const detail = runningDetail(t);
+        console.log(`  ${t.task} × ${t.model} × próba ${t.trial} — od ${elapsed(t.started_at)}${detail ? ` · ${detail}` : ""}`);
+      }
+    }
+    const evaluating = cells.flatMap((c) => c.trials.filter((t) => t.evaluating).map((t) => ({ ...t, task: c.task, model: c.model })));
+    if (evaluating.length > 0) {
+      console.log("\noceniane teraz (bench evaluate):");
+      for (const t of evaluating) console.log(`  ${t.task} × ${t.model} × próba ${t.trial}`);
+    }
+    const runLines = activeRunLines(root);
+    if (runLines.length > 0) {
+      console.log("\nbiegi bench run (szczegóły: bench run status <id>):");
+      for (const l of runLines) console.log(l);
     }
     if (stale.length > 0) {
-      console.log("\nprzeterminowane markery (proces bench attempt zginął?) — następny bench attempt odłoży je do trial-N.aborted-*:");
+      console.log("\nprzeterminowane markery (proces bench attempt zginął?) — następny bench run / bench attempt odłoży je do trial-N.aborted-*:");
       for (const t of stale) console.log(`  ${t.task} × ${t.model} × próba ${t.trial} — start ${t.started_at ?? "?"}`);
     }
     // Ocena z innej ery to nie "oceniona": zmiana rubryki / sędziego /

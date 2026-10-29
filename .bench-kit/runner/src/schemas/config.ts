@@ -59,20 +59,26 @@ export const BenchConfigSchema = z.object({
     /** Próg "pass" dla pass@k: próba zalicza, gdy total >= threshold. */
     pass_threshold: z.number().min(0).max(1).default(0.7),
     /**
-     * Sufit kosztu prób CAŁEGO biegu macierzy (USD): `bench attempt`
-     * robi projekcję kosztu z historii results/ przed startem i przerywa
-     * zlecanie prób po przekroczeniu sumy cost_usd z metrics.json.
-     * Zgoda człowieka jest potrzebna przy podnoszeniu budżetu, nie przy
-     * każdym uruchomieniu. Brak pola = bez limitu.
+     * Sufit kosztu prób CAŁEGO biegu macierzy (USD). `bench run` robi
+     * projekcję kosztu z historii przed startem (projekcja > sufit =
+     * odmowa, kod 3) i pilnuje go NA ŻYWO: koszt zakończonych prób +
+     * koszt prób w toku z pulsu; przekroczenie kończy zlecanie
+     * i zatrzymuje próby w toku (zachowane z `stopped`, bez oceny).
+     * `bench attempt` uruchomiony wprost przerywa tylko zlecanie po
+     * przekroczeniu sumy cost_usd z metrics.json. Zgoda człowieka jest
+     * potrzebna przy podnoszeniu budżetu, nie przy każdym uruchomieniu.
+     * Brak pola = bez limitu.
      */
     max_cost_usd: z.number().positive().optional(),
     /**
-     * Równoczesne próby w obrębie jednego `bench attempt` (pool
-     * kontenerów). Próba spędza większość czasu na czekaniu na API
-     * modelu, więc równoległość tnie wall-clock niemal liniowo.
-     * UWAGA: resources.memory_mb to sufit per kontener, nie rezerwacja —
-     * parallel × memory_mb może przekraczać pamięć maszyny; równoczesne
-     * piki grożą OOM killerem, dobierz do najcięższego zadania.
+     * Równoczesne próby biegu (`bench run`: procesy prób supervisora;
+     * `bench attempt`: pool kontenerów). Próba spędza większość czasu na
+     * czekaniu na API modelu, więc równoległość tnie wall-clock niemal
+     * liniowo. resources.memory_mb to sufit per kontener, nie
+     * rezerwacja: `bench run` dopuszcza kolejną próbę dopiero, gdy
+     * maszyna silnika ma tyle wolnej pamięci (bez limitu: szacunek
+     * 2048 MiB), a `bench attempt` tego nie sprawdza — tam
+     * parallel × memory_mb może przekroczyć pamięć maszyny (OOM killer).
      * 1 = zachowanie sekwencyjne (default).
      */
     parallel: z.number().int().positive().default(1),

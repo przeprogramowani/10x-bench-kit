@@ -171,12 +171,21 @@ export function writeRunMarker(attemptsDir: string, info: Record<string, unknown
   // przed tym markerem (update nie dopisuje reguł do pliku firmy).
   writeFileSync(join(dir, ".gitignore"), "*\n");
   const path = join(dir, `${hostname()}-${process.pid}.json`);
+  refreshRunMarker(path, info);
+  process.once("exit", () => rmSync(path, { force: true }));
+  return path;
+}
+
+/**
+ * Przepisanie markera ze świeżym started_at — proces żyjący dłużej niż
+ * RUN_MARKER_TTL_S (supervisor `bench run`) odświeża go, żeby
+ * `bench status --wait` nie uznał biegu za martwy w połowie.
+ */
+export function refreshRunMarker(path: string, info: Record<string, unknown>): void {
   writeFileSync(
     path,
     JSON.stringify({ ...info, pid: process.pid, host: hostname(), started_at: new Date().toISOString(), timeout_s: RUN_MARKER_TTL_S }, null, 2) + "\n",
   );
-  process.once("exit", () => rmSync(path, { force: true }));
-  return path;
 }
 
 /** Liczba żywych biegów bench attempt dla tego katalogu attempts/. */

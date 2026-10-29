@@ -155,7 +155,10 @@ function main() {
     // brak pola zamiast przerwanej próby
   }
   const metrics = liveMetrics(harness, out);
-  if (metrics && !metrics.incomplete) {
+  // Zero tokenów w trakcie = harness jeszcze ich nie zapisał (OpenCode
+  // liczy je na końcu kroku), nie darmowa sesja — zostawiamy nieznane.
+  const counted = metrics?.tokens && Object.values(metrics.tokens).some((n) => typeof n === "number" && n > 0);
+  if (metrics && !metrics.incomplete && counted) {
     beat.tokens = metrics.tokens ?? null;
     beat.cost_usd = typeof metrics.cost_usd === "number" ? metrics.cost_usd : null;
     beat.cost_source = metrics.cost_source ?? null;

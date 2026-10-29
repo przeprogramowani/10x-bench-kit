@@ -39,6 +39,9 @@ export const TRANSIENT_ATTEMPT_FILES = [
 /** Co ile `bench attempt` przepisuje puls do progress.json i sprawdza stop.json. */
 export const PROGRESS_INTERVAL_MS = 15_000;
 
+/** Puls próby w toku starszy niż tyle sekund = podejrzenie zawieszenia (heartbeat co ~20 s). */
+export const QUIET_HEARTBEAT_S = 120;
+
 /** Po tylu sekundach bez reakcji na SIGINT kontener zatrzymanej próby dostaje kill. */
 export const STOP_GRACE_S = 90;
 

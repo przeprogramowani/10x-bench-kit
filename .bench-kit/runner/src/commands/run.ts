@@ -39,8 +39,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { findInstanceRoot, loadConfig, loadTask } from "../lib/instance.ts";
 import { detectEngine, engineMemoryBytes, ensureBaseImage, sh } from "../lib/containers.ts";
 import { prepareTaskImage, sanitize } from "../lib/prepare.ts";
-import { readJson, runningMarkerState, writeRunMarker } from "../lib/matrix.ts";
-import { heartbeatAgeS, readProgress, requestStop } from "../lib/progress.ts";
+import { readJson, refreshRunMarker, runningMarkerState, writeRunMarker } from "../lib/matrix.ts";
+import { QUIET_HEARTBEAT_S, heartbeatAgeS, readProgress, requestStop } from "../lib/progress.ts";
 import {
   ACTIVE_PHASES,
   TERMINAL_PHASES,
@@ -66,6 +66,7 @@ import {
   type Job,
   type JobPhase,
   type RunState,
+  type RunStatus,
 } from "../lib/queue.ts";
 import type { PlanOut } from "./attempt.ts";
 
@@ -75,6 +76,8 @@ const MEMORY_SAMPLE_MS = 10_000;
 /** Zapas ponad timeout próby, po którym proces-dziecko uznajemy za zawieszony. */
 const ATTEMPT_SLACK_S = 900;
 const DEFAULT_EVAL_PARALLEL = 2;
+/** Marker biegu (lib/matrix.ts) ma TTL 6 h — supervisor odświeża go co godzinę. */
+const MARKER_REFRESH_MS = 3600_000;
 
 interface StartOptions {
   root: string;
@@ -283,6 +286,9 @@ async function supervise(root: string, id: string): Promise<number> {
   const loaded = readRun(root, id);
   if (!loaded) throw new Error(`bieg ${id} nie istnieje (attempts/.runs/${id}/run.json)`);
   const run: RunState = loaded;
+  // cancel() zmienia status z domknięć (sygnał, control.json) — czytamy go
+  // przez getter, bo TS zawęża run.status w pętli i nie widzi tej zmiany.
+  const status = (): RunStatus => run.status;
   const say = (line: string) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${line}`);
   const event = (e: Record<string, unknown>) => appendEvent(root, id, e);
   const abs = (job: Job) => join(root, job.dir);
@@ -292,7 +298,8 @@ async function supervise(root: string, id: string): Promise<number> {
 
   run.pid = process.pid;
   run.host = hostname();
-  writeRunMarker(join(root, "attempts"), { run: id });
+  const runMarker = writeRunMarker(join(root, "attempts"), { run: id });
+  let markerRefreshedAt = Date.now();
   let signals = 0;
   const onSignal = () => {
     signals++;
@@ -331,16 +338,17 @@ async function supervise(root: string, id: string): Promise<number> {
     job.cost_usd = typeof metrics?.cost_usd === "number" ? metrics.cost_usd : null;
     job.live = null;
     job.heartbeat_age_s = null;
-    if (attempt.infra_failure === true) {
-      const stopped = attempt.stopped as { reason?: string } | null | undefined;
+    const stopped = attempt.stopped as { reason?: string } | null | undefined;
+    if (stopped) {
+      // Zatrzymana na żądanie (cancel / budżet) — nie porażka próby; koszt i artefakty zostają.
+      setPhase(job, "cancelled", `zatrzymana (${stopped.reason ?? "?"}) — artefakty częściowe zachowane, wyłączona z oceny`);
+    } else if (attempt.infra_failure === true) {
       setPhase(
         job,
         "failed",
-        stopped
-          ? `zatrzymana (${stopped.reason ?? "?"}) — wyłączona z oceny`
-          : attempt.resource_kill === true
-            ? `zabita sygnałem po retry (OOM?) — ${job.dir}/signal.json`
-            : `awaria infrastruktury — ${job.dir}/container.log`,
+        attempt.resource_kill === true
+          ? `zabita sygnałem po retry (OOM?) — ${job.dir}/signal.json`
+          : `awaria infrastruktury — ${job.dir}/container.log`,
       );
     } else if (run.options.evaluate && run.status !== "cancelling") {
       setPhase(job, "eval-queued");
@@ -369,6 +377,10 @@ async function supervise(root: string, id: string): Promise<number> {
     else if (job.phase !== "queued") setPhase(job, "queued", "ponownie w kolejce (wznowienie)");
   }
 
+  // Wznowienie zachowuje pauzę / anulowanie i wyczerpany budżet sprzed śmierci supervisora.
+  const resumedStatus = run.status;
+  let budgetHit = run.stop_reason === "budżet";
+
   // Obrazy raz na bieg — próby biorą gotowe (`bench attempt --prepared`).
   const engine = detectEngine(run.options.engine);
   run.status = "preparing";
@@ -391,8 +403,8 @@ async function supervise(root: string, id: string): Promise<number> {
       }
     }
   }
-  if (run.status === "preparing") run.status = "running";
-  event({ event: "running" });
+  if (status() === "preparing") run.status = resumedStatus === "paused" || resumedStatus === "cancelling" ? resumedStatus : "running";
+  event({ event: run.status === "running" ? "running" : "resumed-as", status: run.status });
 
   const machineMb = (() => {
     const bytes = engineMemoryBytes(engine);
@@ -405,6 +417,12 @@ async function supervise(root: string, id: string): Promise<number> {
     const used = stats.status === 0 ? stats.stdout.split("\n").reduce((acc, line) => acc + (parseMemUsage(line) ?? 0), 0) : null;
     memory = { at: Date.now(), freeMb: used === null ? null : Math.max(0, machineMb - Math.round(used / 1024 / 1024)) };
     return memory.freeMb;
+  };
+
+  /** Kontener procesu bench attempt, który zginął — bez sprzątania agent pracowałby (i płacił) dalej. */
+  const reapContainer = (job: Job) => {
+    const marker = readJson(join(abs(job), "running.json"));
+    if (typeof marker?.container === "string" && marker.host === hostname()) sh(engine, ["rm", "-f", marker.container], { timeout: 60_000 });
   };
 
   const launch = (job: Job, kind: "attempt" | "evaluate") => {
@@ -422,7 +440,6 @@ async function supervise(root: string, id: string): Promise<number> {
     children.set(job.id, live);
   };
 
-  let budgetHit = false;
   for (;;) {
     // Polecenia z CLI.
     const action = takeControl(root, id);
@@ -446,8 +463,7 @@ async function supervise(root: string, id: string): Promise<number> {
       if (live.kind === "attempt") {
         if (!attemptFinished(job)) {
           // Proces zginął bez zachowanej próby: sprzątamy jego kontener, numer zwalnia marker.
-          const marker = readJson(join(abs(job), "running.json"));
-          if (typeof marker?.container === "string" && marker.host === hostname()) sh(engine, ["rm", "-f", marker.container], { timeout: 60_000 });
+          reapContainer(job);
           const why = tail(jobLog(root, id, job.id, "attempt"), /error:|BŁĄD|AWARIA|błąd runnera/) ?? "bez komunikatu";
           setPhase(job, "failed", `bench attempt zakończony (kod ${live.exit ?? "sygnał"}) bez zachowanej próby: ${why}`);
         }
@@ -478,7 +494,10 @@ async function supervise(root: string, id: string): Promise<number> {
       if (!own) {
         // Obserwowana po wznowieniu — bez procesu, tylko dysk.
         if (attemptFinished(job)) continue;
-        if (!marker || runningMarkerState(marker) === "stale") setPhase(job, "failed", "proces bench attempt sprzed wznowienia zginął bez zachowanej próby");
+        if (!marker || runningMarkerState(marker) === "stale") {
+          reapContainer(job);
+          setPhase(job, "failed", "proces bench attempt sprzed wznowienia zginął bez zachowanej próby");
+        }
         continue;
       }
       const started = Date.parse(job.started_at ?? "");
@@ -553,10 +572,10 @@ async function supervise(root: string, id: string): Promise<number> {
     // Koniec: nic w kolejce ani w toku (pauza bez pracy czeka na resume/cancel).
     const counts = phaseCounts(run.jobs);
     const pending = counts.queued + counts.starting + counts.running + counts["eval-queued"] + counts.evaluating;
-    const finished = pending === 0 || (run.status === "cancelling" && children.size === 0 && counts.starting + counts.running + counts.evaluating === 0);
+    const finished = pending === 0 || (status() === "cancelling" && children.size === 0 && counts.starting + counts.running + counts.evaluating === 0);
     if (finished) {
       for (const job of run.jobs) if (job.phase === "queued" || job.phase === "eval-queued") setPhase(job, "cancelled", run.stop_reason ?? "cancel");
-      run.status = run.status === "cancelling" ? "cancelled" : "done";
+      run.status = status() === "cancelling" ? "cancelled" : "done";
       run.updated_at = new Date().toISOString();
       writeRun(root, run);
       event({ event: "finished", status: run.status, spent_usd: run.spent_usd });
@@ -564,6 +583,10 @@ async function supervise(root: string, id: string): Promise<number> {
       return phaseCounts(run.jobs).failed > 0 ? 1 : 0;
     }
 
+    if (Date.now() - markerRefreshedAt > MARKER_REFRESH_MS) {
+      refreshRunMarker(runMarker, { run: id });
+      markerRefreshedAt = Date.now();
+    }
     run.updated_at = new Date().toISOString();
     writeRun(root, run);
     await sleep(TICK_MS);
@@ -578,9 +601,6 @@ const ago = (iso: string | null): string => {
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
   return s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
 };
-
-/** Puls próby starszy niż tyle sekund przy żywym procesie = podejrzenie zawieszenia. */
-const QUIET_HEARTBEAT_S = 120;
 
 function jobDetail(job: Job): string {
   if (job.phase === "running" || job.phase === "starting") {

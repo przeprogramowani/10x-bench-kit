@@ -6,6 +6,69 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.39.0 — 2026-10-29
+
+**`bench run`: bieg macierzy pod nadzorem w tle.** Agent nie blokuje tury
+na długim biegu, crash jednego procesu nie zabiera macierzy, a postęp —
+kolejka, faza, czynność agenta, koszt na żywo, powód czekania — widać
+w każdej chwili. Zastępuje procedurę "jedna próba = jeden subagent"
+z 0.38.0: izolacja procesów żyje teraz w runnerze, nie w subagentach LLM.
+
+#### runner
+
+- Nowa komenda `bench run`: plan i projekcja kosztu, bramka budżetu
+  przed startem (projekcja > budżet = odmowa, kod 3), supervisor
+  odłączony od terminala, powrót z id biegu od razu. Stan kolejki
+  w `attempts/.runs/<id>/` (`run.json`, `events.jsonl`, logi procesów).
+  `bench run status [--json|--watch]`, `list`, `pause|resume|cancel`;
+  `bench run resume <id>` po śmierci supervisora odtwarza stan z dysku
+  (adoptuje próby w toku, ocenia zachowane, resztę kolejkuje).
+- Supervisor: obrazy raz na bieg (`bench attempt --prepared`), osobny
+  proces `bench attempt --trial-index n` na próbę, `bench evaluate
+  --attempt` zaraz po każdej zachowanej próbie (osobna pula,
+  `--eval-parallel`), dopuszczenie wg wolnej pamięci maszyny silnika,
+  kolejność trial-major (bieg ucięty budżetem mierzy każdą komórkę),
+  budżet liczony na żywo (zakończone + puls prób w toku) — przekroczenie
+  kończy zlecanie i zatrzymuje próby w toku. Kontener procesu, który
+  zginął, jest sprzątany.
+- Puls próby: `trial.sh` uruchamia `heartbeat.mjs` co 20 s →
+  `heartbeat.json` (czas, liczba zdarzeń, ostatnia czynność z własnego
+  strumienia harnessu, tokeny/koszt w trakcie); `bench attempt`
+  przepisuje go do `progress.json` z wyceną jak po próbie. Nic nie
+  trafia do promptu ocenianego modelu.
+- Zatrzymanie próby: `stop.json` → SIGINT do `timeout` agenta
+  (`/bench/agent.pid`), po 90 s kill kontenera. Zatrzymana próba jest
+  zachowana z nowym polem `attempt.json.stopped` (addytywne, `format`
+  zostaje 1) i `infra_failure: true` — bez oceny.
+- Kontener próby ma nazwę (`running.json.container`, `attempt`);
+  `bench evaluate` pisze `evaluating.json` na czas oceny.
+- `bench status`: czynność, `~$` i ostrzeżenie o ciszy pulsu (> 120 s)
+  dla prób w toku, lista ocenianych prób, aktywne biegi `bench run`,
+  "następny krok" kieruje do `bench run`; `--wait` liczy oceny w toku
+  (`--until-evaluated` czeka na ich koniec), marker supervisora
+  odświeżany co godzinę (biegi dłuższe niż 6 h).
+- `bench changes` pomija pliki przejściowe prób (heartbeat / progress /
+  stop / evaluating.json) i nie zwija przez nie `git add` do katalogu;
+  `.gitignore` szablonu je wyklucza.
+
+#### bench-evaluate
+
+- Krok 3: `bench run` w tle zamiast fal subagentów, briefu
+  i `attempts/.logs/` — start, raport id, na "jak idzie?"
+  `bench run status --json`, nigdy blokowanie tury.
+- Krok 4: ocena jest automatyczna; gołe `bench evaluate` służy
+  re-ocenie.
+- Zasada 1: bramkę budżetu egzekwuje `bench run` (kod 3 = pytanie do
+  użytkownika).
+
+#### Migracja
+
+Brak dla danych: format prób i wyników bez zmian (`stopped` addytywne),
+scoring bez zmian. Instancje z `.gitignore` sprzed 0.39.0 mogą dopisać
+`attempts/**/{heartbeat,progress,stop,evaluating}.json` i
+`attempts/**/*.tmp` — `bench changes` i tak je pomija. Obraz bazowy
+przebuduje się sam (nowy `heartbeat.mjs`).
+
 ## 0.38.0 — 2026-10-29
 
 **bench-evaluate: jedna próba = jeden subagent.** Awaria jednego procesu

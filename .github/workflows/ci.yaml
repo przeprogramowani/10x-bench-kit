@@ -1,9 +1,9 @@
 # CI template'u — readiness kitu on change mastera: testuje go
 # end-to-end: materializacja instancji (jak `bench-kit init`, bez
 # historii gita) → wiring demo na publiczne repo bazowe → pełne
-# `bench validate` → smoke `bench attempt` zadania-demo na tanim
-# modelu → `bench evaluate` (zachowana próba → results/) z bramką
-# na wynik. To jedyne miejsce, gdzie GHA wykonuje płatną próbę —
+# `bench validate` → `bench run --foreground` zadania-demo na tanim
+# modelu (supervisor → proces `bench attempt` → `bench evaluate` zaraz
+# po próbie: zachowana próba → results/) z bramką na wynik. To jedyne miejsce, gdzie GHA wykonuje płatną próbę —
 # benchmark instancji pracuje lokalnie.
 #
 # Init z prawdziwego 10x-cli testują testy 10x-cli; tu testujemy kontrakt
@@ -103,28 +103,31 @@ jobs:
       - run: npm ci --prefix "$INSTANCE/.bench-kit/runner"
       - name: bench validate (pełne, z siecią)
         run: npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- validate --root "$INSTANCE"
-      - name: bench attempt (demo × 1 próba → zachowana próba)
-        run: |
-          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- attempt \
-            --root "$INSTANCE" --tasks demo-hello-bench --models "$TRIAL_MODEL" \
-            --trials 1
-          ATTEMPT=$(find "$INSTANCE/attempts" -name attempt.json | head -1)
-          [ -n "$ATTEMPT" ] || { echo "brak attempt.json — kontrakt zachowanej próby zerwany"; exit 1; }
-          [ -d "$(dirname "$ATTEMPT")/workspace" ] || { echo "brak workspace/ w zachowanej próbie"; exit 1; }
-      - name: bench evaluate + bramka kontraktu (wynik w results/)
+      - name: bench run --foreground (demo × 1 próba → zachowana próba → ocena) + bramka kontraktu
+        # Cała ścieżka `bench run`: plan + bramka budżetu, supervisor,
+        # obraz raz na bieg, proces `bench attempt --prepared` na próbę,
+        # puls, `bench evaluate --attempt` zaraz po próbie.
         # Bramka NIE gatuje na ocenie sędziego — patrz nagłówek
         # .github/scripts/e2e-gate.mjs. Gatujemy na kontrakcie potoku
         # i na deterministycznym guardzie static, żeby czerwień CI
         # znaczyła "potok się zepsuł", a nie "sędzia miał gorszy dzień".
         run: |
-          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- evaluate \
-            --root "$INSTANCE"
+          npm run bench --prefix "$INSTANCE/.bench-kit/runner" --silent -- run \
+            --root "$INSTANCE" --foreground --tasks demo-hello-bench --models "$TRIAL_MODEL" \
+            --trials 1
+          ATTEMPT=$(find "$INSTANCE/attempts" -name attempt.json -not -path '*/.runs/*' | head -1)
+          [ -n "$ATTEMPT" ] || { echo "brak attempt.json — kontrakt zachowanej próby zerwany"; exit 1; }
+          [ -d "$(dirname "$ATTEMPT")/workspace" ] || { echo "brak workspace/ w zachowanej próbie"; exit 1; }
+          RUN=$(ls -d "$INSTANCE"/attempts/.runs/r-* | head -1)
+          jq -e '.status == "done" and all(.jobs[]; .phase == "done")' "$RUN/run.json" \
+            || { echo "bench run nie domknął biegu (run.json):"; cat "$RUN/run.json"; exit 1; }
           node .github/scripts/e2e-gate.mjs "$INSTANCE"
       - name: Artefakt e2e (bez workspace'ów — te żyją tylko na dysku)
         if: always()
         run: |
           mkdir -p /tmp/e2e-artifact
           if [ -d "$INSTANCE/attempts" ]; then
+            # .runs/ (stan biegu, logi supervisora i procesów) też — diagnostyka czerwieni.
             rsync -a --exclude 'workspace/' "$INSTANCE/attempts/" /tmp/e2e-artifact/attempts/
           fi
           if [ -d "$INSTANCE/results" ]; then

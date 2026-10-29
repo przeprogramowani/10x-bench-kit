@@ -3,6 +3,8 @@
  * to dwa niezależne procesy na maszynie operatora / VPS).
  *
  * Komendy:
+ *   bench run       — bieg macierzy pod nadzorem w tle: kolejka na dysku, proces
+ *                     na próbę, ocena zaraz po próbie, budżet i postęp na żywo
  *   bench attempt   — wykonanie prób macierzy → ZACHOWANE PRÓBY (attempts/)
  *   bench evaluate  — ocena zachowanych prób → wyniki w results/ w repo
  *   bench status    — stan macierzy z dysku (zachowane / w toku / ocenione)
@@ -20,6 +22,7 @@
  * Kontrakt zachowanej próby (jedyny punkt styku wykonanie ↔ ocena):
  * .bench-kit/ATTEMPT_FORMAT.md; schematy danych w src/schemas/.
  */
+import { runCommand } from "./commands/run.ts";
 import { attemptCommand } from "./commands/attempt.ts";
 import { evaluateCommand } from "./commands/evaluate.ts";
 import { statusCommand } from "./commands/status.ts";
@@ -38,6 +41,7 @@ import { applyDiskTmpdir } from "./lib/tmpdir.ts";
 import { resolve } from "node:path";
 
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
+  run: runCommand,
   attempt: attemptCommand,
   evaluate: evaluateCommand,
   status: statusCommand,
@@ -64,7 +68,7 @@ const handler = command ? COMMANDS[command] : undefined;
 }
 
 if (!handler) {
-  console.error("usage: bench <attempt|evaluate|status|backlog|changes|shell|validate|report|leaderboard|assert|judge|calibrate|doctor> [options]");
+  console.error("usage: bench <run|attempt|evaluate|status|backlog|changes|shell|validate|report|leaderboard|assert|judge|calibrate|doctor> [options]");
   process.exit(2);
 }
 
