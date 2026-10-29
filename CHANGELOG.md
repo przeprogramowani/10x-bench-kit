@@ -6,6 +6,33 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.38.0 — 2026-10-29
+
+**bench-evaluate: jedna próba = jeden subagent.** Awaria jednego procesu
+nie zabiera już całej macierzy.
+
+#### bench-evaluate
+
+- Krok 3 (Run): każda próba (zadanie × model × próba) biegnie w osobnym
+  subagencie (tania klasa: Sonnet/Haiku/Flash) — `bench attempt
+  --trial-index n` w tle, `bench status --wait`, potem `bench evaluate
+  --attempt <próba>` i jedna linia raportu. Narzędzie bez subagentów:
+  osobny proces `bench attempt` na próbę z tym samym briefem.
+- Fale po `defaults.parallel`; pierwsza fala ma po jednej próbie na
+  zadanie, żeby obraz zadania budował się raz.
+- Budżet pilnuje agent główny: projekcja z `bench status` przed pierwszą
+  falą, suma raportowanych kosztów po każdej, brak kolejnych fal po
+  przekroczeniu `defaults.max_cost_usd`.
+- Krok 4 (Evaluate): ocena per próba wewnątrz subagenta; gołe
+  `bench evaluate` służy już tylko re-ocenie wszystkich zachowanych prób.
+- Powód: runner izolował błędy prób wewnątrz jednego procesu, ale
+  śmierć procesu (crash, zabita powłoka, zawieszenie) kończyła całą
+  macierz.
+
+#### Migracja
+
+Brak. Runner, formaty prób i wyników bez zmian; scoring bez zmian.
+
 ## 0.37.0 — 2026-10-29
 
 **Bez pola Human time i bez horyzontu czasowego.** Pole zlecenia, którego
