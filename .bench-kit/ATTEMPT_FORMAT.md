@@ -27,6 +27,10 @@ attempts/<zadanie>/<model-sanitized>/trial-<n>/
 ├── signal.json         # tylko przy killu sygnałowym po retry (diagnostyka)
 ├── container.log       # tylko przy awarii infrastruktury
 ├── running.json        # TYLKO w trakcie wykonania — marker próby w toku (poza gitem)
+├── heartbeat.json      # TYLKO w trakcie — puls z kontenera (poza gitem)
+├── progress.json       # TYLKO w trakcie — puls wyceniony przez runner (poza gitem)
+├── stop.json           # TYLKO w trakcie — prośba o zatrzymanie próby (poza gitem)
+├── evaluating.json     # TYLKO w trakcie oceny — marker oceny w toku (poza gitem)
 └── provider-error-attempt-1/   # artefakty pierwszego podejścia przy retry
     (analogicznie signal-kill-attempt-1/)
 ```
@@ -58,13 +62,53 @@ opłacona nie ginie) i wykonuje próbę od nowa. Stan macierzy z dysku —
 zachowane / w toku / przeterminowane / ocenione — pokazuje
 `bench status`.
 
+W trakcie próby `bench attempt` dopisuje do markera `container` (nazwa
+kontenera próby — po nią sięga zatrzymanie i sprzątanie po crashu
+procesu) oraz `attempt` (numer podejścia przy retry).
+
+### Puls, zatrzymanie, ocena w toku (pliki przejściowe)
+
+Obok `running.json` żyją pliki, które nie należą do zachowanej próby —
+`bench attempt` / `bench evaluate` usuwają je po sobie, a po crashu
+procesu są rozpoznawane jako martwe (wiek / PID) i pomijane przez
+`bench changes` (`.gitignore` szablonu też je wyklucza):
+
+- **`heartbeat.json`** — co ~20 s pisze go w kontenerze
+  `docker/heartbeat.mjs` (uruchamiany przez `trial.sh` obok agenta):
+  `at`, `elapsed_s`, `log_bytes`, `events` (liczba tur/elementów),
+  `activity` (ostatnia czynność z WŁASNEGO strumienia zdarzeń harnessu),
+  `tokens` / `cost_usd` / `cost_source` (adapter metryk na stanie sesji
+  w trakcie). Niczego nie dodaje do promptu ocenianego modelu.
+- **`progress.json`** — ten puls przepisany przez `bench attempt` co
+  ~15 s z kosztem wycenionym tą samą polityką co po próbie
+  (`lib/pricing.ts`). To czytają `bench status` (czynność, `~$`,
+  ostrzeżenie o ciszy pulsu > 120 s) i supervisor `bench run` (budżet
+  liczony na żywo).
+- **`stop.json`** (`reason`, `requested_at`, `by`) — prośba
+  o zatrzymanie: pisze ją supervisor `bench run` (wyczerpany budżet,
+  `bench run cancel`). `bench attempt` wysyła wtedy SIGINT do `timeout`
+  agenta (`<silnik> exec <kontener> sh -c 'kill -INT "$(cat /bench/agent.pid)"'`;
+  PID zapisuje `trial.sh`), a gdy agent nie zejdzie w 90 s — zabija
+  kontener. Zatrzymana próba jest ZACHOWANA (transkrypt, `patch.diff`,
+  metryki — pieniądze wydane) z `attempt.json.stopped` = treść
+  `stop.json` i `infra_failure: true`, więc ocena ją pomija. Prośba
+  zastana przed startem kontenera kończy próbę bez wydatku.
+- **`evaluating.json`** (`started_at`, `timeout_s`, `pid`, `host`) —
+  `bench evaluate` pisze go na czas oceny tej próby; żywotność jak
+  `running.json`.
+
+Bieg `bench run` trzyma własny stan kolejki w `attempts/.runs/<id>/`
+(`run.json`, `events.jsonl`, logi procesów) — katalog sam się ignoruje
+i nie jest częścią kontraktu próby.
+
 ## Podział dysk / git
 
 - **Commitowalne (KB)**: `attempt.json`, `patch.diff`, `metrics.json`,
   `execution.json`, `signal.json`, `container.log` — pełne metadane
   i diff wystarczają do re-oceny diffowej i triage'u.
 - **Tylko dysk**: `workspace/` (`.gitignore`: `attempts/**/workspace/`),
-  `agent.log` (`*.log`) i przejściowy `running.json`. `workspace/` jest
+  `agent.log` (`*.log`) i przejściowe `running.json`, `heartbeat.json`,
+  `progress.json`, `stop.json`, `evaluating.json`. `workspace/` jest
   bez katalogów `node_modules` (próba biegnie offline, więc pochodzą z
   obrazu zadania — `task.prepare`) i bez głównego `.git` (commit startowy
   z obrazu; zmiany agenta są w drzewie i w `patch.diff`); `bench shell`
@@ -105,7 +149,10 @@ zachowane / w toku / przeterminowane / ocenione — pokazuje
   pozostaje `1`.
 - **Atrybucja awarii**: `infra_failure`/`resource_kill`/`provider_error`
   w `attempt.json` wyłączają próbę z oceny zamiast wliczać zero do
-  median; `bench evaluate` pomija je z warningiem.
+  median; `bench evaluate` pomija je z warningiem. `stopped` (obiekt
+  `{reason, requested_at, by}` albo `null` / brak) = próba zatrzymana na
+  żądanie (patrz „Puls, zatrzymanie…"); zawsze idzie w parze
+  z `infra_failure: true`. Pole jest addytywne — `format` pozostaje `1`.
 - **Świadomość dryfu**: `task_hash` w `attempt.json` to hash katalogu
   zadania W CHWILI WYKONANIA; `bench evaluate` porównuje go z bieżącym
   i głośno ostrzega przy rozjeździe (wynik dostaje stempel bieżącej

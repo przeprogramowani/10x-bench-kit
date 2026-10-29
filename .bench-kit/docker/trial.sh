@@ -40,10 +40,32 @@ find . -maxdepth 3 \( -name node_modules -o -name .git \) -prune -o -type f \
 # zdarzenia i transkrypt do tej chwili (SIGTERM gubi bufor stdout Claude
 # Code), więc adapter odtworzy tokeny także z próby po timeoucie.
 # SIGKILL 30 s po sygnale, gdy CLI nie zejdzie samo.
+#
+# PID `timeout` agenta trafia do /bench/agent.pid (run_agent: sh zapisuje
+# własny PID i robi exec timeout): runner zatrzymuje próbę (budżet,
+# `bench run cancel`) przez
+# `<engine> exec <kontener> sh -c 'kill -INT "$(cat /bench/agent.pid)"'` —
+# timeout przekazuje sygnał agentowi, więc zatrzymana próba zostawia
+# transkrypt, patch.diff i metryki jak po timeoucie. Agent zostaje na
+# PIERWSZYM planie: proces uruchomiony przez `&` w nieinteraktywnym bashu
+# dziedziczy zignorowany SIGINT, a timeout nie przywraca go dziecku —
+# agent w tle nie zszedłby ani po stopie, ani po timeoucie (-s INT).
+#
+# Puls (heartbeat.mjs) co HEARTBEAT_S sekund zapisuje heartbeat.json:
+# czas, ostatnią czynność agenta i tokeny/koszt w trakcie — to czyta
+# `bench status` / `bench run status` bez wchodzenia do kontenera.
 start_epoch=$(date +%s)
+HEARTBEAT_S=20
+(
+  while sleep "$HEARTBEAT_S"; do
+    node /bench/heartbeat.mjs "$harness" "$out" "$start_epoch" >/dev/null 2>&1
+  done
+) &
+heartbeat_pid=$!
+run_agent() { sh -c 'echo $$ >/bench/agent.pid; exec "$@"' run_agent "$@"; }
 case "$harness" in
   opencode)
-    timeout --kill-after=15 "$timeout_s" \
+    run_agent timeout --kill-after=15 "$timeout_s" \
       opencode run --model "$model" "$(cat /bench/prompt.md)" \
       >"$out/agent.log" 2>&1
     agent_exit=$?
@@ -70,7 +92,7 @@ case "$harness" in
     # Prompt przez stdin (nie argument — treść zaczynająca się od "-"
     # nie zostanie wzięta za flagę); tryb uprawnień jawnie, bo domyślny
     # tryb -p zależy od pobrania feature flag.
-    timeout -s INT --kill-after=30 "$timeout_s" \
+    run_agent timeout -s INT --kill-after=30 "$timeout_s" \
       claude -p --model "$model" \
       --permission-mode bypassPermissions \
       --output-format stream-json --verbose \
@@ -100,7 +122,7 @@ EOF
     # Kontener jest granicą izolacji — bez drugiej warstwy sandboxa Codexa
     # (bwrap/seccomp w Dockerze bywa niedostępny). Prompt przez stdin ("-").
     # Bez --ephemeral: rollout sesji w CODEX_HOME to źródło tokenów po timeoucie.
-    timeout -s INT --kill-after=30 "$timeout_s" \
+    run_agent timeout -s INT --kill-after=30 "$timeout_s" \
       codex exec --json \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
       -C /workspace -m "$model" - \
@@ -112,6 +134,8 @@ EOF
     agent_exit=2
     ;;
 esac
+kill "$heartbeat_pid" 2>/dev/null
+wait "$heartbeat_pid" 2>/dev/null
 end_epoch=$(date +%s)
 wall_s=$((end_epoch - start_epoch))
 

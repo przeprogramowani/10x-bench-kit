@@ -6,6 +6,12 @@ out/
 # workspace'y (GB) żyją wyłącznie na dysku — poza gitem; logi łapie *.log.
 attempts/**/workspace/
 attempts/**/running.json
+# Pliki przejściowe próby/oceny w toku (lib/progress.ts) — po crashu zostają.
+attempts/**/heartbeat.json
+attempts/**/progress.json
+attempts/**/stop.json
+attempts/**/evaluating.json
+attempts/**/*.tmp
 *.log
 # Lokalne klony rep bazowych (konwencja .repos/<nazwa> — patrz AGENTS.md).
 .repos/

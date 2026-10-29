@@ -21,7 +21,7 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 |---|---|---|---|
 | **status** — czy instancja jest gotowa | **bench-status** | Punkt wejścia: maszyna, klucze, repo bazowe, modele i sędzia, zielony `bench validate`, rozgrzanie obrazu bazowego w tle; gdy wszystko zielone — brief instancji (co testujemy, na jakich modelach, sędzia, budżet, wyniki); jeden kolejny krok. Bez zadania-demo — pierwszym dowodem toru kontenerów jest pierwsze prawdziwe zadanie | `SKILL.md` |
 | **create task** — co mierzymy | **bench-create-task** | Zadania z prawdziwej pracy firmy, w krótkiej rozmowie. Użytkownik wskazuje PR/commit → skill go znajduje i potwierdza; nie wskazuje nic → tani subagent (klasa Sonnet/Flash) przegląda ostatni kwartał historii i proponuje 3–5 kandydatów (bugfix, feature, refaktor), użytkownik wybiera wszystkie, część albo coś innego. Zmergowana zmiana z testami staje się zadaniem. Pin to rodzic zmiany, testy zmiany to ukryty guard fail-to-pass, a kod zmiany to referencja, której agent nie widzi. Zlecenia trafiają do `tasks/backlog.md` z decyzją i klasą; budowa jest statyczna (pliki zadania, rubryka, raport `reports/<zadanie>-build.md`, zielony `bench validate`) — bez kontenerów, sędziego i prób | `MINING.md` + `mine-prs.mjs`, `BUILD.md` + `RUBRIC_AUTHORING.md` (subagent per zlecenie), `BACKLOG_TEMPLATE.md`, `REPORT_TEMPLATE.md` |
-| **evaluate** — uruchamiamy i oceniamy modele | **bench-evaluate** | Dowód nowych zadań na pinie (`bench validate --assert`) przed pierwszą próbą, bieg macierzy modele × zadania × próby z projekcją kosztu, zachowane próby z top-upem, ocena `bench evaluate` (guardy + sędzia API na diffie), przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `SKILL.md` |
+| **evaluate** — uruchamiamy i oceniamy modele | **bench-evaluate** | Dowód nowych zadań na pinie (`bench validate --assert`) przed pierwszą próbą, bieg macierzy modele × zadania × próby przez `bench run` (supervisor w tle, proces na próbę, ocena `bench evaluate` — guardy + sędzia API na diffie — zaraz po każdej próbie, budżet i postęp na żywo; agent nie blokuje tury), zachowane próby z top-upem, przekazanie z planem commitów; nowy model mierzony na tych samych zadaniach co obecny | `SKILL.md` |
 | **analysis** — co z tego wynika | **bench-analysis** | Analiza wyników wspierana przez agenta, w rozmowie, kończona decyzją routingu: który model (i które CLI) dostaje którą klasę pracy, za ile za akceptowalny wynik, z jaką pewnością. Wszystko liczy `summarize.mjs` + `analytics.mjs`: pass rate z przedziałem, pass^k, klasa × model po ZADANIACH, porównania parowe (test znaków), rozdzielczość zbioru zadań | `EXPLAIN.md` (diagnoza zaskakującego wyniku z zachowanej próby) |
 
 ## Zasady nadrzędne (obowiązują zawsze, szczegóły w skillach)
@@ -58,22 +58,32 @@ procedury (pliki obok SKILL.md) dopiero, gdy są potrzebne:
 - **Izolacja materiałów oceny** — nic z `evaluation-pool/` nie trafia
   do `tasks/` ani do workspace'u agenta.
 - **Budżet zamiast rytuału zgody** — kosztów pilnuje
-  `defaults.max_cost_usd`: sufit na CAŁY bieg macierzy (`bench attempt`
-  robi projekcję z historii results/ przed startem i przerywa zlecanie
-  po przekroczeniu); koszt faktyczny raportuje się po fakcie, a zgody
-  człowieka wymaga tylko podnoszenie budżetu.
+  `defaults.max_cost_usd`: sufit na CAŁY bieg macierzy (`bench run`
+  robi projekcję z historii przed startem i odmawia startu, gdy
+  projekcja go przekracza — kod 3; w trakcie liczy koszt zakończonych
+  prób + koszt prób w toku z pulsu i po przekroczeniu przestaje zlecać
+  oraz zatrzymuje próby w toku — zachowane z `stopped`, bez oceny);
+  koszt faktyczny raportuje się po fakcie, a zgody człowieka wymaga
+  tylko podnoszenie budżetu.
 - **Próba opłacona jest święta** — zachowane próby (`attempts/`,
   kontrakt .bench-kit/ATTEMPT_FORMAT.md) są nienaruszalne i nigdy nie
   są wyrzucane; zmiana rubryki/sędziego to RE-OCENA zachowanych prób
   (`bench evaluate`), nie nowy bieg. Wyniki żyją w
   `results/` w repo — commituje je użytkownik, historię wersjonuje git.
-- **Bieg nie blokuje, tracker to dysk** — `bench attempt` zajmuje numer
-  próby markerem `running.json` przed startem kontenera, więc kilka
-  procesów (per model, w tle, na drugiej maszynie) dogania tę samą
-  macierz bez kolizji; stan (zachowane / w toku / ocenione) czyta
-  `bench status`, ocena bierze to, co skończone.
+- **Bieg nie blokuje, tracker to dysk** — `bench run` startuje
+  supervisora w tle i od razu wraca z id biegu; stan kolejki żyje
+  w `attempts/.runs/<id>/`, każda próba to osobny proces `bench attempt`
+  (crash jednego kończy tę próbę, nie bieg), a martwego supervisora
+  zastępuje `bench run resume <id>`, odtwarzając stan z dysku. Agent
+  odpowiada na "jak idzie?" z `bench run status --json`, nigdy nie
+  trzyma tury otwartej. `bench attempt` zajmuje numer próby markerem
+  `running.json` przed startem kontenera, więc kilka procesów (per
+  model, w tle, na drugiej maszynie) dogania tę samą macierz bez
+  kolizji; stan (zachowane / w toku z czynnością i kosztem z pulsu /
+  oceniane / ocenione) czyta `bench status`, ocena bierze to, co
+  skończone.
 - **Runner jest narzędziem** — stany "gotowe" potwierdza wyjście komend
-  `bench` (`validate` / `assert` / `judge` / `attempt` / `evaluate`),
+  `bench` (`validate` / `assert` / `judge` / `run` / `attempt` / `evaluate`),
   nie deklaracja.
 - **Stan się wyprowadza, nie zapisuje** — postęp zlecenia (ordered →
   building → ready → measuring → measured) czyta

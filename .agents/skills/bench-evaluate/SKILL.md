@@ -2,10 +2,11 @@
 name: bench-evaluate
 description: >-
   Measures models on the benchmark's tasks on this machine: proves new
-  tasks on their pin, runs the matrix (models × tasks × trials) within
-  the budget with `bench attempt`, evaluates the preserved attempts
-  with `bench evaluate` (guards + the API judge), and hands over the
-  results with the `bench changes` commit plan. Use when the user says
+  tasks on their pin, starts the matrix (models × tasks × trials) as a
+  supervised background run with `bench run` (one process per attempt,
+  each attempt evaluated by `bench evaluate` right after it, the budget
+  enforced live), reports its progress without blocking, and hands
+  over the results with the `bench changes` commit plan. Use when the user says
   "run the benchmark / measure model X / evaluate the models / a new
   model came out / re-evaluate", or after bench-create-task when tasks
   are ready. Instance readiness is bench-status; what the numbers mean
@@ -23,16 +24,17 @@ them to the user. `bench <command>` means `node --experimental-strip-types
 (one-time: `npm ci --prefix .bench-kit/runner`).
 
 ```
-preflight → scope + cost → one subagent per attempt (attempt + evaluate) → hand over
+preflight → scope + cost → bench run (background; status on demand) → hand over
 ```
 
 ## Hard rules
 
-1. **Budget, not consent.** `defaults.max_cost_usd` caps the whole run;
-   you project the cost before the first wave and stop dispatching
-   once the reported spend passes the ceiling (step 3). Ask the user only when the
-   projection exceeds the budget (narrow the matrix or raise the
-   budget). Report the actual cost afterwards.
+1. **Budget, not consent.** `defaults.max_cost_usd` (or `--max-cost`)
+   caps the whole run, and `bench run` enforces it: it refuses to start
+   when the projection exceeds the budget (exit 3), and once finished
+   plus live cost passes the ceiling it stops dispatching and stops the
+   running attempts. Exit 3 is the one moment to ask the user: narrow
+   the matrix or raise the budget. Report the actual cost afterwards.
 2. **Preserved attempts are sacred.** Never delete anything under
    `attempts/`. Top-up is the default: existing trials count toward
    `--trials`. `--force` needs a stated reason.
@@ -72,62 +74,56 @@ attempt in that cell. A cell with no history uses the same model's
 median on other tasks, and you mark that number as an estimate. Over
 budget, stop and ask (rule 1).
 
-### 3. Run — one subagent per attempt
-
-An attempt is one `task × model × trial`. Each one runs in its own
-subagent (cheap class: Sonnet/Haiku/Flash), so a crashed process, a
-hung container or a lost shell kills that attempt only, never the
-matrix. The runner already isolates attempts inside one process; this
-isolates the process. A tool without subagents gets one detached
-`bench attempt` process per attempt instead, with the same brief.
-
-List the missing attempts from `bench status` (top-up: preserved
-trials are not in it). Dispatch them in waves of `defaults.parallel`
-(or `--parallel`). Put one attempt per task in the first wave, so each
-task image gets built once instead of by several subagents at once.
-
-Brief for each subagent (fill in `<task>`, `<model>`, `<n>` and
-`<trial dir>` = `attempts/<task>/<model dir>/trial-<n>`, with the model
-directory named as in `attempts/`):
+### 3. Run — `bench run`, never block the turn
 
 ```
-Instance root: <root>. `bench` = node --experimental-strip-types
-.bench-kit/runner/src/index.ts. Run exactly one attempt and evaluate it:
-1. mkdir -p attempts/.logs; nohup bench attempt --tasks <task> --models <model> --trial-index <n>
-     > attempts/.logs/<task>-<model dir>-<n>.log 2>&1 &
-2. bench status --tasks <task> --models <model> --wait --timeout 540;
-   repeat on exit 124 until it exits 0.
-3. If <trial dir>/attempt.json is missing,
-   or has infra_failure: true, stop and report it with the last 30
-   lines of the log and of container.log or signal.json.
-4. Otherwise: bench evaluate --attempt <trial dir>
-5. Reply with ONE line: <task> | <model> | trial <n> | preserved/infra/
-   timeout/provider_error | cost $ (metrics.json) | PASS/FAIL/eval error
-   + pass_reason or error.
-Do not retry, do not use --force, do not delete or edit any file,
-do not touch git.
+bench run [--tasks x,y] [--models a,b] [--trials n] [--parallel n] [--max-cost <usd>]
 ```
 
-Subagents only run and report; decisions stay with you. After each
-wave, add up the reported costs. Once the spend passes
-`defaults.max_cost_usd`, dispatch no more waves (rule 1). Running
-attempts finish on their own. An infra failure is not retried in the
-next wave. Look at it first (rule 3), then commission it again with
-`--trial-index n --force` and a stated reason.
+It plans the missing attempts (top-up: preserved trials are skipped),
+checks the budget (rule 1), starts a detached supervisor and returns a
+run id within a second. Report the id, the attempt count and the
+projection, then hand the turn back. The supervisor builds the images
+once, runs **one `bench attempt` process per attempt** (a crash, OOM
+or hang ends that attempt, never the matrix), admits attempts by free
+engine memory, and evaluates each preserved attempt right after it.
 
-`bench status` stays the source of truth: a subagent that never
-replies leaves a cell that reads STALE or still running there. Read
-its log under `attempts/.logs/`; the next dispatch redoes that trial.
+When the user asks how it's going, read `bench run status --json`
+(or the table without `--json`). Per attempt it shows the phase
+(`queued` → `starting` → `running` → `eval-queued` → `evaluating` →
+`done` / `failed` / `cancelled`), the agent's last activity, live
+`~$` cost, why a queued attempt is waiting, and a "BRAK PULSU" warning
+when an attempt has been silent for over 2 minutes. `--watch` is for a
+human at a terminal; never use it, or `bench status --wait`, to hold
+your own turn open.
+
+- **Control:** `bench run pause|resume|cancel [<id>]`. A cancel or a
+  budget stop interrupts running attempts with SIGINT. They're
+  preserved with `attempt.json.stopped` (the money is spent and the
+  artifacts stay), but they're excluded from evaluation and still count
+  toward `--trials`. Re-run one only on purpose, with
+  `bench attempt --trial-index n --force` and a stated reason.
+- **Supervisor died** (`SUPERVISOR NIE ODPOWIADA` in status, e.g. after
+  a reboot or a killed shell): `bench run resume <id>`. The new
+  supervisor rebuilds the state from disk, adopts attempts that are
+  still running, evaluates preserved ones, and requeues the rest.
+- **Failed attempt:** its reason is in the status row, the full log
+  in `attempts/.runs/<id>/jobs/`. An infra failure isn't retried
+  automatically. Look at it first (rule 3).
+- `bench status` stays the source of truth for the matrix as a whole.
+  It lists running attempts with their activity and cost, evaluations
+  in progress, and active `bench run`s.
 
 ### 4. Evaluate
 
-Each subagent evaluates its own attempt (`bench evaluate --attempt …`):
-guards in a container, then the API judge on the diff, results in
-`results/<task>/<model>/trial-N/`. An evaluation error stays with
-that attempt. Once the cause is fixed, re-run
-`bench evaluate --attempt <dir>` for it; a bare `bench evaluate`
-re-evaluates every preserved attempt. Pass is a gate: every guard with
-weight > 0 green **and** the judge ≥ `pass_threshold`.
+Evaluation is automatic under `bench run` (`--no-evaluate` turns it
+off): guards in a container, then the API judge on the diff, results
+in `results/<task>/<model>/trial-N/`. An evaluation error stays with
+that attempt. Once the cause is fixed, run
+`bench evaluate --attempt <dir>` for it. A bare `bench evaluate` is
+for re-evaluation: it re-judges every preserved attempt, e.g. after a
+rubric bump (rule 4). Pass is a gate: every guard with weight > 0
+green **and** the judge ≥ `pass_threshold`.
 
 On a task's first run, read 2–3 `patch.diff`s against their verdicts.
 A rubric that ranks them wrong is a rubric fix (rule 4). A guard no
@@ -138,7 +134,8 @@ reported as a model result.
 
 - `bench status`: per task × model, passes `k/n` and cost.
 - Actual spend vs budget.
-- Attempts skipped for infra reasons, with the reason.
+- Attempts skipped for infra reasons or stopped (cancel / budget), with
+  the reason.
 - Tasks kept out by the preflight, with the pasted output.
 - `bench changes`: paste its commit plan.
 - Next step: **bench-analysis** for what the numbers mean.

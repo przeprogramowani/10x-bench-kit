@@ -19,12 +19,13 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { hashTaskDir } from "../lib/era.ts";
 import { findInstanceRoot, listTaskNames, loadTask } from "../lib/instance.ts";
 import { parseRubric } from "../lib/judge.ts";
 import { isDir, readJson } from "../lib/matrix.ts";
+import { TRANSIENT_ATTEMPT_FILES } from "../lib/progress.ts";
 
 interface Options {
   root: string;
@@ -165,7 +166,7 @@ function poolRef(path: string): string | null {
 
 const skillsPath = (path: string) => /^\.[^/]+\/skills\//.test(path);
 
-export function planChanges(root: string, base: string): { base: string; groups: Group[] } {
+export function planChanges(root: string, base: string): { base: string; groups: Group[]; transient: string[] } {
   const git = new Git(root, base);
   const changes = git.changes();
   const groups = new Map<string, Group>();
@@ -358,6 +359,7 @@ export function planChanges(root: string, base: string): { base: string; groups:
 
   // 3. Wyniki i metadane prób: re-oceny po bumpie rubryki jadą z bumpem.
   const bumpedRubricTasks = new Map<string, Group>();
+  const transient: string[] = [];
   for (const g of groups.values()) {
     if (!g.key.startsWith("rubric:") || g.impact !== "era") continue;
     for (const t of tasksUsing(root, `judge/${g.key.slice("rubric:".length)}`)) bumpedRubricTasks.set(t, g);
@@ -367,6 +369,13 @@ export function planChanges(root: string, base: string): { base: string; groups:
     const m = c.path.match(/^(results|attempts)\/([^/]+)\//);
     if (!m) continue;
     const task = m[2] as string;
+    // Pliki przejściowe próby/oceny w toku (lib/progress.ts) — po crashu
+    // procesu zostają na dysku; to nie dane do commita, tylko śmieć do pominięcia.
+    if (m[1] === "attempts" && TRANSIENT_ATTEMPT_FILES.includes(basename(c.path))) {
+      claimed.add(c.path);
+      transient.push(c.path);
+      continue;
+    }
     if (c.path.includes("/workspace/")) {
       const g = group("blocked:workspace", {
         title: "workspace prób w gicie",
@@ -493,15 +502,18 @@ export function planChanges(root: string, base: string): { base: string; groups:
   const order = ["coordination", "task:", "pool:", "results:", "rubric:", "guard:", "config", "shared", "tool", "other", "blocked:"];
   const rank = (key: string) => order.findIndex((p) => key === p || key.startsWith(p));
   const sorted = [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key));
-  return { base: git.base, groups: sorted };
+  return { base: git.base, groups: sorted, transient };
 }
 
 /**
  * Ścieżki do `git add`: katalog, gdy WSZYSTKIE zmiany pod nim należą do
- * tej grupy (krótsza komenda), inaczej pojedyncze pliki.
+ * tej grupy (krótsza komenda), inaczej pojedyncze pliki. Pominięte pliki
+ * przejściowe (`transient`) też wykluczają katalog — `git add` katalogu
+ * wniósłby je do commita.
  */
-function pathspecs(g: Group, all: Group[]): string[] {
+function pathspecs(g: Group, all: Group[], transient: string[] = []): string[] {
   const owner = new Map<string, string>();
+  for (const path of transient) owner.set(path, "");
   for (const other of all) for (const c of other.changes) owner.set(c.path, other.key);
   const prefixOf = (p: string): string | null => {
     const m = p.match(/^(tasks\/[^/]+|results\/[^/]+|attempts\/[^/]+|evaluation-pool\/(?:static|tests|e2e)\/[^/]+)\//);
@@ -530,10 +542,10 @@ export async function changesCommand(args: string[]): Promise<number> {
     return 1;
   }
   try {
-    const { base, groups } = planChanges(root, opts.base);
+    const { base, groups, transient } = planChanges(root, opts.base);
     const blocked = groups.filter((g) => g.impact === "blocked");
     if (opts.json) {
-      console.log(JSON.stringify({ base, groups: groups.map((g) => ({ ...g, pathspecs: pathspecs(g, groups) })) }, null, 2));
+      console.log(JSON.stringify({ base, groups: groups.map((g) => ({ ...g, pathspecs: pathspecs(g, groups, transient) })), transient }, null, 2));
       return blocked.length > 0 ? 1 : 0;
     }
     if (groups.length === 0) {
@@ -548,12 +560,18 @@ export async function changesCommand(args: string[]): Promise<number> {
       console.log(`${g.impact === "blocked" ? "✗" : `${++n}.`} ${g.title}  [${tags}]  (${g.changes.length} plik(ów))`);
       for (const m of g.messages) console.log(`   - ${m}`);
       if (g.impact !== "blocked" && g.commit_message) {
-        console.log(`   git add -- ${pathspecs(g, groups).map(shell).join(" ")}`);
+        console.log(`   git add -- ${pathspecs(g, groups, transient).map(shell).join(" ")}`);
         console.log(`   git commit -m ${shell(g.commit_message)}`);
       } else {
         for (const c of g.changes.slice(0, 5)) console.log(`   ${c.status} ${c.path}`);
       }
       console.log("");
+    }
+    if (transient.length > 0) {
+      console.log(
+        `pominięte: ${transient.length} plik(ów) przejściowych prób/ocen w toku (heartbeat/progress/stop/evaluating.json) — ` +
+          "nie są danymi; zostały po przerwanym procesie albo próba wciąż biegnie (bench status)\n",
+      );
     }
     const era = groups.filter((g) => g.impact === "era");
     console.log(

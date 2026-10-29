@@ -225,7 +225,7 @@ test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-create-t
   assert.match(empty, /bench-create-task/);
   assert.doesNotMatch(empty, /bench attempt/);
   const real = statusNextStep({ allTasks: ["demo-hello-bench", "fix-login"], preserved: 0, running: 0, toEvaluate: 0, missing: 6 });
-  assert.match(real, /6 prób\(y\) brakuje do celu → bench attempt/);
+  assert.match(real, /6 prób\(y\) brakuje do celu → bench run/);
   assert.doesNotMatch(real, /bench-create-task/);
   assert.match(statusNextStep({ allTasks: ["fix-login"], preserved: 3, running: 0, toEvaluate: 0, missing: 0 }), /wszystkie zachowane próby ocenione/);
   assert.match(statusNextStep({ allTasks: [], preserved: 0, running: 0, toEvaluate: 0, missing: 0 }), /brak zadań.*bench-create-task/);
@@ -235,7 +235,7 @@ test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-create-t
   assert.doesNotMatch(ordered, /brak zadań|kopanie/);
   // Zadania są, część zleceń niezbudowana: dodatkowa część linii.
   const mixed = statusNextStep({ allTasks: ["fix-login"], preserved: 0, running: 0, toEvaluate: 0, missing: 3, pendingOrders: 2 });
-  assert.match(mixed, /3 prób\(y\) brakuje do celu → bench attempt/);
+  assert.match(mixed, /3 prób\(y\) brakuje do celu → bench run/);
   assert.match(mixed, /czekające na budowę: 2 → bench-create-task/);
   assert.doesNotMatch(real, /backlog/, "bez niezbudowanych zleceń bez wzmianki o backlogu");
 });
@@ -283,7 +283,7 @@ test("status --wait: postęp z dysku, koniec dopiero bez prób w toku; marker z 
     { task: "t", model: "b", target: 3, trials: [trial("stale"), trial("infra")], aborted: 0, superseded: 0 },
   ];
   const p = waitProgress(cells);
-  assert.deepEqual(p, { running: 1, preserved: 2, target: 6, evaluated: 1 });
+  assert.deepEqual(p, { running: 1, evaluating: 0, preserved: 2, target: 6, evaluated: 1 });
   assert.equal(waitLine(p, false), "1 w toku, 2/6 zachowanych");
   assert.equal(waitLine(p, true), "1 w toku, 2/6 zachowanych, 1/2 ocenionych");
   assert.equal(waitDone(p, false), false);
@@ -292,6 +292,10 @@ test("status --wait: postęp z dysku, koniec dopiero bez prób w toku; marker z 
   assert.equal(waitDone(idle, false), true);
   assert.equal(waitDone(idle, true), false, "--until-evaluated czeka na świeże oceny");
   assert.equal(waitDone({ ...idle, evaluated: 2 }, true), true);
+  // Ocena w toku: widoczna w linii, a --until-evaluated czeka na jej koniec.
+  assert.equal(waitLine({ ...idle, evaluating: 1 }, false), "0 w toku, 2/6 zachowanych, 1 oceniane");
+  assert.equal(waitDone({ ...idle, evaluated: 2, evaluating: 1 }, true), false);
+  assert.equal(waitDone({ ...idle, evaluating: 1 }, false), true, "bez --until-evaluated ocena nie blokuje");
 
   const now = Date.parse("2026-01-01T01:00:00Z");
   const marker = { started_at: "2026-01-01T00:30:00Z", timeout_s: 3600, pid: 4242, host: "h1" };
@@ -372,4 +376,177 @@ test("run marker: bench status --wait widzi bieg w fazie przygotowania, martwy P
   const marker = JSON.parse(readFileSync(path, "utf8"));
   writeFileSync(path, JSON.stringify({ ...marker, pid: 2 ** 22 + 12345 }));
   assert.equal(liveRuns(attempts), 0);
+});
+
+test("run marker: odświeżenie przedłuża życie markera długiego procesu (supervisor bench run)", async () => {
+  const { writeRunMarker, refreshRunMarker, liveRuns } = await lib("matrix.ts");
+  const attempts = tempDir("runs-refresh-");
+  const path = writeRunMarker(attempts, { run: "r-x" });
+  const old = JSON.parse(readFileSync(path, "utf8"));
+  writeFileSync(path, JSON.stringify({ ...old, started_at: "2000-01-01T00:00:00Z" }));
+  assert.equal(liveRuns(attempts), 0, "TTL minął");
+  refreshRunMarker(path, { run: "r-x" });
+  assert.equal(liveRuns(attempts), 1);
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).run, "r-x");
+});
+
+test("bench run: dopuszczenie wg wolnej pamięci — własne próby w toku, okres łaski, pamięć nieznana", async () => {
+  const { admit, ADMISSION_GRACE_S, DEFAULT_ADMISSION_MB } = await lib("queue.ts");
+  const now = 1_000_000_000;
+  assert.deepEqual(admit({ needMb: 4096, freeMb: null, ownActive: 0, waitingSince: null, now }), { admit: true, reason: null, forced: false }, "nieznana pamięć = bez kontroli");
+  assert.equal(admit({ needMb: 4096, freeMb: 8000, ownActive: 3, waitingSince: null, now }).admit, true);
+  const own = admit({ needMb: 4096, freeMb: 1000, ownActive: 2, waitingSince: now - 3600_000, now });
+  assert.equal(own.admit, false, "własne próby w toku — czekamy bez limitu, aż któraś się skończy");
+  assert.match(own.reason, /potrzeba 4096 MiB, wolne 1000 MiB — ruszy po zakończeniu/);
+  const estimate = admit({ needMb: null, freeMb: DEFAULT_ADMISSION_MB - 1, ownActive: 0, waitingSince: null, now });
+  assert.equal(estimate.admit, false);
+  assert.match(estimate.reason, /szacunek — brak resources\.memory_mb/);
+  assert.match(estimate.reason, new RegExp(`start mimo to za ${ADMISSION_GRACE_S} s`));
+  const waiting = admit({ needMb: 4096, freeMb: 0, ownActive: 0, waitingSince: now - 30_000, now });
+  assert.equal(waiting.admit, false);
+  assert.match(waiting.reason, new RegExp(`za ${ADMISSION_GRACE_S - 30} s`));
+  assert.deepEqual(admit({ needMb: 4096, freeMb: 0, ownActive: 0, waitingSince: now - ADMISSION_GRACE_S * 1000, now }), { admit: true, reason: null, forced: true }, "po okresie łaski start z ostrzeżeniem");
+});
+
+test("bench run: budżet na żywo, żywotność supervisora, kolejność trial-major, MemUsage", async () => {
+  const { budgetState, supervisorLiveness, dispatchOrder, parseMemUsage, SUPERVISOR_STALE_S } = await lib("queue.ts");
+  const jobs = [
+    { phase: "done", cost_usd: 0.4, live: null },
+    { phase: "failed", cost_usd: 0.1, live: null },
+    { phase: "running", cost_usd: null, live: { cost_usd: 0.3 } },
+    { phase: "starting", cost_usd: null, live: null },
+    { phase: "evaluating", cost_usd: 0.2, live: { cost_usd: 9 } },
+  ];
+  const b = budgetState(jobs, 1);
+  assert.ok(Math.abs(b.spent - 0.7) < 1e-9, "zatrzymane/nieudane też kosztują");
+  assert.ok(Math.abs(b.live - 0.3) < 1e-9, "puls liczony tylko dla prób w toku");
+  assert.equal(b.over, false);
+  assert.equal(budgetState(jobs, 0.9).over, true);
+  assert.equal(budgetState(jobs, null).over, false);
+
+  const now = Date.parse("2026-01-01T12:00:00Z");
+  const run = { status: "running", updated_at: "2026-01-01T11:59:50Z", host: "h1", pid: 42 };
+  assert.equal(supervisorLiveness(run, now, "h1", () => true), "alive");
+  assert.equal(supervisorLiveness(run, now, "h1", () => false), "dead", "martwy PID na tej maszynie");
+  assert.equal(supervisorLiveness(run, now, "h2", () => false), "alive", "inna maszyna — tylko puls");
+  assert.equal(supervisorLiveness({ ...run, updated_at: new Date(now - (SUPERVISOR_STALE_S + 1) * 1000).toISOString() }, now, "h2"), "dead", "puls ucichł");
+  for (const status of ["done", "cancelled", "failed"]) assert.equal(supervisorLiveness({ ...run, status }, now, "h1", () => false), "finished");
+
+  const order = dispatchOrder([
+    { task: "b", model: "m1", trial: 1 },
+    { task: "a", model: "m2", trial: 2 },
+    { task: "a", model: "m1", trial: 2 },
+    { task: "a", model: "m2", trial: 1 },
+    { task: "a", model: "m1", trial: 1 },
+  ]).map((j) => `${j.task}/${j.model}/${j.trial}`);
+  assert.deepEqual(order, ["a/m1/1", "a/m2/1", "b/m1/1", "a/m1/2", "a/m2/2"], "najpierw próba 1 każdej komórki");
+
+  assert.equal(parseMemUsage("1.2GiB / 7.6GiB"), 1.2 * 1024 ** 3);
+  assert.equal(parseMemUsage("512MiB / 7.6GiB"), 512 * 1024 ** 2);
+  assert.equal(parseMemUsage("1.5GB / 8GB"), 1.5e9);
+  assert.equal(parseMemUsage("0B / 0B"), 0);
+  assert.equal(parseMemUsage("--"), null);
+  assert.equal(parseMemUsage(""), null);
+});
+
+test("bench run: stan biegu na dysku — control.json, linia podsumowania, lista biegów", async () => {
+  const q = await lib("queue.ts");
+  const root = tempDir("run-state-");
+  const id = q.newRunId(new Date("2026-03-04T05:06:07Z"));
+  assert.match(id, /^r-20260304-050607-[a-z0-9]{1,4}$/);
+  q.ensureRunDir(root, id);
+  assert.equal(readFileSync(join(root, "attempts", ".runs", ".gitignore"), "utf8"), "*\n");
+  const job = (phase, extra = {}) => ({ phase, cost_usd: null, live: null, result: null, ...extra });
+  const run = {
+    id, created_at: "", updated_at: "", host: "h", pid: 1, status: "running", stop_reason: null,
+    options: { tasks: null, models: null, trials: null, parallel: 2, eval_parallel: 1, evaluate: true, budget_usd: 5, engine: null },
+    projection: { projected_usd: 1, projection_unknown: 0, estimated_trials: 0 },
+    spent_usd: 0.5, live_usd: 0.25,
+    jobs: [job("running"), job("queued"), job("done", { result: { passed: true } }), job("done", { result: { passed: false } }), job("failed")],
+  };
+  q.writeRun(root, run);
+  assert.deepEqual(q.listRuns(root), [id]);
+  assert.equal(q.readRun(root, id).spent_usd, 0.5);
+  assert.equal(q.runSummaryLine(run), "1 w toku · 1 w kolejce · 2 gotowe (1 PASS) · 1 nieudane — koszt $0.50 (+$0.25 w toku) / $5");
+  assert.equal(q.takeControl(root, id), null);
+  q.writeControl(root, id, "pause");
+  assert.equal(q.takeControl(root, id), "pause");
+  assert.equal(q.takeControl(root, id), null, "polecenie zdejmowane raz");
+});
+
+test("progress: puls → progress.json z wyceną runnera, prośba o stop pierwsza wygrywa", async () => {
+  const p = await lib("progress.ts");
+  const { parseModelId } = await lib("harness.ts");
+  const dir = tempDir("progress-");
+  assert.equal(p.refreshProgress(dir, parseModelId("openrouter/x/y"), null), null, "brak pulsu w pierwszych sekundach");
+  const tokens = { input: 1_000_000, output: 100_000, cache_read: 0, cache_write: 0 };
+  writeFileSync(join(dir, p.HEARTBEAT_FILE), JSON.stringify({ at: "2026-01-01T00:00:00Z", elapsed_s: 40, events: 7, activity: "Bash: ls", tokens, cost_usd: null, cost_source: null }));
+  const price = { input: 1, output: 10, cache_read: 0.1 };
+  const progress = p.refreshProgress(dir, parseModelId("claude-code:openrouter/anthropic/claude-haiku-4.5"), price);
+  assert.equal(progress.activity, "Bash: ls");
+  assert.equal(progress.events, 7);
+  assert.equal(typeof progress.cost_usd, "number");
+  assert.ok(progress.cost_usd > 0, "koszt z tokenów × cena, jak po próbie");
+  assert.deepEqual(p.readProgress(dir), progress);
+  assert.ok(p.heartbeatAgeS(dir) <= 1);
+  assert.equal(p.requestStop(dir, "budżet biegu", "bench run r-1"), true);
+  assert.equal(p.requestStop(dir, "cancel", "bench run r-1"), false);
+  assert.equal(p.readStopRequest(dir).reason, "budżet biegu");
+  assert.deepEqual(p.stopAgentArgs("c1"), ["exec", "c1", "sh", "-c", 'kill -INT "$(cat /bench/agent.pid)"']);
+  p.clearTransient(dir);
+  assert.equal(p.readStopRequest(dir), null);
+  assert.equal(p.readProgress(dir), null);
+  assert.ok(p.containerName("t".repeat(300), "m", 1, 1, 9).length <= 200);
+});
+
+test("heartbeat: ostatnia czynność agenta z jego własnego strumienia zdarzeń", async () => {
+  const { lastActivity, countEvents } = await import(join(ROOT, ".bench-kit", "docker", "heartbeat.mjs"));
+  const cc = [
+    JSON.stringify({ type: "system", subtype: "init" }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Sprawdzę testy" }] } }),
+    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result" }] } }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Uruchamiam" }, { type: "tool_use", name: "Bash", input: { command: "npm test" } }] } }),
+    '{"type":"assis', // linia ucięta w trakcie zapisu
+  ].join("\n");
+  assert.equal(lastActivity("claude-code", cc), "Bash: npm test");
+  assert.equal(countEvents("claude-code", cc), 2);
+  assert.equal(lastActivity("claude-code", cc + "\n" + JSON.stringify({ type: "result", subtype: "success" })), "koniec sesji (success)");
+  assert.equal(lastActivity("claude-code", ""), null);
+
+  const codex = [
+    JSON.stringify({ type: "thread.started" }),
+    JSON.stringify({ type: "item.completed", item: { type: "reasoning", text: "Plan" } }),
+    JSON.stringify({ type: "item.started", item: { type: "command_execution", command: "bash -lc 'ls src'" } }),
+  ].join("\n");
+  assert.equal(lastActivity("codex", codex), "shell: bash -lc 'ls src'");
+  assert.equal(countEvents("codex", codex), 1);
+  assert.equal(lastActivity("codex", codex + "\n" + JSON.stringify({ type: "item.completed", item: { type: "file_change", changes: [{ path: "a.ts" }, { path: "b.ts" }] } })), "edit: a.ts, b.ts");
+  assert.match(lastActivity("codex", JSON.stringify({ type: "turn.failed", error: { message: "rate limit" } })), /turn\.failed: rate limit/);
+
+  // OpenCode: tekstowy log — ostatnia niepusta linia bez sekwencji ANSI.
+  assert.equal(lastActivity("opencode", "\x1b[90m|  Read     src/a.ts\x1b[0m\n\x1b[32m|  Edit     src/b.ts\x1b[0m\n\n"), "| Edit src/b.ts");
+  assert.equal(countEvents("opencode", "x"), null);
+  assert.ok(lastActivity("claude-code", JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(500) }] } })).length <= 160);
+});
+
+test("changes: pliki przejściowe prób pomijane i nie zwijają git add do katalogu", async () => {
+  const { planChanges } = await command("changes.ts");
+  const root = tempDir("chg-transient-");
+  const git = (...args) => execFileSync("git", ["-C", root, "-c", "user.email=t@t", "-c", "user.name=t", ...args], { stdio: "pipe" });
+  git("init", "-q");
+  writeFileSync(join(root, "bench.config.yaml"), "judge:\n  model: openrouter/a/judge-1\n");
+  git("add", "-A");
+  git("commit", "-qm", "init");
+  const trial = join(root, "attempts", "t1", "m", "trial-1");
+  mkdirSync(trial, { recursive: true });
+  writeFileSync(join(trial, "attempt.json"), "{}");
+  writeFileSync(join(trial, "heartbeat.json"), "{}");
+  writeFileSync(join(trial, "evaluating.json"), "{}");
+  const plan = planChanges(root, "HEAD");
+  assert.deepEqual(plan.transient.sort(), ["attempts/t1/m/trial-1/evaluating.json", "attempts/t1/m/trial-1/heartbeat.json"]);
+  const results = plan.groups.find((g) => g.key === "results:t1");
+  assert.deepEqual(results.changes.map((c) => c.path), ["attempts/t1/m/trial-1/attempt.json"]);
+  const out = execFileSync(process.execPath, ["--experimental-strip-types", join(ROOT, ".bench-kit", "runner", "src", "index.ts"), "changes", "--json", "--root", root], { encoding: "utf8" });
+  const specs = JSON.parse(out).groups.find((g) => g.key === "results:t1").pathspecs;
+  assert.deepEqual(specs, ["attempts/t1/m/trial-1/attempt.json"], "git add katalogu wniósłby puls do commita");
 });

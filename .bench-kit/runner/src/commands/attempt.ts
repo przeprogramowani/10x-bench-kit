@@ -41,21 +41,44 @@
  *   bench attempt [<zadanie> <model>]
  *                 [--tasks x,y] [--models a,b] [--trials n]
  *                 [--trial-index n] [--force] [--parallel n] [--smoke]
- *                 [--max-cost <usd>] [--out <dir>]
+ *                 [--max-cost <usd>] [--out <dir>] [--plan-out <plik>] [--prepared]
  *                 [--engine docker|podman] [--root <dir>]
  *
  * `--smoke` = sprawdzenie rur: 1 próba, tylko pierwszy model z listy.
  * `--trial-index n` = dokładnie próba nr n (chirurgiczny re-run z --force).
+ * `--plan-out <plik>` = sam plan i projekcja kosztu jako JSON, bez silnika
+ *   i bez prób (wejście supervisora `bench run`).
+ * `--prepared` = użyj istniejących obrazów (bazowego i zadania), zamiast
+ *   je budować — supervisor `bench run` przygotowuje je raz na bieg.
+ *
+ * Próba w toku jest widoczna z hosta: kontener ma nazwę (running.json →
+ * container), puls z kontenera (heartbeat.json) runner co kilkanaście
+ * sekund przepisuje do progress.json z kosztem wycenionym jak po próbie.
+ * stop.json w katalogu próby (`bench run cancel`, budżet supervisora) =
+ * prośba o zatrzymanie: runner przerywa agenta SIGINT-em, a próba jest
+ * zachowana z `stopped` i wyłączona z oceny.
  * Domyślny cel: attempts/ w korzeniu instancji (kanoniczne drzewo prób).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findInstanceRoot, listTaskNames, loadConfig, loadTask } from "../lib/instance.ts";
-import { detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, shAsync, signalFromExit } from "../lib/containers.ts";
+import { baseImageTag, detectEngine, engineMemoryBytes, ensureBaseImage, resourceLimitArgs, sh, shAsync, signalFromExit } from "../lib/containers.ts";
 import { hashTaskDir } from "../lib/era.ts";
 import { runningMarkerState, writeRunMarker } from "../lib/matrix.ts";
-import { prepareTaskImage, sanitize, type PreparedTask } from "../lib/prepare.ts";
+import { imageExists, prepareTaskImage, sanitize, type PreparedTask } from "../lib/prepare.ts";
+import {
+  PROGRESS_INTERVAL_MS,
+  STOP_GRACE_S,
+  clearTransient,
+  containerName,
+  readJsonFile,
+  readStopRequest,
+  refreshProgress,
+  stopAgentArgs,
+  writeJsonAtomic,
+  type StopRequest,
+} from "../lib/progress.ts";
 import { harnessVersion, parseModelId, type HarnessModel } from "../lib/harness.ts";
 import {
   catalogSlugFor,
@@ -83,6 +106,8 @@ interface Options {
   smoke: boolean;
   maxCost: number | null;
   out: string | null;
+  planOut: string | null;
+  prepared: boolean;
   engine: string | null;
 }
 
@@ -98,6 +123,8 @@ function parseArgs(args: string[]): Options | null {
     smoke: false,
     maxCost: null,
     out: null,
+    planOut: null,
+    prepared: false,
     engine: null,
   };
   const positional: string[] = [];
@@ -114,6 +141,8 @@ function parseArgs(args: string[]): Options | null {
     else if (arg === "--smoke") opts.smoke = true;
     else if (arg === "--max-cost") opts.maxCost = Number(value());
     else if (arg === "--out") opts.out = resolve(value() ?? "");
+    else if (arg === "--plan-out") opts.planOut = resolve(value() ?? "");
+    else if (arg === "--prepared") opts.prepared = true;
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else if (arg.startsWith("--")) return null;
@@ -409,6 +438,33 @@ export function nextStepLine(root: string, produced: string[], smoke: boolean, j
   return "następny krok: bench evaluate (ocena zachowanych prób → results/)";
 }
 
+/** Plan biegu dla supervisora `bench run` (--plan-out). */
+export interface PlanOut {
+  jobs: Array<{ task: string; model: string; trial: number; timeout_s: number; memory_mb: number | null; projected_usd: number | null }>;
+  projected_usd: number;
+  budget_usd: number | null;
+  /** Próby bez historii kosztu i bez ceny — projekcja ich nie obejmuje. */
+  projection_unknown: number;
+  /** Próby z SZACUNKIEM (brak historii w tej komórce). */
+  estimated_trials: number;
+}
+
+function writePlanOut(path: string, plan: PlanOut): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(plan, null, 2) + "\n");
+}
+
+/** Istniejący obraz zadania (--prepared) — start-sha czytany z obrazu; null = trzeba zbudować. */
+function existingTaskImage(engine: string, name: string, task: Task): PreparedTask | null {
+  const image = `bench-task-${sanitize(name)}:latest`;
+  if (!imageExists(engine, image)) return null;
+  const read = sh(engine, ["run", "--rm", image, "cat", "/bench/start-sha"], { timeout: 120_000 });
+  const startSha = read.stdout?.trim() ?? "";
+  if (read.status !== 0 || !/^[0-9a-f]{40}$/.test(startSha)) return null;
+  console.log(`prepare: ${name} → ${image} (przygotowany przez supervisora)`);
+  return { name, task, image, startSha };
+}
+
 export async function attemptCommand(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   if (!opts) {
@@ -416,7 +472,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       [
         "usage: bench attempt [<zadanie> <model>] [--tasks x,y] [--models a,b]",
         "                     [--trials n | --trial-index n] [--force] [--parallel n]",
-        "                     [--smoke] [--max-cost <usd>] [--out <dir>]",
+        "                     [--smoke] [--max-cost <usd>] [--out <dir>] [--plan-out <plik>] [--prepared]",
         "                     [--engine docker|podman] [--root <dir>]",
       ].join("\n"),
     );
@@ -503,6 +559,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
     }
     if (totalPlanned === 0) {
       console.log("bench attempt: wszystkie zaplanowane próby już zachowane lub w toku — nic do zrobienia");
+      if (opts.planOut) writePlanOut(opts.planOut, { jobs: [], projected_usd: 0, budget_usd: opts.maxCost ?? config.defaults.max_cost_usd ?? null, projection_unknown: 0, estimated_trials: 0 });
       return 0;
     }
 
@@ -582,10 +639,12 @@ export async function attemptCommand(args: string[]): Promise<number> {
     let estimatedTotal = 0;
     let estimatedTrials = 0;
     let projectionUnknown = 0;
+    const perTrialUsd = new Map<string, number | null>();
     for (const cell of plan) {
       if (cell.numbers.length === 0) continue;
       const price = prices.get(cell.model) ?? estimatePrices.get(cell.model) ?? null;
       const perTrial = projectTrialCost(samplesByTask.get(cell.task) ?? [], cell.model, price, otherTaskSamples(cell.task));
+      perTrialUsd.set(`${cell.task}\0${cell.model}`, perTrial?.usd ?? null);
       if (perTrial === null) {
         projectionUnknown += cell.numbers.length;
         continue;
@@ -617,13 +676,31 @@ export async function attemptCommand(args: string[]): Promise<number> {
       );
     }
 
+    if (opts.planOut) {
+      const jobs = plan.flatMap((cell) => {
+        const task = loadTask(root, cell.task);
+        return cell.numbers.map((trial) => ({
+          task: cell.task,
+          model: cell.model,
+          trial,
+          timeout_s: task.timeout_s,
+          memory_mb: task.memory_mb ?? config.resources.memory_mb ?? null,
+          projected_usd: perTrialUsd.get(`${cell.task}\0${cell.model}`) ?? null,
+        }));
+      });
+      writePlanOut(opts.planOut, { jobs, projected_usd: projectedTotal, budget_usd: budget, projection_unknown: projectionUnknown, estimated_trials: estimatedTrials });
+      return 0;
+    }
+
     const engine = detectEngine(opts.engine);
     console.log(`bench attempt: macierz ${models.length} model(i) × ${taskNames.length} zadań → ${outDir} (engine: ${engine})`);
 
     writeRunMarker(outDir, { tasks: taskNames, models });
 
     // --- przygotowanie: obraz bazowy + obrazy zadań (jedyny etap z siecią) ---
-    const baseImage = ensureBaseImage(engine, root);
+    // --prepared (supervisor `bench run`): obrazy zbudował supervisor raz na
+    // bieg — próba bierze istniejące, bez sieci i bez równoległych buildów.
+    const baseImage = opts.prepared && imageExists(engine, baseImageTag(root)) ? baseImageTag(root) : ensureBaseImage(engine, root);
     console.log(`prepare: obraz bazowy ${baseImage}`);
 
     const repoUrls = new Map(config.base_repos.map((r) => [r.name, r.url]));
@@ -633,7 +710,8 @@ export async function attemptCommand(args: string[]): Promise<number> {
       const task = loadTask(root, name);
       const url = repoUrls.get(task.repo);
       if (!url) throw new Error(`tasks/${name}: repo "${task.repo}" nie istnieje w base_repos — uruchom \`bench validate\``);
-      prepared.set(name, prepareTaskImage(engine, root, baseImage, name, task, url));
+      const existing = opts.prepared ? existingTaskImage(engine, name, task) : null;
+      prepared.set(name, existing ?? prepareTaskImage(engine, root, baseImage, name, task, url));
       taskHashes.set(name, hashTaskDir(join(root, "tasks", name)));
     }
 
@@ -643,6 +721,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
     let overBudget = false;
     let failures = 0;
     let resourceKills = 0;
+    let stoppedCount = 0;
     /** Katalogi prób zachowanych w tym biegu (attempt.json zapisany) — do "następny krok". */
     const produced: string[] = [];
 
@@ -735,15 +814,48 @@ export async function attemptCommand(args: string[]): Promise<number> {
       let infraFailure = false;
       let providerError = false;
       let resourceKill = false;
+      let stopped: StopRequest | null = null;
       let attempts = 0;
+      const runningPath = join(trialDir, "running.json");
       for (;;) {
         attempts++;
+        // Zatrzymanie zlecone, zanim kontener wystartował — nic nie płacimy.
+        stopped = readStopRequest(trialDir);
+        if (stopped) {
+          console.log(`trial:  ${label} — ZATRZYMANA przed startem (${stopped.reason})`);
+          break;
+        }
+        const container = containerName(name, model, trial, attempts);
+        const marker = readJsonFile<Record<string, unknown>>(runningPath);
+        if (marker) writeJsonAtomic(runningPath, { ...marker, container, attempt: attempts });
         console.log(`trial:  ${label} …`);
+        // Puls próby (heartbeat.json z kontenera) → progress.json z kosztem;
+        // stop.json → SIGINT do agenta, po STOP_GRACE_S kill kontenera.
+        let stopSentAt: number | null = null;
+        const watch = setInterval(() => {
+          try {
+            refreshProgress(trialDir, harness, prices.get(model) ?? null);
+            const stop = readStopRequest(trialDir);
+            if (!stop) return;
+            if (stopSentAt === null) {
+              if (sh(engine, stopAgentArgs(container), { timeout: 30_000 }).status === 0) {
+                stopSentAt = Date.now();
+                console.log(`trial:  ${label} — zatrzymywanie (${stop.reason}): SIGINT do agenta`);
+              }
+            } else if (Date.now() - stopSentAt > STOP_GRACE_S * 1000) {
+              sh(engine, ["kill", container], { timeout: 30_000 });
+            }
+          } catch {
+            // puls nie może przerwać próby
+          }
+        }, PROGRESS_INTERVAL_MS);
         const result = await shAsync(
           engine,
           [
             "run",
             "--rm",
+            "--name",
+            container,
             "-v",
             `${trialDir}:/bench/out`,
             ...limitArgs,
@@ -757,16 +869,27 @@ export async function attemptCommand(args: string[]): Promise<number> {
           ],
           { timeout: (task.timeout_s + 300) * 1000 },
         );
+        clearInterval(watch);
+        stopped = readStopRequest(trialDir);
 
         const executionPath = join(trialDir, "execution.json");
         execution = readTrialJson(executionPath, label);
-        infraFailure = result.status !== 0 || !execution;
-        providerError = !infraFailure && detectProviderError(trialDir, execution, harness);
-        const signal = !infraFailure && !providerError && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
+        infraFailure = !stopped && (result.status !== 0 || !execution);
+        providerError = !infraFailure && !stopped && detectProviderError(trialDir, execution, harness);
+        // Zatrzymana próba kończy się SIGINT-em (exit 130) — to nie kill zasobowy.
+        const signal = !infraFailure && !providerError && !stopped && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
+        if (stopped) {
+          stoppedCount++;
+          console.error(
+            `trial:  ${label} — ZATRZYMANA (${stopped.reason}, zlecił: ${stopped.by}); artefakty częściowe zachowane, próba wyłączona z oceny`,
+          );
+          break;
+        }
         if ((providerError || signal) && attempts === 1) {
           const kind = providerError ? "provider-error" : "signal-kill";
           const archive = join(trialDir, `${kind}-attempt-${attempts}`);
           mkdirSync(archive);
+          clearTransient(trialDir, ["heartbeat.json", "heartbeat.json.tmp", "progress.json", "progress.json.tmp"]);
           for (const entry of readdirSync(trialDir)) {
             if (entry === "running.json" || /^(provider-error|signal-kill)-attempt-/.test(entry)) continue;
             renameSync(join(trialDir, entry), join(archive, entry));
@@ -831,8 +954,10 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
       // trial.sh usuwa uciętą kopię workspace/ i zostawia znacznik.
       const workspaceMarker = join(trialDir, "workspace-incomplete.txt");
-      const workspacePreserved = !existsSync(workspaceMarker);
-      if (!workspacePreserved) {
+      const workspaceCut = existsSync(workspaceMarker);
+      // Bez kontenera (zatrzymana przed startem, awaria silnika) workspace'u po prostu nie ma.
+      const workspacePreserved = !workspaceCut && existsSync(join(trialDir, "workspace"));
+      if (workspaceCut) {
         rmSync(workspaceMarker, { force: true });
         console.error(
           `trial:  ${label} — workspace/ NIE zachowany (pełny dysk?); patch.diff i metryki są całe — ` +
@@ -871,9 +996,10 @@ export async function attemptCommand(args: string[]): Promise<number> {
             finished_at: new Date().toISOString(),
             timeout_s: task.timeout_s,
             memory_limit_mb: memoryMb,
-            infra_failure: infraFailure || resourceKill,
+            infra_failure: infraFailure || resourceKill || stopped !== null,
             provider_error: providerError,
             resource_kill: resourceKill,
+            stopped,
             attempts,
             execution,
             workspace_preserved: workspacePreserved,
@@ -882,8 +1008,9 @@ export async function attemptCommand(args: string[]): Promise<number> {
           2,
         ) + "\n",
       );
-      // attempt.json zapisany = próba zachowana; marker w toku schodzi.
+      // attempt.json zapisany = próba zachowana; marker w toku i pliki pulsu schodzą.
       rmSync(join(trialDir, "running.json"), { force: true });
+      clearTransient(trialDir, ["heartbeat.json", "heartbeat.json.tmp", "progress.json", "progress.json.tmp", "stop.json"]);
       produced.push(trialDir);
 
       // Budżet biegu: nie zlecaj kolejnych prób, gdy suma przekroczy limit
@@ -937,9 +1064,10 @@ export async function attemptCommand(args: string[]): Promise<number> {
     const skippedByBudget = diskFull ? 0 : specs.length - nextSpec;
     const skippedByDisk = diskFull ? specs.length - nextSpec : 0;
     const budgetNote = budget !== null ? `, koszt prób $${spentUsd.toFixed(4)}/$${budget}` : "";
-    const killNote = resourceKills
-      ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, próby do powtórzenia po naprawie zasobów)`
-      : "";
+    const killNote =
+      (resourceKills
+        ? ` (${resourceKills} prób ZABITYCH sygnałem — nieinterpretowalne, wyłączone z oceny; diagnostyka w signal.json, próby do powtórzenia po naprawie zasobów)`
+        : "") + (stoppedCount ? ` (${stoppedCount} prób ZATRZYMANYCH na żądanie — wyłączone z oceny; powód w attempt.json → stopped)` : "");
     const status = diskFull
       ? `PRZERWANE (pełny dysk) — ${skippedByDisk} prób(y) niezlecone`
       : overBudget

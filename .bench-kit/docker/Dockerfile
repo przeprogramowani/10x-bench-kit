@@ -38,6 +38,7 @@ RUN mkdir -p /bench/xdg-data /bench/claude-home /bench/codex-home /bench/out /wo
 
 # Cykl próby + adaptery metryk (szew harness ↔ kit) + ocena nie-LLM.
 COPY trial.sh /bench/trial.sh
+COPY heartbeat.mjs /bench/heartbeat.mjs
 COPY metrics-adapter/ /bench/metrics-adapter/
 COPY evaluate.mjs /bench/evaluate.mjs
 RUN chmod +x /bench/trial.sh

@@ -62,6 +62,7 @@ import { underlyingModel } from "../lib/harness.ts";
 import { depsCacheArgs, detectEngine, ensureBaseImage, containerFailureMessage, resourceLimitArgs, sh } from "../lib/containers.ts";
 import { fileSha256, GUARD_STAMP_FILE, guardFingerprint, guardStampFreshness, type GuardStamp } from "../lib/guard-stamp.ts";
 import { imageExists, prepareTaskImage, sanitize } from "../lib/prepare.ts";
+import { EVALUATING_FILE, clearTransient, writeEvaluatingMarker } from "../lib/progress.ts";
 import { ATTEMPT_FORMAT_VERSION, AttemptSchema, type Attempt } from "../schemas/attempt.ts";
 import { ResultSchema, type Result } from "../schemas/result.ts";
 import type { Task } from "../schemas/task.ts";
@@ -375,6 +376,8 @@ export async function evaluateCommand(args: string[]): Promise<number> {
           }
         }
       }
+      // Ocena w toku widoczna dla `bench status` / `bench run status`.
+      writeEvaluatingMarker(dir);
       try {
         let cached = taskCache.get(meta.task);
         if (!cached) {
@@ -637,6 +640,8 @@ export async function evaluateCommand(args: string[]): Promise<number> {
       } catch (err) {
         failures++;
         console.error(`eval:  ${label} — BŁĄD: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        clearTransient(dir, [EVALUATING_FILE]);
       }
     }
 
