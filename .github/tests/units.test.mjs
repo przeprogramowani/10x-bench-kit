@@ -550,3 +550,13 @@ test("changes: pliki przejściowe prób pomijane i nie zwijają git add do katal
   const specs = JSON.parse(out).groups.find((g) => g.key === "results:t1").pathspecs;
   assert.deepEqual(specs, ["attempts/t1/m/trial-1/attempt.json"], "git add katalogu wniósłby puls do commita");
 });
+
+test("trial.sh: każdy harness startuje bez pytań o uprawnienia (headless nie ma kogo zapytać)", () => {
+  const script = readFileSync(join(ROOT, ".bench-kit", "docker", "trial.sh"), "utf8");
+  const branch = (name) => script.match(new RegExp(`\\n  ${name}\\)\\n([\\s\\S]*?)\\n    ;;`))?.[1] ?? "";
+  // Bez tego `opencode run` sam odrzuca prośbę o uprawnienie i kończy sesję
+  // kodem 0 z pustym diffem — porażka harnessu zapisana jako porażka modelu.
+  assert.match(branch("opencode"), /opencode run --auto /);
+  assert.match(branch("claude-code"), /--permission-mode bypassPermissions/);
+  assert.match(branch("codex"), /--dangerously-bypass-approvals-and-sandbox/);
+});
