@@ -716,3 +716,40 @@ test("bench-status: rozgrzanie obrazu w tle bez nohup (w sesji agenta nohup nie 
   // Podpowłoka w tle z zamkniętym stdin: wraca od razu i przeżywa koniec komendy.
   assert.match(warm, /^\(node .* doctor --warm --offline > \.bench-warm\.log 2>&1 < \/dev\/null &\)$/);
 });
+
+test("raport HTML: baner wniosku i nota o remisie widoczne przy dwóch modelach; link do data.json tylko, gdy plik powstaje", async () => {
+  const vm = await import("node:vm");
+  const app = readFileSync(join(ROOT, ".bench-kit", "runner", "assets", "leaderboard", "app.js"), "utf8");
+  const row = (model, passed, cost) => ({ model, trials: 3, passed, median_total: passed === 3 ? 1 : 0.1, median_cost_usd: cost, median_duration_s: 30 });
+  const render = (data) => {
+    const el = { innerHTML: "", style: {}, addEventListener() {} };
+    const site = {
+      title: "T",
+      generated_at: "2026-11-27T00:00:00.000Z",
+      pass_threshold: 0.7,
+      runs: [{ id: "summary", generated_at: "2026-11-27T00:00:00.000Z", total_cost_usd: 1, trials: 0 }],
+      tasks: [{
+        task: "tiered-volume-discounts",
+        eras: [{
+          stamps: { template_version: "0.42.0", task_hash: "abcdef0123", judge_model: "openrouter/google/gemini", rubric_version: "1" },
+          current: true,
+          // 3/3 kontra 2/3: przedziały Wilsona się nachodzą — typowy remis małej próby.
+          runs: [{ run_id: "summary", generated_at: "2026-11-27T00:00:00.000Z", rows: [row("openrouter/a/model-a", 3, 0.05), row("openrouter/b/model-b", 2, 0.07)] }],
+        }],
+      }],
+      ...data,
+    };
+    vm.runInNewContext(`const DATA = ${JSON.stringify(site)};\n${app}`, { document: { getElementById: () => el } });
+    return el.innerHTML;
+  };
+  const html = render({});
+  // Baner: verdictHtml istniał, ale eraHtml nie dostawał nazwy zadania.
+  assert.match(html, /class="vlabel">Wniosek — tiered-volume-discounts</);
+  assert.match(html, /class="vpick">model-a</);
+  assert.match(html, /Tej próby nie wystarcza, żeby odróżnić go od: model-b/);
+  // Nota o remisie: renderowała się tylko przy więcej niż jednym paśmie.
+  assert.match(html, /class="bandhead"><td colspan="7">↕ tych modeli ta próba nie rozróżnia/);
+  // bench-analysis --html to jeden plik: bez linku do data.json, którego nie ma.
+  assert.doesNotMatch(html, /data\.json/);
+  assert.match(render({ data_file: "data.json" }), /Surowe raporty: <a href="data\.json">data\.json<\/a>/);
+});
