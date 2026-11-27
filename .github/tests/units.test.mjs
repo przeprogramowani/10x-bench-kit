@@ -825,3 +825,20 @@ test("bench run: odmowa z powodu SZACUNKU mówi, jak dojść do projekcji z fakt
   assert.match(over.stderr, /9 z 9 prób to SZACUNEK/);
   assert.match(over.stderr, /z `--trials 1` \(3 prób, projekcja ~\$2\.10 — mieści się w budżecie\)/);
 });
+
+test("node 26: doctor, engines runnera i obraz prób mówią tę samą wersję", async () => {
+  const { nodeCheck, MIN_NODE_MAJOR } = await command("doctor.ts");
+  assert.equal(MIN_NODE_MAJOR, 26);
+  assert.equal(nodeCheck("26.0.0").status, "OK");
+  const old = nodeCheck("24.22.2");
+  assert.equal(old.status, "BRAK");
+  assert.match(old.fix, /node >= 26/);
+  const pkg = JSON.parse(readFileSync(join(ROOT, ".bench-kit", "runner", "package.json"), "utf8"));
+  assert.equal(pkg.engines.node, `>=${MIN_NODE_MAJOR}`);
+  const dockerfile = readFileSync(join(ROOT, ".bench-kit", "docker", "Dockerfile"), "utf8");
+  assert.match(dockerfile, new RegExp(`^FROM node:${MIN_NODE_MAJOR}-bookworm-slim$`, "m"));
+  for (const workflow of [".github/workflows/ci.yaml", ".bench-kit/workflows/readiness.yaml", ".bench-kit/workflows/leaderboard.yaml"]) {
+    const versions = [...readFileSync(join(ROOT, workflow), "utf8").matchAll(/node-version: (\d+)/g)].map((m) => Number(m[1]));
+    assert.ok(versions.length > 0 && versions.every((v) => v === MIN_NODE_MAJOR), workflow);
+  }
+});

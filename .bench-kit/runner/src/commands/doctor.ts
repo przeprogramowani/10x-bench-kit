@@ -121,12 +121,7 @@ export async function doctorCommand(args: string[]): Promise<number> {
   }
 
   // --- node ---
-  const nodeMajor = Number(process.versions.node.split(".")[0]);
-  checks.push(
-    nodeMajor >= 20
-      ? { name: "node", status: "OK", detail: `v${process.versions.node}` }
-      : { name: "node", status: "BRAK", detail: `v${process.versions.node}`, fix: "zainstaluj node >= 20 (engines runnera)" },
-  );
+  checks.push(nodeCheck());
 
   // --- zależności runnera ---
   const runnerModules = join(root, ".bench-kit", "runner", "node_modules");
@@ -365,6 +360,20 @@ export async function doctorCommand(args: string[]): Promise<number> {
   }
   console.log(`\nbench doctor: ${missing} BRAK, ${warns} WARN — ${missing === 0 ? "środowisko gotowe" : "uzupełnij braki powyżej"}`);
   return missing > 0 ? 1 : 0;
+}
+
+/** Minimalna wersja Node na maszynie operatora — engines runnera, ta sama linia co obraz prób. */
+export const MIN_NODE_MAJOR = 26;
+
+export function nodeCheck(version: string = process.versions.node): CheckResult {
+  return Number(version.split(".")[0]) >= MIN_NODE_MAJOR
+    ? { name: "node", status: "OK", detail: `v${version}` }
+    : {
+        name: "node",
+        status: "BRAK",
+        detail: `v${version}`,
+        fix: `zainstaluj node >= ${MIN_NODE_MAJOR} (engines runnera; ta sama wersja co w obrazie prób)`,
+      };
 }
 
 /**

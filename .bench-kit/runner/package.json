@@ -8,7 +8,7 @@
     "bench": "./dist/index.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=26"
   },
   "scripts": {
     "build": "tsc",
@@ -20,7 +20,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.0.0",
     "typescript": "^5.7.0"
   }
 }

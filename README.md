@@ -40,7 +40,7 @@ win and the runner only adds what is missing.
 ## Get started
 
 You need [10xCLI](https://github.com/przeprogramowani/10x-cli), an AI coding
-tool that supports the installed skills, Docker or Podman, Node.js, and
+tool that supports the installed skills, Docker or Podman, Node.js 26 or newer, and
 provider API keys in your shell environment.
 
 From your product repository, create a benchmark instance next to it:
