@@ -4,7 +4,7 @@
 // (wymaga `npm ci --prefix .bench-kit/runner` — zod/yaml).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -215,6 +215,41 @@ test("tmpdir: /tmp na tmpfs-ie bez TMPDIR → .bench-tmp instancji; jawny TMPDIR
   assert.equal(chooseTmpdir("/big/tmp", "/inst", true), null);
   assert.equal(chooseTmpdir(undefined, "/inst", false), null);
   assert.equal(chooseTmpdir(undefined, null, true), null);
+});
+
+test("tmpdir: systemowy TMPDIR macOS (niewidoczny dla colimy) → .bench-tmp instancji; Linux bez zmian", async () => {
+  const { chooseTmpdir, isMacSystemTmp } = await lib("tmpdir.ts");
+  // /var/folders/… ustawia system, nie operator — a silnik z VM go nie montuje.
+  assert.equal(isMacSystemTmp("/var/folders/ab/cd/T/", "darwin"), true);
+  assert.equal(isMacSystemTmp("/private/var/folders/ab/cd/T/", "darwin"), true);
+  assert.equal(isMacSystemTmp(undefined, "darwin"), true);
+  assert.equal(isMacSystemTmp("/Users/me/big-tmp", "darwin"), false, "jawny wybór operatora zostaje");
+  assert.equal(isMacSystemTmp("/var/folders/ab/cd/T/", "linux"), false);
+  assert.equal(isMacSystemTmp(undefined, "linux"), false);
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", "/inst", false, true), "/inst/.bench-tmp");
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", null, false, true), null, "poza instancją nie ma dokąd");
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", "/inst", false, false), null);
+});
+
+test("doctor: katalog z TMPDIR niewidoczny w kontenerze to BRAK, nie zielona checklista", async () => {
+  const { tmpMountCheck } = await command("doctor.ts");
+  const tmp = tempDir("bench-doctor-tmp-");
+  const calls = [];
+  const engine = (status) => (cmd, args) => {
+    calls.push([cmd, ...args]);
+    return { status, stdout: "", stderr: "" };
+  };
+  const ok = tmpMountCheck("docker", "img", tmp, engine(0));
+  assert.equal(ok.status, "OK");
+  const mount = calls[0][calls[0].indexOf("-v") + 1];
+  assert.match(mount, new RegExp(`^${tmp}/bench-doctor-[^:]+:/bench/probe:ro$`), "montowany jest katalog z TMPDIR");
+  assert.deepEqual(calls[0].slice(-3), ["test", "-f", "/bench/probe/probe"]);
+  // colima bez montowania /var/folders: kontener startuje, ale katalog jest pusty.
+  const missing = tmpMountCheck("docker", "img", tmp, engine(1));
+  assert.equal(missing.status, "BRAK");
+  assert.match(missing.detail, /silnik nie widzi/);
+  assert.match(missing.fix, /export TMPDIR=<instancja>\/\.bench-tmp/);
+  assert.deepEqual(readdirSync(tmp), [], "katalog próbny posprzątany");
 });
 
 test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-create-task", async () => {
