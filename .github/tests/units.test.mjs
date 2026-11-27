@@ -610,3 +610,42 @@ test("opencode: runner deklaruje modele biegu z cenami; konfiguracja operatora w
   assert.equal(raw.content, null);
   assert.match(raw.warning, /NIE dopisuję modeli/);
 });
+
+test("attempt: awaria harnessu to nie wynik modelu — nieznany model, odrzucone uprawnienie, kod ≠ 0 bez tokenów", async () => {
+  const { detectHarnessFailure } = await command("attempt.ts");
+  const { parseModelId } = await lib("harness.ts");
+  const opencode = parseModelId("openrouter/anthropic/claude-sonnet-5.5");
+  const trial = (log, metrics) => {
+    const dir = tempDir("bench-harness-");
+    writeFileSync(join(dir, "agent.log"), log);
+    if (metrics) writeFileSync(join(dir, "metrics.json"), JSON.stringify(metrics));
+    return dir;
+  };
+  const zero = { cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 } };
+  const worked = { cost_usd: 0.01, tokens: { input: 1000, output: 50 } };
+  const exit = (agent_exit, timed_out = false) => ({ agent_exit, timed_out });
+
+  // Logi 1:1 z opencode 1.18.3 (z sekwencjami ANSI).
+  const notFound = '\x1b[91m\x1b[1mError: \x1b[0m{\n  "name": "UnknownError",\n  "data": {\n    "message": "Unexpected server error. Check server logs for details."\n  }\n}\n';
+  assert.match(detectHarnessFailure(trial(notFound, zero), exit(1), opencode), /nie uruchomił modelu "openrouter\/anthropic\/claude-sonnet-5.5"/);
+  const rejected =
+    "\x1b[0m\n> build · anthropic/claude-sonnet-5.5\n\x1b[0m\n\x1b[93m\x1b[1m! \x1b[0mpermission requested: external_directory (/*); auto-rejecting\n" +
+    '\x1b[0m✗ \x1b[0mGlob "{AGENTS.md,CLAUDE.md}" failed\x1b[90m in /\x1b[0m\n\x1b[91m\x1b[1mError: \x1b[0mThe user rejected permission to use this specific tool call.\n';
+  // Kod 0 i realne tokeny — bez tej reguły pusty diff szedł do oceny jako FAIL modelu.
+  assert.match(detectHarnessFailure(trial(rejected, worked), exit(0), opencode), /odrzucił prośbę o uprawnienie.*external_directory/);
+
+  // Kod ≠ 0 bez żadnego tokenu — dowolny harness.
+  const claude = parseModelId("claude-code:claude-sonnet-5");
+  assert.match(detectHarnessFailure(trial("", zero), exit(1), claude), /kodem 1 bez żadnego tokenu/);
+  assert.match(detectHarnessFailure(trial("", null), exit(2), claude), /kodem 2 bez żadnego tokenu/, "brak metrics.json = brak tokenów");
+  assert.match(detectHarnessFailure(trial("", { tokens: { input: null, output: null } }), exit(1), opencode), /bez żadnego tokenu/);
+
+  // To NIE są awarie harnessu: model pracował, timeout, kill sygnałem, zwykły sukces.
+  assert.equal(detectHarnessFailure(trial("some error", worked), exit(1), opencode), null);
+  assert.equal(detectHarnessFailure(trial("", { tokens: { input: 0, output: 0, cache_read: 5000 } }), exit(1), claude), null);
+  assert.equal(detectHarnessFailure(trial(notFound, zero), exit(124, true), opencode), null);
+  assert.equal(detectHarnessFailure(trial("", zero), exit(137), opencode), null);
+  assert.equal(detectHarnessFailure(trial("> build\nDone.\n", worked), exit(0), opencode), null);
+  assert.equal(detectHarnessFailure(trial("agent czyta: permission requested: x; auto-rejecting w kodzie repo", worked), exit(0), claude), null, "sygnatura OpenCode tylko dla OpenCode");
+  assert.equal(detectHarnessFailure(trial("", zero), null, opencode), null);
+});
