@@ -81,6 +81,12 @@ defaults:
 # z publicznego katalogu OpenRouter; model bez ceny w żadnym źródle nie
 # startuje (koszt nieznany = budżet, który nie działa). Klucz = id modelu
 # jak w defaults.models.
+# OpenCode liczy koszt sam, ale ceny dostaje od runnera: każdy model
+# OpenCode z biegu jest mu deklarowany z ceną stąd albo z katalogu
+# OpenRouter (zmienna OPENCODE_CONFIG_CONTENT kontenera próby — nie
+# ustawiasz jej ręcznie; jeśli ustawisz, twoje klucze wygrywają, a runner
+# dopisuje resztę). Model OpenCode bez ceny w obu źródłach startuje
+# z ostrzeżeniem i może zaraportować koszt $0 — wtedy dopisz go tutaj.
 # pricing:
 #   "codex:gpt-5.1-codex": { input: 1.25, output: 10, cache_read: 0.125 }
 

@@ -36,6 +36,8 @@
  *
  * Sekrety modeli przechodzą do kontenera wyłącznie przez env
  * (*_API_KEY oraz OPENCODE_*), nigdy nie są zapiekane w obraz.
+ * Próby OpenCode dostają OPENCODE_CONFIG_CONTENT z deklaracją modeli
+ * biegu i ich cen (lib/opencode-config.ts); wartość operatora wygrywa.
  *
  * Użycie:
  *   bench attempt [<zadanie> <model>]
@@ -80,7 +82,9 @@ import {
   type StopRequest,
 } from "../lib/progress.ts";
 import { harnessVersion, parseModelId, type HarnessModel } from "../lib/harness.ts";
+import { opencodeConfigContent } from "../lib/opencode-config.ts";
 import {
+  catalogLimits,
   catalogSlugFor,
   costPolicy,
   fetchOpenRouterCatalog,
@@ -587,8 +591,11 @@ export async function attemptCommand(args: string[]): Promise<number> {
     const lacksHistory = (cell: { task: string; model: string }) =>
       !(samplesByTask.get(cell.task) ?? []).some((s) => s.model === cell.model && s.cost !== null);
     const estimateModels = new Set(plan.filter((c) => c.numbers.length > 0 && lacksHistory(c)).map((c) => c.model));
+    // OpenCode dostaje ceny od runnera (deklaracja modeli niżej), więc katalog
+    // jest potrzebny każdemu modelowi bez pricing w configu. --plan-out to sama
+    // projekcja: tam wystarcza katalog dla modeli, które go potrzebują do szacunku.
     const needsCatalog = [...harnessSpecs.values()].some(
-      (s) => (costPolicy(s) !== "harness" || estimateModels.has(s.id)) && !config.pricing?.[s.id],
+      (s) => (costPolicy(s) !== "harness" || estimateModels.has(s.id) || !opts.planOut) && !config.pricing?.[s.id],
     );
     let catalog: Catalog | null = null;
     let catalogError: string | null = null;
@@ -605,7 +612,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
     for (const spec of harnessSpecs.values()) {
       const policy = costPolicy(spec);
       if (policy === "harness") {
-        if (estimateModels.has(spec.id)) estimatePrices.set(spec.id, resolvePrice(spec, config, catalog));
+        estimatePrices.set(spec.id, resolvePrice(spec, config, catalog));
         continue;
       }
       const price = resolvePrice(spec, config, catalog);
@@ -717,6 +724,28 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     // --- próby: pool --parallel, bez sieci do repo ---
     const envArgs = trialEnvNames().flatMap((name) => ["-e", name]);
+    // OpenCode: modele biegu i ich ceny zadeklarowane harnessowi — id spoza
+    // jego katalogu nie kończy próby błędem po sekundzie, a koszt nie wychodzi
+    // $0. Wartość idzie przez env procesu silnika (nie argument: konfiguracja
+    // operatora może nieść sekrety, a argumenty widać w `ps`).
+    const opencodeSpecs = [...harnessSpecs.values()].filter((s) => s.harness === "opencode");
+    const opencodeConfig = opencodeConfigContent(
+      opencodeSpecs.map((spec) => ({ spec, price: estimatePrices.get(spec.id) ?? null, limits: catalogLimits(spec, catalog) })),
+      process.env.OPENCODE_CONFIG_CONTENT,
+    );
+    if (opencodeConfig.warning) console.error(`warn:   ${opencodeConfig.warning}`);
+    for (const spec of opencodeSpecs) {
+      if (opencodeConfig.content === null || estimatePrices.get(spec.id)) continue;
+      const why = catalogError
+        ? `katalog cen OpenRouter niedostępny (${catalogError})`
+        : `brak "${catalogSlugFor(spec) ?? spec.cliModel}" w katalogu OpenRouter`;
+      console.error(
+        `warn:   ${spec.id}: cena nieznana (${why}) — model zadeklarowany OpenCode bez ceny; jeśli OpenCode sam jej nie zna, ` +
+          `próba zaraportuje koszt $0 i budżet biegu jej nie zobaczy; dodaj pricing["${spec.id}"] w bench.config.yaml`,
+      );
+    }
+    const trialEnv =
+      opencodeConfig.content !== null ? { ...process.env, OPENCODE_CONFIG_CONTENT: opencodeConfig.content } : undefined;
     let spentUsd = 0;
     let overBudget = false;
     let failures = 0;
@@ -860,6 +889,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
             `${trialDir}:/bench/out`,
             ...limitArgs,
             ...envArgs,
+            ...(harness.harness === "opencode" && trialEnv && !envArgs.includes("OPENCODE_CONFIG_CONTENT") ? ["-e", "OPENCODE_CONFIG_CONTENT"] : []),
             image,
             "/bench/trial.sh",
             String(task.timeout_s),
@@ -867,7 +897,9 @@ export async function attemptCommand(args: string[]): Promise<number> {
             harness.route,
             harness.cliModel,
           ],
-          { timeout: (task.timeout_s + 300) * 1000 },
+          // "-e OPENCODE_CONFIG_CONTENT" (envArgs, gdy ustawił go operator, albo
+          // dopisany tu) bierze wartość z env tego procesu — scaloną deklarację.
+          { timeout: (task.timeout_s + 300) * 1000, ...(harness.harness === "opencode" && trialEnv ? { env: trialEnv } : {}) },
         );
         clearInterval(watch);
         stopped = readStopRequest(trialDir);

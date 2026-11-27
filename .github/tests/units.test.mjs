@@ -560,3 +560,53 @@ test("trial.sh: każdy harness startuje bez pytań o uprawnienia (headless nie m
   assert.match(branch("claude-code"), /--permission-mode bypassPermissions/);
   assert.match(branch("codex"), /--dangerously-bypass-approvals-and-sandbox/);
 });
+
+test("opencode: runner deklaruje modele biegu z cenami; konfiguracja operatora wygrywa", async () => {
+  const { parseModelId } = await lib("harness.ts");
+  const { opencodeConfigContent, opencodeModelsConfig } = await lib("opencode-config.ts");
+  const { catalogLimits, resolvePrice } = await lib("pricing.ts");
+  const sonnet = parseModelId("openrouter/anthropic/claude-sonnet-5.5");
+  const catalog = new Map([["anthropic/claude-sonnet-5.5", { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5, context_length: 400000, max_output_tokens: 64000 }]]);
+  const price = resolvePrice(sonnet, {}, catalog);
+  assert.deepEqual(price, { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5, source: "openrouter:anthropic/claude-sonnet-5.5" }, "limity nie wyciekają do ceny");
+  const decls = [
+    { spec: sonnet, price, limits: catalogLimits(sonnet, catalog) },
+    { spec: parseModelId("anthropic/claude-haiku-5"), price: { input: 1, output: 5 } },
+    { spec: parseModelId("openrouter/x/no-price"), price: null },
+    { spec: parseModelId("claude-code:claude-sonnet-5"), price: { input: 3, output: 15 } },
+  ];
+  // Bez tej deklaracji OpenCode kończy próbę ProviderModelNotFoundError, a bez `cost` raportuje $0.
+  assert.deepEqual(opencodeModelsConfig(decls), {
+    provider: {
+      openrouter: {
+        models: {
+          "anthropic/claude-sonnet-5.5": {
+            name: "anthropic/claude-sonnet-5.5",
+            cost: { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+            limit: { context: 400000, output: 64000 },
+          },
+          "x/no-price": { name: "x/no-price" },
+        },
+      },
+      anthropic: { models: { "claude-haiku-5": { name: "claude-haiku-5", cost: { input: 1, output: 5 } } } },
+    },
+  });
+  assert.deepEqual(JSON.parse(opencodeConfigContent(decls, undefined).content), opencodeModelsConfig(decls));
+  assert.equal(opencodeConfigContent([decls[3]], undefined).content, null, "bez modeli OpenCode nie ma czego ustawiać");
+
+  // Operator u władzy: jego klucze nadpisują deklarację runnera, reszta zostaje dopisana.
+  const operator = JSON.stringify({
+    permission: { bash: "deny" },
+    provider: { openrouter: { options: { baseURL: "http://proxy/v1" }, models: { "anthropic/claude-sonnet-5.5": { cost: { input: 9 } } } } },
+  });
+  const merged = JSON.parse(opencodeConfigContent(decls, operator).content);
+  assert.deepEqual(merged.permission, { bash: "deny" });
+  assert.equal(merged.provider.openrouter.options.baseURL, "http://proxy/v1");
+  assert.deepEqual(merged.provider.openrouter.models["anthropic/claude-sonnet-5.5"].cost, { input: 9, output: 10, cache_read: 0.1, cache_write: 2.5 });
+  assert.ok(merged.provider.openrouter.models["x/no-price"], "model, którego operator nie zna, dopisany");
+
+  // Treść operatora spoza JSON-a (np. z komentarzami): nietknięta, z ostrzeżeniem.
+  const raw = opencodeConfigContent(decls, '{ // moje\n "permission": "allow" }');
+  assert.equal(raw.content, null);
+  assert.match(raw.warning, /NIE dopisuję modeli/);
+});
