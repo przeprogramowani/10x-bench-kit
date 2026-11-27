@@ -6,6 +6,94 @@ porównywalności wyników — dashboard nie miesza wyników sprzed i po takim
 release. Zmiany łamiące schemat `task.yaml` lub `bench.config.yaml` zawsze
 są `[scoring-breaking]` i wymagają noty migracyjnej.
 
+## 0.42.0 — 2026-11-27
+
+**Pierwszy bieg kursu bez obejść: awarie harnessu nie udają porażek
+modelu.** Neutralny — formuła scoringu, schematy, stemple ery
+i `SCORING_VERSION` bez zmian. Uwaga o porównywalności: próby OpenCode
+wykonane starszym kitem mogły skończyć się awarią harnessu zapisaną jako
+zwykły FAIL (pusty diff po odrzuconym uprawnieniu, próba 1 s z $0.00) —
+takie próby warto powtórzyć (`bench attempt <zadanie> <model>
+--trial-index <n> --force`). Obraz prób przechodzi na Node 26, więc
+obraz zadania dostaje nowe id i guardy liczą się od nowa przy
+najbliższej ocenie.
+
+#### Runner — próby
+
+- **OpenCode z pełnymi uprawnieniami** (`docker/trial.sh`):
+  `opencode run --auto`. Bez tego prośba o uprawnienie (np.
+  `external_directory`, gdy model szuka `AGENTS.md` poza `/workspace`)
+  była odrzucana automatycznie, sesja kończyła się kodem 0 z pustym
+  diffem, a runner zapisywał FAIL modelu. Claude Code i Codex miały
+  pełne uprawnienia od początku.
+- **Modele i ceny deklarowane OpenCode przez runner**
+  (`lib/opencode-config.ts`): próby OpenCode dostają
+  `OPENCODE_CONFIG_CONTENT` z każdym modelem OpenCode biegu, ceną
+  z `pricing` albo katalogu OpenRouter i limitami z katalogu. Koniec
+  z `ProviderModelNotFoundError` ("UnknownError … Unexpected server
+  error") dla id spoza katalogu OpenCode i z `cost_usd: 0` przy realnych
+  tokenach. `OPENCODE_CONFIG_CONTENT` operatora zostaje u władzy: jego
+  klucze nadpisują deklarację runnera, runner dopisuje resztę; treść,
+  która nie jest obiektem JSON, idzie bez zmian, z ostrzeżeniem.
+- **Awaria harnessu = `infra_failure`**, nie wynik modelu: OpenCode nie
+  zna modelu, OpenCode odrzucił prośbę o uprawnienie, albo agent
+  zakończył się kodem ≠ 0 bez żadnego tokenu. Jedno retry (pierwsze
+  podejście w `harness-error-attempt-1/`); gdy awaria wraca, próba jest
+  wyłączona z oceny, a powód stoi w pierwszej linii `container.log`.
+  Bez nowego stanu wyniku.
+
+#### Runner — bieg i budżet
+
+- **`bench run --dry-run`**: plan i projekcja bez startu biegu (kod 0 —
+  mieści się w budżecie, 3 — nie).
+- **Odmowa startu mówi, co zrobić**, gdy projekcję zawyża SZACUNEK prób
+  bez historii: ile prób jest szacunkiem i ścieżka "to samo polecenie
+  z `--trials 1`, potem z docelowym `--trials`" z projekcją pierwszego
+  kroku. Stały prior tokenów (`TOKEN_PRIOR`) zostaje — przed pierwszą
+  próbą runner nie wie o zadaniu nic, co uczciwie skalowałoby koszt.
+
+#### Runner — środowisko
+
+- **macOS + colima / podman machine**: systemowy TMPDIR
+  (`/var/folders/…`) nie jest montowany do VM silnika i każda ocena
+  padała na `ENOENT … /bench/out/eval-plan.json`. Runner używa wtedy
+  `<instancja>/.bench-tmp/`; TMPDIR wskazany przez operatora zostaje.
+  Linux bez zmian.
+- **`bench doctor`**: nowa pozycja "TMPDIR w kontenerze" — próbny
+  kontener montuje katalog z TMPDIR; niewidoczny = BRAK.
+- **Node 26**: obraz prób `node:26-bookworm-slim`; `engines` runnera
+  i `bench doctor` wymagają Node >= 26 na maszynie operatora; CI
+  i workflowy instancji na Node 26. `--experimental-strip-types`
+  zostaje (Node 26 przyjmuje flagę bez ostrzeżenia).
+
+#### evaluation-pool — szablon `static/lint`
+
+- Repo npm bez `package-lock.json` / `npm-shrinkwrap.json`: `npm install
+  --no-package-lock` zamiast `npm ci` (które kończyło się EUSAGE
+  i czerwonym guardem na czystym pinie); paczka bez zależności nie
+  instaluje niczego. **Migracja:** `evaluation-pool/` to strefa
+  instancji — `bench-kit update` jej nie rusza; w istniejącej instancji
+  przenieś zmianę ręcznie (zmiana asercji przy istniejących wynikach
+  zamyka erę zadań, które jej używają).
+
+#### Skille
+
+- **bench-status**: rozgrzanie obrazu w tle bez `nohup` (w sesji agenta
+  `nohup` potrafi nie wystartować i nic się nie buduje) —
+  `(node … doctor --warm --offline > .bench-warm.log 2>&1 < /dev/null &)`.
+- **bench-evaluate**: `--dry-run` i ścieżka pierwszego biegu przy odmowie
+  z szacunku.
+- **bench-analysis** (`EXPLAIN.md`): wiersze diagnozy dla awarii harnessu.
+
+#### Raport HTML (szablon wspólny)
+
+- Baner wniosku renderuje się dla bieżącej ery każdego zadania
+  (`eraHtml` nie dostawał nazwy zadania).
+- Wiersz "↕ tych modeli ta próba nie rozróżnia" pojawia się także przy
+  jednym paśmie — remis dwóch modeli jest widoczny na stronie.
+- Link do `data.json` w stopce tylko tam, gdzie plik powstaje
+  (`bench leaderboard`); raport bench-analysis to jeden plik.
+
 ## 0.41.0 — 2026-10-29
 
 **bench-analysis: strona pokazuje, jak oceniane było każde zadanie.**
