@@ -753,3 +753,46 @@ test("raport HTML: baner wniosku i nota o remisie widoczne przy dwóch modelach;
   assert.doesNotMatch(html, /data\.json/);
   assert.match(render({ data_file: "data.json" }), /Surowe raporty: <a href="data\.json">data\.json<\/a>/);
 });
+
+// Instancja-atrapa do testów CLI planu biegu: config template'u + zadanie-demo,
+// ceny w configu (bez sieci do katalogu OpenRouter), bez silnika kontenerów.
+const planInstance = () => {
+  const root = tempDir("bench-plan-inst-");
+  const models = ["openrouter/openai/gpt-6.1-sol", "openrouter/anthropic/claude-sonnet-5.5", "openrouter/deepseek/deepseek-v4.1-flash"];
+  writeFileSync(
+    join(root, "bench.config.yaml"),
+    readFileSync(join(ROOT, "bench.config.yaml"), "utf8") +
+      "\npricing:\n" + models.map((m) => `  "${m}": { input: 2, output: 10, cache_read: 0.1 }\n`).join(""),
+  );
+  mkdirSync(join(root, ".bench-kit"));
+  writeFileSync(join(root, ".bench-kit", "VERSION"), "0.0.0\n");
+  const task = join(root, "tasks", "demo-hello-bench");
+  mkdirSync(task, { recursive: true });
+  for (const file of ["task.yaml", "prompt.md"]) {
+    writeFileSync(join(task, file), readFileSync(join(ROOT, ".github", "fixtures", "tasks", "demo-hello-bench", file)));
+  }
+  return root;
+};
+const benchCli = (args) => {
+  try {
+    const stdout = execFileSync(process.execPath, ["--experimental-strip-types", join(ROOT, ".bench-kit", "runner", "src", "index.ts"), ...args], { encoding: "utf8", stdio: "pipe" });
+    return { status: 0, stdout, stderr: "" };
+  } catch (err) {
+    return { status: err.status, stdout: String(err.stdout ?? ""), stderr: String(err.stderr ?? "") };
+  }
+};
+
+test("bench run --dry-run: projekcja bez startu biegu; kod 3, gdy nie mieści się w budżecie", () => {
+  const root = planInstance();
+  // 1 zadanie × 3 modele × 3 próby, prior $0.70/próbę = $6.30 przy budżecie $10.
+  const ok = benchCli(["run", "--dry-run", "--root", root]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /bench run --dry-run: 9 prób\(y\), projekcja ~\$6\.30 \/ budżet \$10 — mieści się w budżecie; nic nie uruchomiono/);
+  assert.doesNotMatch(ok.stdout, /wystartował w tle/);
+  const runs = () => readdirSync(join(root, "attempts", ".runs")).filter((name) => name.startsWith("r-"));
+  assert.deepEqual(runs(), [], "żaden bieg nie powstał");
+  const over = benchCli(["run", "--dry-run", "--max-cost", "5", "--root", root]);
+  assert.equal(over.status, 3);
+  assert.match(over.stderr, /projekcja ~\$6\.30 przekracza budżet biegu \$5/);
+  assert.deepEqual(runs(), []);
+});

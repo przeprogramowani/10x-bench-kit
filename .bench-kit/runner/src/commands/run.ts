@@ -4,7 +4,7 @@
  *
  *   bench run [--tasks x,y] [--models a,b] [--trials n] [--parallel n]
  *             [--eval-parallel n] [--max-cost <usd>] [--no-evaluate]
- *             [--foreground] [--engine docker|podman] [--root <dir>]
+ *             [--foreground] [--dry-run] [--engine docker|podman] [--root <dir>]
  *   bench run status [<id>] [--json] [--watch [--interval <s>]]
  *   bench run list
  *   bench run pause|resume|cancel [<id>]
@@ -12,6 +12,8 @@
  * Start: plan i projekcja kosztu (`bench attempt --plan-out`), bramka
  * budżetu PRZED wydaniem pieniędzy (projekcja > budżet = odmowa), potem
  * supervisor odłączony od terminala — komenda wraca od razu z id biegu.
+ * `--dry-run` kończy na planie i projekcji: nic nie startuje, nic nie
+ * kosztuje; kod 0, gdy bieg zmieściłby się w budżecie, 3, gdy nie.
  *
  * Supervisor (lib/queue.ts — stan w attempts/.runs/<id>/):
  * - obrazy (bazowy + zadań) budowane RAZ na bieg; próby biorą gotowe
@@ -89,13 +91,15 @@ interface StartOptions {
   maxCost: number | null;
   evaluate: boolean;
   foreground: boolean;
+  dryRun: boolean;
   engine: string | null;
   supervise: string | null;
 }
 
 const USAGE = [
   "usage: bench run [--tasks x,y] [--models a,b] [--trials n] [--parallel n] [--eval-parallel n]",
-  "                 [--max-cost <usd>] [--no-evaluate] [--foreground] [--engine docker|podman] [--root <dir>]",
+  "                 [--max-cost <usd>] [--no-evaluate] [--foreground] [--dry-run]",
+  "                 [--engine docker|podman] [--root <dir>]",
   "       bench run status [<id>] [--json] [--watch [--interval <s>]] [--root <dir>]",
   "       bench run list [--root <dir>]",
   "       bench run pause|resume|cancel [<id>] [--root <dir>]",
@@ -117,6 +121,7 @@ function parseStart(args: string[]): StartOptions | null {
     maxCost: null,
     evaluate: true,
     foreground: false,
+    dryRun: false,
     engine: null,
     supervise: null,
   };
@@ -131,6 +136,7 @@ function parseStart(args: string[]): StartOptions | null {
     else if (arg === "--max-cost") opts.maxCost = Number(value());
     else if (arg === "--no-evaluate") opts.evaluate = false;
     else if (arg === "--foreground") opts.foreground = true;
+    else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--engine") opts.engine = value() ?? null;
     else if (arg === "--root") opts.root = resolve(value() ?? "");
     else if (arg === "--supervise") opts.supervise = value() ?? null;
@@ -198,6 +204,15 @@ async function start(root: string, opts: StartOptions): Promise<number> {
         "zawęź macierz (--tasks / --models / --trials) albo świadomie podnieś budżet (--max-cost / defaults.max_cost_usd)",
     );
     return 3;
+  }
+  if (opts.dryRun) {
+    rmSync(dir, { recursive: true, force: true });
+    console.log(
+      `bench run --dry-run: ${plan.jobs.length} prób(y), projekcja ~$${plan.projected_usd.toFixed(2)}` +
+        (plan.budget_usd !== null ? ` / budżet $${plan.budget_usd} — mieści się w budżecie` : " (bez budżetu)") +
+        "; nic nie uruchomiono (to samo polecenie bez --dry-run startuje bieg)",
+    );
+    return 0;
   }
 
   const now = new Date().toISOString();
