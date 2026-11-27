@@ -796,3 +796,32 @@ test("bench run --dry-run: projekcja bez startu biegu; kod 3, gdy nie mieści si
   assert.match(over.stderr, /projekcja ~\$6\.30 przekracza budżet biegu \$5/);
   assert.deepEqual(runs(), []);
 });
+
+test("bench run: odmowa z powodu SZACUNKU mówi, jak dojść do projekcji z faktów (--trials 1, potem dobranie)", async () => {
+  const { budgetRefusal } = await command("run.ts");
+  // Macierz z kursu: 4 zadania × 2 modele × 3 próby, prior $0.70/próbę = $16.80 przy budżecie $10.
+  const jobs = ["t1", "t2", "t3", "t4"].flatMap((task) =>
+    ["m/a", "m/b"].flatMap((model) => [1, 2, 3].map((trial) => ({ task, model, trial, timeout_s: 1800, memory_mb: null, projected_usd: 0.7 }))),
+  );
+  const first = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 10, estimated_trials: 24 });
+  assert.match(first, /^error: projekcja ~\$16\.80 przekracza budżet biegu \$10 — zawęź macierz/);
+  assert.match(first, /24 z 24 prób to SZACUNEK bez historii kosztu/);
+  assert.match(first, /z `--trials 1` \(8 prób, projekcja ~\$5\.60 — mieści się w budżecie\)/);
+  assert.match(first, /potem powtórz je z docelowym --trials/);
+  // Projekcja z historii: sam fakt przekroczenia, bez rady o szacunku.
+  const history = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 10, estimated_trials: 0 });
+  assert.doesNotMatch(history, /SZACUNEK|--trials 1/);
+  assert.equal(history.split("\n").length, 1);
+  // Nawet jedna próba na komórkę nie mieści się w budżecie (albo to już --trials 1): mniejszy wycinek.
+  const tight = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 3, estimated_trials: 24 });
+  assert.match(tight, /Zmierz najpierw mniejszy wycinek/);
+  assert.doesNotMatch(tight, /mieści się w budżecie/);
+  const single = budgetRefusal({ jobs: jobs.filter((j) => j.trial === 1), projected_usd: 5.6, budget_usd: 3, estimated_trials: 8 });
+  assert.match(single, /Zmierz najpierw mniejszy wycinek/);
+
+  // Ta sama treść z prawdziwego CLI (kod 3).
+  const over = benchCli(["run", "--max-cost", "5", "--root", planInstance()]);
+  assert.equal(over.status, 3);
+  assert.match(over.stderr, /9 z 9 prób to SZACUNEK/);
+  assert.match(over.stderr, /z `--trials 1` \(3 prób, projekcja ~\$2\.10 — mieści się w budżecie\)/);
+});

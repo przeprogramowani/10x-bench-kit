@@ -199,10 +199,7 @@ async function start(root: string, opts: StartOptions): Promise<number> {
   // Bramka budżetu PRZED wydaniem pieniędzy: podniesienie budżetu to decyzja człowieka.
   if (plan.budget_usd !== null && plan.projected_usd > plan.budget_usd) {
     rmSync(dir, { recursive: true, force: true });
-    console.error(
-      `error: projekcja ~$${plan.projected_usd.toFixed(2)} przekracza budżet biegu $${plan.budget_usd} — ` +
-        "zawęź macierz (--tasks / --models / --trials) albo świadomie podnieś budżet (--max-cost / defaults.max_cost_usd)",
-    );
+    console.error(budgetRefusal(plan));
     return 3;
   }
   if (opts.dryRun) {
@@ -275,6 +272,41 @@ async function start(root: string, opts: StartOptions): Promise<number> {
     ].join("\n"),
   );
   return 0;
+}
+
+/**
+ * Komunikat odmowy startu (kod 3). Projekcja komórki bez historii kosztu to
+ * SZACUNEK: cena modelu × stały prior tokenów (TOKEN_PRIOR w attempt.ts) —
+ * rząd wielkości sesji na dużym repo, bo przed pierwszą próbą runner nie
+ * wie o zadaniu nic, co uczciwie skalowałoby koszt. Na małym repo zawyża
+ * go kilkanaście razy i blokuje pierwszy bieg. Zamiast obniżać stałą
+ * (zaniżyłaby projekcję tam, gdzie próby są drogie), komunikat mówi, jak
+ * dojść do projekcji z faktów: jedna próba na komórkę, potem dobranie
+ * reszty — wtedy liczy się mediana faktycznych kosztów.
+ */
+export function budgetRefusal(plan: Pick<PlanOut, "jobs" | "projected_usd" | "budget_usd" | "estimated_trials">): string {
+  const lines = [
+    `error: projekcja ~$${plan.projected_usd.toFixed(2)} przekracza budżet biegu $${plan.budget_usd} — ` +
+      "zawęź macierz (--tasks / --models / --trials) albo świadomie podnieś budżet (--max-cost / defaults.max_cost_usd)",
+  ];
+  if (plan.estimated_trials === 0) return lines[0] as string;
+  lines.push(
+    `       ${plan.estimated_trials} z ${plan.jobs.length} prób to SZACUNEK bez historii kosztu — celowo ostrożny: ` +
+      "na małym repo próba bywa kilkanaście razy tańsza, na dużym droższa.",
+  );
+  const first = plan.jobs.filter((j) => j.trial === 1);
+  const firstUsd = first.reduce((acc, j) => acc + (j.projected_usd ?? 0), 0);
+  if (first.length > 0 && first.length < plan.jobs.length && plan.budget_usd !== null && firstUsd <= plan.budget_usd) {
+    lines.push(
+      `       Zacznij od tego samego polecenia z \`--trials 1\` (${first.length} prób, projekcja ~$${firstUsd.toFixed(2)} — mieści się w budżecie), ` +
+        "potem powtórz je z docelowym --trials: runner dobierze brakujące próby, a projekcję policzy już z faktycznego kosztu pierwszych.",
+    );
+  } else {
+    lines.push(
+      "       Zmierz najpierw mniejszy wycinek (jedno zadanie albo jeden model, --trials 1): kolejne projekcje policzą się z faktycznego kosztu prób.",
+    );
+  }
+  return lines.join("\n");
 }
 
 function launchSupervisor(root: string, id: string): void {
