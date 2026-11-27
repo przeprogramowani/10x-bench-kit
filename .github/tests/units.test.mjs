@@ -649,3 +649,26 @@ test("attempt: awaria harnessu to nie wynik modelu — nieznany model, odrzucone
   assert.equal(detectHarnessFailure(trial("agent czyta: permission requested: x; auto-rejecting w kodzie repo", worked), exit(0), claude), null, "sygnatura OpenCode tylko dla OpenCode");
   assert.equal(detectHarnessFailure(trial("", zero), null, opencode), null);
 });
+
+test("static/lint: npm bez lockfile'a instaluje przez npm install, a bez zależności nie instaluje wcale", async () => {
+  const { parse } = await import(join(ROOT, ".bench-kit", "runner", "node_modules", "yaml", "dist", "index.js"));
+  const check = parse(readFileSync(join(ROOT, "evaluation-pool", "static", "lint", "check.yaml"), "utf8"));
+  const script = check.checks.find((c) => c.name === "lint").run;
+  // Atrapa npm zapisuje swoje wywołania — bez sieci i bez prawdziwej instalacji.
+  const bin = tempDir("bench-lint-bin-");
+  writeFileSync(join(bin, "npm"), '#!/bin/sh\necho "$*" >> "$NPM_CALLS"\n', { mode: 0o755 });
+  const run = (pkg, files = []) => {
+    const repo = tempDir("bench-lint-repo-");
+    writeFileSync(join(repo, "package.json"), JSON.stringify(pkg));
+    for (const file of files) writeFileSync(join(repo, file), "{}");
+    const calls = join(repo, ".npm-calls");
+    execFileSync("bash", ["-c", script], { cwd: repo, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_CALLS: calls }, stdio: "pipe" });
+    return readFileSync(calls, "utf8").trim().split("\n");
+  };
+  const lint = { scripts: { lint: "node scripts/lint.mjs" } };
+  // Repo bez zależności i bez lockfile'a: `npm ci` kończyło się EUSAGE i guard był czerwony na czystym pinie.
+  assert.deepEqual(run(lint), ["run lint"]);
+  assert.deepEqual(run({ ...lint, devDependencies: { eslint: "^9" } }), ["install --no-audit --no-fund --no-package-lock", "run lint"]);
+  assert.deepEqual(run({ ...lint, devDependencies: { eslint: "^9" } }, ["package-lock.json"]), ["ci --no-audit --no-fund", "run lint"]);
+  assert.deepEqual(run(lint, ["npm-shrinkwrap.json"]), ["ci --no-audit --no-fund", "run lint"]);
+});

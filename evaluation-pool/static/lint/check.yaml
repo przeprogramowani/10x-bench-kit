@@ -26,6 +26,12 @@ checks:
     #
     # Instalacja jest wyciszona, ale jej porażka nie może dać pustego logu
     # (wygląda wtedy jak czerwony lint): `quiet` pokazuje ogon wyjścia.
+    #
+    # npm bez lockfile'a: `npm ci` odmawia wtedy z EUSAGE i guard był
+    # czerwony na czystym pinie, choć `npm run lint` przechodził — znów
+    # kara za usterkę asercji. Bez package-lock.json / npm-shrinkwrap.json
+    # instalujemy przez `npm install` (bez zapisu lockfile'a), a paczka bez
+    # żadnych zależności nie instaluje niczego.
     run: |
       quiet() { out=$("$@" 2>&1) || { printf '%s\n' "$out" | tail -n 40; echo "instalacja nie przeszła: $*"; exit 1; }; }
       [ -f package.json ] || exit 0
@@ -40,5 +46,10 @@ checks:
         command -v bun >/dev/null || { echo "repo używa bun — dodaj bun do obrazu pochodnego instancji"; exit 1; }
         quiet bun install --frozen-lockfile && bun run lint
       else
-        quiet npm ci --no-audit --no-fund && npm run lint
+        if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+          quiet npm ci --no-audit --no-fund
+        elif node -e 'const p=JSON.parse(require("fs").readFileSync("package.json","utf8"));const has=(k)=>p[k]&&Object.keys(p[k]).length>0;process.exit(["dependencies","devDependencies","optionalDependencies","peerDependencies","workspaces"].some(has)?0:1)'; then
+          quiet npm install --no-audit --no-fund --no-package-lock
+        fi
+        npm run lint
       fi
