@@ -60,7 +60,8 @@ const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
 const [command, ...args] = process.argv.slice(2);
 const handler = command ? COMMANDS[command] : undefined;
 
-// /tmp na tmpfs-ie (RAM) → katalogi tymczasowe na dysku instancji (lib/tmpdir.ts).
+// /tmp na tmpfs-ie (RAM) albo systemowy TMPDIR macOS (niewidoczny dla silników
+// z VM) → katalogi tymczasowe na dysku instancji (lib/tmpdir.ts).
 {
   const rootFlag = args.indexOf("--root");
   const start = rootFlag >= 0 && args[rootFlag + 1] ? resolve(args[rootFlag + 1] as string) : process.cwd();

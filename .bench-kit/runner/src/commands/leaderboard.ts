@@ -55,6 +55,8 @@ interface SiteData {
   pass_threshold: number;
   runs: { id: string; generated_at: string; total_cost_usd: number; trials: number }[];
   tasks: { task: string; eras: Era[] }[];
+  /** Plik z surowymi danymi obok strony — stopka linkuje do niego tylko, gdy jest podany. */
+  data_file?: string;
 }
 
 function parseArgs(args: string[]): Options | null {
@@ -142,6 +144,7 @@ function buildSiteData(
   const latest = reports[reports.length - 1];
   return {
     title,
+    data_file: "data.json",
     generated_at: new Date().toISOString(),
     pass_threshold: latest?.report.pass_threshold ?? 0.7,
     runs: reports.map(({ run_id, report }) => ({

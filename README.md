@@ -31,12 +31,16 @@ does not report a trustworthy cost (Codex, or Claude Code routed through
 OpenRouter), the runner prices the trial's tokens. Prices come from the
 `pricing` map in `bench.config.yaml` or from OpenRouter's public model
 catalog, and the source is recorded with the cost. A model that cannot
-be priced is refused before any money is spent.
+be priced is refused before any money is spent. OpenCode computes its
+own cost, so the runner declares every OpenCode model of the run to it,
+with the same prices, through `OPENCODE_CONFIG_CONTENT` in the trial
+container. You do not set that variable yourself; if you do, your keys
+win and the runner only adds what is missing.
 
 ## Get started
 
 You need [10xCLI](https://github.com/przeprogramowani/10x-cli), an AI coding
-tool that supports the installed skills, Docker or Podman, Node.js, and
+tool that supports the installed skills, Docker or Podman, Node.js 26 or newer, and
 provider API keys in your shell environment.
 
 From your product repository, create a benchmark instance next to it:

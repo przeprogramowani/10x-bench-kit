@@ -4,7 +4,7 @@
 // (wymaga `npm ci --prefix .bench-kit/runner` — zod/yaml).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -215,6 +215,41 @@ test("tmpdir: /tmp na tmpfs-ie bez TMPDIR → .bench-tmp instancji; jawny TMPDIR
   assert.equal(chooseTmpdir("/big/tmp", "/inst", true), null);
   assert.equal(chooseTmpdir(undefined, "/inst", false), null);
   assert.equal(chooseTmpdir(undefined, null, true), null);
+});
+
+test("tmpdir: systemowy TMPDIR macOS (niewidoczny dla colimy) → .bench-tmp instancji; Linux bez zmian", async () => {
+  const { chooseTmpdir, isMacSystemTmp } = await lib("tmpdir.ts");
+  // /var/folders/… ustawia system, nie operator — a silnik z VM go nie montuje.
+  assert.equal(isMacSystemTmp("/var/folders/ab/cd/T/", "darwin"), true);
+  assert.equal(isMacSystemTmp("/private/var/folders/ab/cd/T/", "darwin"), true);
+  assert.equal(isMacSystemTmp(undefined, "darwin"), true);
+  assert.equal(isMacSystemTmp("/Users/me/big-tmp", "darwin"), false, "jawny wybór operatora zostaje");
+  assert.equal(isMacSystemTmp("/var/folders/ab/cd/T/", "linux"), false);
+  assert.equal(isMacSystemTmp(undefined, "linux"), false);
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", "/inst", false, true), "/inst/.bench-tmp");
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", null, false, true), null, "poza instancją nie ma dokąd");
+  assert.equal(chooseTmpdir("/var/folders/ab/cd/T/", "/inst", false, false), null);
+});
+
+test("doctor: katalog z TMPDIR niewidoczny w kontenerze to BRAK, nie zielona checklista", async () => {
+  const { tmpMountCheck } = await command("doctor.ts");
+  const tmp = tempDir("bench-doctor-tmp-");
+  const calls = [];
+  const engine = (status) => (cmd, args) => {
+    calls.push([cmd, ...args]);
+    return { status, stdout: "", stderr: "" };
+  };
+  const ok = tmpMountCheck("docker", "img", tmp, engine(0));
+  assert.equal(ok.status, "OK");
+  const mount = calls[0][calls[0].indexOf("-v") + 1];
+  assert.match(mount, new RegExp(`^${tmp}/bench-doctor-[^:]+:/bench/probe:ro$`), "montowany jest katalog z TMPDIR");
+  assert.deepEqual(calls[0].slice(-3), ["test", "-f", "/bench/probe/probe"]);
+  // colima bez montowania /var/folders: kontener startuje, ale katalog jest pusty.
+  const missing = tmpMountCheck("docker", "img", tmp, engine(1));
+  assert.equal(missing.status, "BRAK");
+  assert.match(missing.detail, /silnik nie widzi/);
+  assert.match(missing.fix, /export TMPDIR=<instancja>\/\.bench-tmp/);
+  assert.deepEqual(readdirSync(tmp), [], "katalog próbny posprzątany");
 });
 
 test("status: zero prób to 'jeszcze nic', a samo demo kieruje do bench-create-task", async () => {
@@ -549,4 +584,261 @@ test("changes: pliki przejściowe prób pomijane i nie zwijają git add do katal
   const out = execFileSync(process.execPath, ["--experimental-strip-types", join(ROOT, ".bench-kit", "runner", "src", "index.ts"), "changes", "--json", "--root", root], { encoding: "utf8" });
   const specs = JSON.parse(out).groups.find((g) => g.key === "results:t1").pathspecs;
   assert.deepEqual(specs, ["attempts/t1/m/trial-1/attempt.json"], "git add katalogu wniósłby puls do commita");
+});
+
+test("trial.sh: każdy harness startuje bez pytań o uprawnienia (headless nie ma kogo zapytać)", () => {
+  const script = readFileSync(join(ROOT, ".bench-kit", "docker", "trial.sh"), "utf8");
+  const branch = (name) => script.match(new RegExp(`\\n  ${name}\\)\\n([\\s\\S]*?)\\n    ;;`))?.[1] ?? "";
+  // Bez tego `opencode run` sam odrzuca prośbę o uprawnienie i kończy sesję
+  // kodem 0 z pustym diffem — porażka harnessu zapisana jako porażka modelu.
+  assert.match(branch("opencode"), /opencode run --auto /);
+  assert.match(branch("claude-code"), /--permission-mode bypassPermissions/);
+  assert.match(branch("codex"), /--dangerously-bypass-approvals-and-sandbox/);
+});
+
+test("opencode: runner deklaruje modele biegu z cenami; konfiguracja operatora wygrywa", async () => {
+  const { parseModelId } = await lib("harness.ts");
+  const { opencodeConfigContent, opencodeModelsConfig } = await lib("opencode-config.ts");
+  const { catalogLimits, resolvePrice } = await lib("pricing.ts");
+  const sonnet = parseModelId("openrouter/anthropic/claude-sonnet-5.5");
+  const catalog = new Map([["anthropic/claude-sonnet-5.5", { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5, context_length: 400000, max_output_tokens: 64000 }]]);
+  const price = resolvePrice(sonnet, {}, catalog);
+  assert.deepEqual(price, { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5, source: "openrouter:anthropic/claude-sonnet-5.5" }, "limity nie wyciekają do ceny");
+  const decls = [
+    { spec: sonnet, price, limits: catalogLimits(sonnet, catalog) },
+    { spec: parseModelId("anthropic/claude-haiku-5"), price: { input: 1, output: 5 } },
+    { spec: parseModelId("openrouter/x/no-price"), price: null },
+    { spec: parseModelId("claude-code:claude-sonnet-5"), price: { input: 3, output: 15 } },
+  ];
+  // Bez tej deklaracji OpenCode kończy próbę ProviderModelNotFoundError, a bez `cost` raportuje $0.
+  assert.deepEqual(opencodeModelsConfig(decls), {
+    provider: {
+      openrouter: {
+        models: {
+          "anthropic/claude-sonnet-5.5": {
+            name: "anthropic/claude-sonnet-5.5",
+            cost: { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+            limit: { context: 400000, output: 64000 },
+          },
+          "x/no-price": { name: "x/no-price" },
+        },
+      },
+      anthropic: { models: { "claude-haiku-5": { name: "claude-haiku-5", cost: { input: 1, output: 5 } } } },
+    },
+  });
+  assert.deepEqual(JSON.parse(opencodeConfigContent(decls, undefined).content), opencodeModelsConfig(decls));
+  assert.equal(opencodeConfigContent([decls[3]], undefined).content, null, "bez modeli OpenCode nie ma czego ustawiać");
+
+  // Operator u władzy: jego klucze nadpisują deklarację runnera, reszta zostaje dopisana.
+  const operator = JSON.stringify({
+    permission: { bash: "deny" },
+    provider: { openrouter: { options: { baseURL: "http://proxy/v1" }, models: { "anthropic/claude-sonnet-5.5": { cost: { input: 9 } } } } },
+  });
+  const merged = JSON.parse(opencodeConfigContent(decls, operator).content);
+  assert.deepEqual(merged.permission, { bash: "deny" });
+  assert.equal(merged.provider.openrouter.options.baseURL, "http://proxy/v1");
+  assert.deepEqual(merged.provider.openrouter.models["anthropic/claude-sonnet-5.5"].cost, { input: 9, output: 10, cache_read: 0.1, cache_write: 2.5 });
+  assert.ok(merged.provider.openrouter.models["x/no-price"], "model, którego operator nie zna, dopisany");
+
+  // Treść operatora spoza JSON-a (np. z komentarzami): nietknięta, z ostrzeżeniem.
+  const raw = opencodeConfigContent(decls, '{ // moje\n "permission": "allow" }');
+  assert.equal(raw.content, null);
+  assert.match(raw.warning, /NIE dopisuję modeli/);
+});
+
+test("attempt: awaria harnessu to nie wynik modelu — nieznany model, odrzucone uprawnienie, kod ≠ 0 bez tokenów", async () => {
+  const { detectHarnessFailure } = await command("attempt.ts");
+  const { parseModelId } = await lib("harness.ts");
+  const opencode = parseModelId("openrouter/anthropic/claude-sonnet-5.5");
+  const trial = (log, metrics) => {
+    const dir = tempDir("bench-harness-");
+    writeFileSync(join(dir, "agent.log"), log);
+    if (metrics) writeFileSync(join(dir, "metrics.json"), JSON.stringify(metrics));
+    return dir;
+  };
+  const zero = { cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 } };
+  const worked = { cost_usd: 0.01, tokens: { input: 1000, output: 50 } };
+  const exit = (agent_exit, timed_out = false) => ({ agent_exit, timed_out });
+
+  // Logi 1:1 z opencode 1.18.3 (z sekwencjami ANSI).
+  const notFound = '\x1b[91m\x1b[1mError: \x1b[0m{\n  "name": "UnknownError",\n  "data": {\n    "message": "Unexpected server error. Check server logs for details."\n  }\n}\n';
+  assert.match(detectHarnessFailure(trial(notFound, zero), exit(1), opencode), /nie uruchomił modelu "openrouter\/anthropic\/claude-sonnet-5.5"/);
+  const rejected =
+    "\x1b[0m\n> build · anthropic/claude-sonnet-5.5\n\x1b[0m\n\x1b[93m\x1b[1m! \x1b[0mpermission requested: external_directory (/*); auto-rejecting\n" +
+    '\x1b[0m✗ \x1b[0mGlob "{AGENTS.md,CLAUDE.md}" failed\x1b[90m in /\x1b[0m\n\x1b[91m\x1b[1mError: \x1b[0mThe user rejected permission to use this specific tool call.\n';
+  // Kod 0 i realne tokeny — bez tej reguły pusty diff szedł do oceny jako FAIL modelu.
+  assert.match(detectHarnessFailure(trial(rejected, worked), exit(0), opencode), /odrzucił prośbę o uprawnienie.*external_directory/);
+
+  // Kod ≠ 0 bez żadnego tokenu — dowolny harness.
+  const claude = parseModelId("claude-code:claude-sonnet-5");
+  assert.match(detectHarnessFailure(trial("", zero), exit(1), claude), /kodem 1 bez żadnego tokenu/);
+  assert.match(detectHarnessFailure(trial("", null), exit(2), claude), /kodem 2 bez żadnego tokenu/, "brak metrics.json = brak tokenów");
+  assert.match(detectHarnessFailure(trial("", { tokens: { input: null, output: null } }), exit(1), opencode), /bez żadnego tokenu/);
+
+  // To NIE są awarie harnessu: model pracował, timeout, kill sygnałem, zwykły sukces.
+  assert.equal(detectHarnessFailure(trial("some error", worked), exit(1), opencode), null);
+  assert.equal(detectHarnessFailure(trial("", { tokens: { input: 0, output: 0, cache_read: 5000 } }), exit(1), claude), null);
+  assert.equal(detectHarnessFailure(trial(notFound, zero), exit(124, true), opencode), null);
+  assert.equal(detectHarnessFailure(trial("", zero), exit(137), opencode), null);
+  assert.equal(detectHarnessFailure(trial("> build\nDone.\n", worked), exit(0), opencode), null);
+  assert.equal(detectHarnessFailure(trial("agent czyta: permission requested: x; auto-rejecting w kodzie repo", worked), exit(0), claude), null, "sygnatura OpenCode tylko dla OpenCode");
+  assert.equal(detectHarnessFailure(trial("", zero), null, opencode), null);
+});
+
+test("static/lint: npm bez lockfile'a instaluje przez npm install, a bez zależności nie instaluje wcale", async () => {
+  const { parse } = await import(join(ROOT, ".bench-kit", "runner", "node_modules", "yaml", "dist", "index.js"));
+  const check = parse(readFileSync(join(ROOT, "evaluation-pool", "static", "lint", "check.yaml"), "utf8"));
+  const script = check.checks.find((c) => c.name === "lint").run;
+  // Atrapa npm zapisuje swoje wywołania — bez sieci i bez prawdziwej instalacji.
+  const bin = tempDir("bench-lint-bin-");
+  writeFileSync(join(bin, "npm"), '#!/bin/sh\necho "$*" >> "$NPM_CALLS"\n', { mode: 0o755 });
+  const run = (pkg, files = []) => {
+    const repo = tempDir("bench-lint-repo-");
+    writeFileSync(join(repo, "package.json"), JSON.stringify(pkg));
+    for (const file of files) writeFileSync(join(repo, file), "{}");
+    const calls = join(repo, ".npm-calls");
+    execFileSync("bash", ["-c", script], { cwd: repo, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_CALLS: calls }, stdio: "pipe" });
+    return readFileSync(calls, "utf8").trim().split("\n");
+  };
+  const lint = { scripts: { lint: "node scripts/lint.mjs" } };
+  // Repo bez zależności i bez lockfile'a: `npm ci` kończyło się EUSAGE i guard był czerwony na czystym pinie.
+  assert.deepEqual(run(lint), ["run lint"]);
+  assert.deepEqual(run({ ...lint, devDependencies: { eslint: "^9" } }), ["install --no-audit --no-fund --no-package-lock", "run lint"]);
+  assert.deepEqual(run({ ...lint, devDependencies: { eslint: "^9" } }, ["package-lock.json"]), ["ci --no-audit --no-fund", "run lint"]);
+  assert.deepEqual(run(lint, ["npm-shrinkwrap.json"]), ["ci --no-audit --no-fund", "run lint"]);
+});
+
+test("bench-status: rozgrzanie obrazu w tle bez nohup (w sesji agenta nohup nie startuje)", () => {
+  const skillText = readFileSync(join(ROOT, ".agents", "skills", "bench-status", "SKILL.md"), "utf8");
+  const warm = skillText.split("\n").find((line) => line.includes("doctor --warm"));
+  assert.ok(warm, "komenda rozgrzania jest w skillu");
+  assert.doesNotMatch(warm, /\bnohup\b/);
+  // Podpowłoka w tle z zamkniętym stdin: wraca od razu i przeżywa koniec komendy.
+  assert.match(warm, /^\(node .* doctor --warm --offline > \.bench-warm\.log 2>&1 < \/dev\/null &\)$/);
+});
+
+test("raport HTML: baner wniosku i nota o remisie widoczne przy dwóch modelach; link do data.json tylko, gdy plik powstaje", async () => {
+  const vm = await import("node:vm");
+  const app = readFileSync(join(ROOT, ".bench-kit", "runner", "assets", "leaderboard", "app.js"), "utf8");
+  const row = (model, passed, cost) => ({ model, trials: 3, passed, median_total: passed === 3 ? 1 : 0.1, median_cost_usd: cost, median_duration_s: 30 });
+  const render = (data) => {
+    const el = { innerHTML: "", style: {}, addEventListener() {} };
+    const site = {
+      title: "T",
+      generated_at: "2026-11-27T00:00:00.000Z",
+      pass_threshold: 0.7,
+      runs: [{ id: "summary", generated_at: "2026-11-27T00:00:00.000Z", total_cost_usd: 1, trials: 0 }],
+      tasks: [{
+        task: "tiered-volume-discounts",
+        eras: [{
+          stamps: { template_version: "0.42.0", task_hash: "abcdef0123", judge_model: "openrouter/google/gemini", rubric_version: "1" },
+          current: true,
+          // 3/3 kontra 2/3: przedziały Wilsona się nachodzą — typowy remis małej próby.
+          runs: [{ run_id: "summary", generated_at: "2026-11-27T00:00:00.000Z", rows: [row("openrouter/a/model-a", 3, 0.05), row("openrouter/b/model-b", 2, 0.07)] }],
+        }],
+      }],
+      ...data,
+    };
+    vm.runInNewContext(`const DATA = ${JSON.stringify(site)};\n${app}`, { document: { getElementById: () => el } });
+    return el.innerHTML;
+  };
+  const html = render({});
+  // Baner: verdictHtml istniał, ale eraHtml nie dostawał nazwy zadania.
+  assert.match(html, /class="vlabel">Wniosek — tiered-volume-discounts</);
+  assert.match(html, /class="vpick">model-a</);
+  assert.match(html, /Tej próby nie wystarcza, żeby odróżnić go od: model-b/);
+  // Nota o remisie: renderowała się tylko przy więcej niż jednym paśmie.
+  assert.match(html, /class="bandhead"><td colspan="7">↕ tych modeli ta próba nie rozróżnia/);
+  // bench-analysis --html to jeden plik: bez linku do data.json, którego nie ma.
+  assert.doesNotMatch(html, /data\.json/);
+  assert.match(render({ data_file: "data.json" }), /Surowe raporty: <a href="data\.json">data\.json<\/a>/);
+});
+
+// Instancja-atrapa do testów CLI planu biegu: config template'u + zadanie-demo,
+// ceny w configu (bez sieci do katalogu OpenRouter), bez silnika kontenerów.
+const planInstance = () => {
+  const root = tempDir("bench-plan-inst-");
+  const models = ["openrouter/openai/gpt-6.1-sol", "openrouter/anthropic/claude-sonnet-5.5", "openrouter/deepseek/deepseek-v4.1-flash"];
+  writeFileSync(
+    join(root, "bench.config.yaml"),
+    readFileSync(join(ROOT, "bench.config.yaml"), "utf8") +
+      "\npricing:\n" + models.map((m) => `  "${m}": { input: 2, output: 10, cache_read: 0.1 }\n`).join(""),
+  );
+  mkdirSync(join(root, ".bench-kit"));
+  writeFileSync(join(root, ".bench-kit", "VERSION"), "0.0.0\n");
+  const task = join(root, "tasks", "demo-hello-bench");
+  mkdirSync(task, { recursive: true });
+  for (const file of ["task.yaml", "prompt.md"]) {
+    writeFileSync(join(task, file), readFileSync(join(ROOT, ".github", "fixtures", "tasks", "demo-hello-bench", file)));
+  }
+  return root;
+};
+const benchCli = (args) => {
+  try {
+    const stdout = execFileSync(process.execPath, ["--experimental-strip-types", join(ROOT, ".bench-kit", "runner", "src", "index.ts"), ...args], { encoding: "utf8", stdio: "pipe" });
+    return { status: 0, stdout, stderr: "" };
+  } catch (err) {
+    return { status: err.status, stdout: String(err.stdout ?? ""), stderr: String(err.stderr ?? "") };
+  }
+};
+
+test("bench run --dry-run: projekcja bez startu biegu; kod 3, gdy nie mieści się w budżecie", () => {
+  const root = planInstance();
+  // 1 zadanie × 3 modele × 3 próby, prior $0.70/próbę = $6.30 przy budżecie $10.
+  const ok = benchCli(["run", "--dry-run", "--root", root]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /bench run --dry-run: 9 prób\(y\), projekcja ~\$6\.30 \/ budżet \$10 — mieści się w budżecie; nic nie uruchomiono/);
+  assert.doesNotMatch(ok.stdout, /wystartował w tle/);
+  const runs = () => readdirSync(join(root, "attempts", ".runs")).filter((name) => name.startsWith("r-"));
+  assert.deepEqual(runs(), [], "żaden bieg nie powstał");
+  const over = benchCli(["run", "--dry-run", "--max-cost", "5", "--root", root]);
+  assert.equal(over.status, 3);
+  assert.match(over.stderr, /projekcja ~\$6\.30 przekracza budżet biegu \$5/);
+  assert.deepEqual(runs(), []);
+});
+
+test("bench run: odmowa z powodu SZACUNKU mówi, jak dojść do projekcji z faktów (--trials 1, potem dobranie)", async () => {
+  const { budgetRefusal } = await command("run.ts");
+  // Macierz z kursu: 4 zadania × 2 modele × 3 próby, prior $0.70/próbę = $16.80 przy budżecie $10.
+  const jobs = ["t1", "t2", "t3", "t4"].flatMap((task) =>
+    ["m/a", "m/b"].flatMap((model) => [1, 2, 3].map((trial) => ({ task, model, trial, timeout_s: 1800, memory_mb: null, projected_usd: 0.7 }))),
+  );
+  const first = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 10, estimated_trials: 24 });
+  assert.match(first, /^error: projekcja ~\$16\.80 przekracza budżet biegu \$10 — zawęź macierz/);
+  assert.match(first, /24 z 24 prób to SZACUNEK bez historii kosztu/);
+  assert.match(first, /z `--trials 1` \(8 prób, projekcja ~\$5\.60 — mieści się w budżecie\)/);
+  assert.match(first, /potem powtórz je z docelowym --trials/);
+  // Projekcja z historii: sam fakt przekroczenia, bez rady o szacunku.
+  const history = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 10, estimated_trials: 0 });
+  assert.doesNotMatch(history, /SZACUNEK|--trials 1/);
+  assert.equal(history.split("\n").length, 1);
+  // Nawet jedna próba na komórkę nie mieści się w budżecie (albo to już --trials 1): mniejszy wycinek.
+  const tight = budgetRefusal({ jobs, projected_usd: 16.8, budget_usd: 3, estimated_trials: 24 });
+  assert.match(tight, /Zmierz najpierw mniejszy wycinek/);
+  assert.doesNotMatch(tight, /mieści się w budżecie/);
+  const single = budgetRefusal({ jobs: jobs.filter((j) => j.trial === 1), projected_usd: 5.6, budget_usd: 3, estimated_trials: 8 });
+  assert.match(single, /Zmierz najpierw mniejszy wycinek/);
+
+  // Ta sama treść z prawdziwego CLI (kod 3).
+  const over = benchCli(["run", "--max-cost", "5", "--root", planInstance()]);
+  assert.equal(over.status, 3);
+  assert.match(over.stderr, /9 z 9 prób to SZACUNEK/);
+  assert.match(over.stderr, /z `--trials 1` \(3 prób, projekcja ~\$2\.10 — mieści się w budżecie\)/);
+});
+
+test("node 26: doctor, engines runnera i obraz prób mówią tę samą wersję", async () => {
+  const { nodeCheck, MIN_NODE_MAJOR } = await command("doctor.ts");
+  assert.equal(MIN_NODE_MAJOR, 26);
+  assert.equal(nodeCheck("26.0.0").status, "OK");
+  const old = nodeCheck("24.22.2");
+  assert.equal(old.status, "BRAK");
+  assert.match(old.fix, /node >= 26/);
+  const pkg = JSON.parse(readFileSync(join(ROOT, ".bench-kit", "runner", "package.json"), "utf8"));
+  assert.equal(pkg.engines.node, `>=${MIN_NODE_MAJOR}`);
+  const dockerfile = readFileSync(join(ROOT, ".bench-kit", "docker", "Dockerfile"), "utf8");
+  assert.match(dockerfile, new RegExp(`^FROM node:${MIN_NODE_MAJOR}-bookworm-slim$`, "m"));
+  for (const workflow of [".github/workflows/ci.yaml", ".bench-kit/workflows/readiness.yaml", ".bench-kit/workflows/leaderboard.yaml"]) {
+    const versions = [...readFileSync(join(ROOT, workflow), "utf8").matchAll(/node-version: (\d+)/g)].map((m) => Number(m[1]));
+    assert.ok(versions.length > 0 && versions.every((v) => v === MIN_NODE_MAJOR), workflow);
+  }
 });

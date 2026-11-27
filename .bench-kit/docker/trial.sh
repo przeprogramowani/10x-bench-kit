@@ -65,8 +65,14 @@ heartbeat_pid=$!
 run_agent() { sh -c 'echo $$ >/bench/agent.pid; exec "$@"' run_agent "$@"; }
 case "$harness" in
   opencode)
+    # `opencode run` bez terminala nie ma kogo zapytać o zgodę: prośbę
+    # o uprawnienie (np. external_directory, gdy model szuka AGENTS.md
+    # poza /workspace) odrzuca sam i kończy sesję kodem 0 z pustym diffem
+    # — wygląda to jak porażka modelu. `--auto` zatwierdza wszystko, czego
+    # konfiguracja jawnie nie zabrania: odpowiednik bypassPermissions
+    # Claude Code i --dangerously-bypass-approvals-and-sandbox Codexa.
     run_agent timeout --kill-after=15 "$timeout_s" \
-      opencode run --model "$model" "$(cat /bench/prompt.md)" \
+      opencode run --auto --model "$model" "$(cat /bench/prompt.md)" \
       >"$out/agent.log" 2>&1
     agent_exit=$?
     ;;

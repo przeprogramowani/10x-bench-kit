@@ -25,14 +25,15 @@ attempts/<zadanie>/<model-sanitized>/trial-<n>/
 ├── execution.json      # surowy status wykonania (agent_exit, timed_out, wall)
 ├── workspace/          # stan /workspace po pracy agenta — POZA gitem (GB)
 ├── signal.json         # tylko przy killu sygnałowym po retry (diagnostyka)
-├── container.log       # tylko przy awarii infrastruktury
+├── container.log       # tylko przy awarii infrastruktury — także awarii
+│                       #   harnessu po retry (pierwsza linia mówi, co zawiodło)
 ├── running.json        # TYLKO w trakcie wykonania — marker próby w toku (poza gitem)
 ├── heartbeat.json      # TYLKO w trakcie — puls z kontenera (poza gitem)
 ├── progress.json       # TYLKO w trakcie — puls wyceniony przez runner (poza gitem)
 ├── stop.json           # TYLKO w trakcie — prośba o zatrzymanie próby (poza gitem)
 ├── evaluating.json     # TYLKO w trakcie oceny — marker oceny w toku (poza gitem)
 └── provider-error-attempt-1/   # artefakty pierwszego podejścia przy retry
-    (analogicznie signal-kill-attempt-1/)
+    (analogicznie harness-error-attempt-1/ i signal-kill-attempt-1/)
 ```
 
 Obok `trial-<n>/` mogą leżeć katalogi odłożone, pomijane przez ocenę
@@ -149,7 +150,12 @@ i nie jest częścią kontraktu próby.
   pozostaje `1`.
 - **Atrybucja awarii**: `infra_failure`/`resource_kill`/`provider_error`
   w `attempt.json` wyłączają próbę z oceny zamiast wliczać zero do
-  median; `bench evaluate` pomija je z warningiem. `stopped` (obiekt
+  median; `bench evaluate` pomija je z warningiem. Awaria harnessu to też
+  `infra_failure: true` (bez nowego pola): OpenCode nie zna modelu,
+  OpenCode odrzucił prośbę o uprawnienie i zamknął sesję (kod 0, zwykle
+  pusty diff), albo agent zakończył się kodem ≠ 0 bez żadnego tokenu —
+  runner powtarza próbę raz, a gdy awaria wraca, zapisuje powód
+  w `container.log`. `stopped` (obiekt
   `{reason, requested_at, by}` albo `null` / brak) = próba zatrzymana na
   żądanie (patrz „Puls, zatrzymanie…"); zawsze idzie w parze
   z `infra_failure: true`. Pole jest addytywne — `format` pozostaje `1`.

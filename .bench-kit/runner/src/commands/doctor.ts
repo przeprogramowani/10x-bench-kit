@@ -19,7 +19,7 @@
  *
  * Użycie: bench doctor [--offline] [--json] [--warm] [--engine docker|podman] [--root <dir>]
  */
-import { existsSync, readdirSync, statfsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -115,17 +115,13 @@ export async function doctorCommand(args: string[]): Promise<number> {
         });
       } else {
         checks.push({ name: "start kontenera", status: "OK", detail: `próbny kontener (${probeImage.slice(0, 40)})` });
+        checks.push(tmpMountCheck(alive, probeImage, tmpdir()));
       }
     }
   }
 
   // --- node ---
-  const nodeMajor = Number(process.versions.node.split(".")[0]);
-  checks.push(
-    nodeMajor >= 20
-      ? { name: "node", status: "OK", detail: `v${process.versions.node}` }
-      : { name: "node", status: "BRAK", detail: `v${process.versions.node}`, fix: "zainstaluj node >= 20 (engines runnera)" },
-  );
+  checks.push(nodeCheck());
 
   // --- zależności runnera ---
   const runnerModules = join(root, ".bench-kit", "runner", "node_modules");
@@ -364,6 +360,54 @@ export async function doctorCommand(args: string[]): Promise<number> {
   }
   console.log(`\nbench doctor: ${missing} BRAK, ${warns} WARN — ${missing === 0 ? "środowisko gotowe" : "uzupełnij braki powyżej"}`);
   return missing > 0 ? 1 : 0;
+}
+
+/** Minimalna wersja Node na maszynie operatora — engines runnera, ta sama linia co obraz prób. */
+export const MIN_NODE_MAJOR = 26;
+
+export function nodeCheck(version: string = process.versions.node): CheckResult {
+  return Number(version.split(".")[0]) >= MIN_NODE_MAJOR
+    ? { name: "node", status: "OK", detail: `v${version}` }
+    : {
+        name: "node",
+        status: "BRAK",
+        detail: `v${version}`,
+        fix: `zainstaluj node >= ${MIN_NODE_MAJOR} (engines runnera; ta sama wersja co w obrazie prób)`,
+      };
+}
+
+/**
+ * Czy silnik widzi katalog tymczasowy runnera. Ocena montuje do kontenera
+ * katalogi z TMPDIR (stan startowy, wyjście asercji); silnik z maszyną
+ * wirtualną (colima, podman machine), który tego katalogu nie udostępnia,
+ * montuje w jego miejsce pusty — `info` i zwykły start kontenera są zielone,
+ * a każda ocena pada na `ENOENT … /bench/out/eval-plan.json`. Próbny
+ * kontener montuje więc katalog z TMPDIR i szuka w nim pliku.
+ */
+export function tmpMountCheck(engine: string, image: string, tmp: string, run: typeof sh = sh): CheckResult {
+  const name = "TMPDIR w kontenerze";
+  let dir: string;
+  try {
+    mkdirSync(tmp, { recursive: true });
+    dir = mkdtempSync(join(tmp, "bench-doctor-"));
+    writeFileSync(join(dir, "probe"), "ok\n");
+  } catch (err) {
+    return { name, status: "WARN", detail: `nie udało się utworzyć katalogu próbnego w ${tmp} (${err instanceof Error ? err.message : String(err)})` };
+  }
+  try {
+    const probe = run(engine, ["run", "--rm", "--network", "none", "-v", `${dir}:/bench/probe:ro`, image, "test", "-f", "/bench/probe/probe"], { timeout: 120_000 });
+    if (probe.status === 0) return { name, status: "OK", detail: `silnik widzi ${tmp}` };
+    return {
+      name,
+      status: "BRAK",
+      detail: `silnik nie widzi ${tmp} — katalog zamontowany stamtąd do kontenera jest pusty; każda ocena padnie na ENOENT /bench/out/eval-plan.json`,
+      fix:
+        "wskaż katalog tymczasowy, który silnik udostępnia kontenerom: `export TMPDIR=<instancja>/.bench-tmp` " +
+        "(colima i podman machine montują domyślnie tylko katalog domowy) albo dodaj ten katalog do montowań silnika",
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Katalogi tymczasowe runnera (mkdtemp bench-*) starsze niż maxAgeH — pozostałości procesów zabitych przed finally. */

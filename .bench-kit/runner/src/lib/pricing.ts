@@ -72,11 +72,22 @@ export function catalogSlugFor(spec: HarnessModel): string | null {
   return null;
 }
 
-export type Catalog = Map<string, Price>;
+/** Wpis katalogu: cena + limity modelu (tokeny), gdy katalog je podaje. */
+export interface CatalogEntry extends Price {
+  context_length?: number;
+  max_output_tokens?: number;
+}
+
+export type Catalog = Map<string, CatalogEntry>;
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 
-type CatalogModel = { id: string; pricing?: Record<string, string> };
+type CatalogModel = {
+  id: string;
+  pricing?: Record<string, string>;
+  context_length?: number | null;
+  top_provider?: { context_length?: number | null; max_completion_tokens?: number | null } | null;
+};
 
 /** Surowa lista modeli publicznego katalogu OpenRouter (/api/v1/models, bez klucza). */
 async function fetchOpenRouterModels(): Promise<CatalogModel[]> {
@@ -115,6 +126,7 @@ export async function fetchOpenRouterCatalog(): Promise<Catalog> {
     const n = Number(value);
     return value !== undefined && Number.isFinite(n) && n >= 0 ? n * 1_000_000 : undefined;
   };
+  const positive = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
   const catalog: Catalog = new Map();
   for (const model of body.data ?? []) {
     const input = perMtok(model.pricing?.prompt);
@@ -125,6 +137,8 @@ export async function fetchOpenRouterCatalog(): Promise<Catalog> {
       output,
       cache_read: perMtok(model.pricing?.input_cache_read),
       cache_write: perMtok(model.pricing?.input_cache_write),
+      context_length: positive(model.context_length ?? model.top_provider?.context_length),
+      max_output_tokens: positive(model.top_provider?.max_completion_tokens),
     });
   }
   return catalog;
@@ -135,7 +149,16 @@ export function resolvePrice(spec: HarnessModel, config: BenchConfig, catalog: C
   if (configured) return { ...configured, source: "config" };
   const slug = catalogSlugFor(spec);
   const listed = slug && catalog ? catalog.get(slug) : undefined;
-  return listed ? { ...listed, source: `openrouter:${slug}` } : null;
+  if (!listed) return null;
+  const { input, output, cache_read, cache_write } = listed;
+  return { input, output, cache_read, cache_write, source: `openrouter:${slug}` };
+}
+
+/** Limity modelu z katalogu OpenRouter (kontekst / wyjście w tokenach); null, gdy katalog ich nie zna. */
+export function catalogLimits(spec: HarnessModel, catalog: Catalog | null): { context?: number; output?: number } | null {
+  const slug = catalogSlugFor(spec);
+  const listed = slug && catalog ? catalog.get(slug) : undefined;
+  return listed?.context_length ? { context: listed.context_length, output: listed.max_output_tokens } : null;
 }
 
 export interface Tokens {

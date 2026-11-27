@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - name: spójność wersji (.bench-kit/VERSION == najnowszy wpis CHANGELOG)
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: .bench-kit/runner/package-lock.json
       - name: materializacja instancji (jak init — bez historii gita)

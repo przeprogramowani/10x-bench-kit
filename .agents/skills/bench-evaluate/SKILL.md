@@ -35,6 +35,12 @@ preflight → scope + cost → bench run (background; status on demand) → hand
    plus live cost passes the ceiling it stops dispatching and stops the
    running attempts. Exit 3 is the one moment to ask the user: narrow
    the matrix or raise the budget. Report the actual cost afterwards.
+   On a first run the projection is an estimate from a fixed token
+   prior, deliberately cautious (a small repo can cost many times
+   less). When the refusal says so, offer the path it names before
+   asking for a bigger budget: the same command with `--trials 1`,
+   then again with the target `--trials` — the top-up is then projected
+   from the real cost of the first attempts.
 2. **Preserved attempts are sacred.** Never delete anything under
    `attempts/`. Top-up is the default: existing trials count toward
    `--trials`. `--force` needs a stated reason.
@@ -74,10 +80,15 @@ attempt in that cell. A cell with no history uses the same model's
 median on other tasks, and you mark that number as an estimate. Over
 budget, stop and ask (rule 1).
 
+To see the runner's own projection without starting anything, add
+`--dry-run` to the `bench run` command you are about to use: it prints
+the plan and the projection, starts no supervisor and spends nothing
+(exit 0 = fits the budget, exit 3 = it would be refused).
+
 ### 3. Run — `bench run`, never block the turn
 
 ```
-bench run [--tasks x,y] [--models a,b] [--trials n] [--parallel n] [--max-cost <usd>]
+bench run [--tasks x,y] [--models a,b] [--trials n] [--parallel n] [--max-cost <usd>] [--dry-run]
 ```
 
 It plans the missing attempts (top-up: preserved trials are skipped),

@@ -151,7 +151,6 @@ function verdictHtml(rows, taskName) {
 
 function tableHtml(rows, threshold) {
   const sorted = rankRows(rows);
-  const bands = new Set(sorted.map(r => r.band));
   return '<table><thead><tr>' +
     '<th>Model</th>' +
     '<th ' + tipAttr(TIPS.reliability) + '>Jak często się udaje <span class="q">?</span></th>' +
@@ -164,7 +163,9 @@ function tableHtml(rows, threshold) {
     sorted.map((r, i) => {
       // Zaliczenie wg bramki (passed z wyników), nie wg mediany sumy.
       const passed = r.trials > 0 && r.passed / r.trials >= 0.5;
-      const opensBand = bands.size > 1 && (i === 0 || r.band !== sorted[i - 1].band);
+      // Także gdy pasmo jest jedno: dwa modele w remisie to najczęstszy wynik
+      // małej próby i właśnie wtedy strona musi to powiedzieć.
+      const opensBand = i === 0 || r.band !== sorted[i - 1].band;
       const bandMates = sorted.filter(x => x.band === r.band).length;
       // Pasmo NIE znaczy "bierz tanszy" — znaczy, ze tej roznicy ta proba nie
       // rozstrzyga. Uczciwa reakcja to domierzenie, nie siegniecie po cene.
@@ -579,15 +580,17 @@ function render() {
     const current = task.eras.find(e => e.current);
     const history = task.eras.filter(e => !e.current);
     html += '<section class="task"><h2>' + esc(task.task) +
-      ' <span class="h2sub">— pojedyncze próby</span></h2>' + eraHtml(current, DATA.pass_threshold);
+      ' <span class="h2sub">— pojedyncze próby</span></h2>' + eraHtml(current, DATA.pass_threshold, task.task);
     if (history.length) {
       html += "<details><summary>Poprzednie ery (" + history.length + ") — wyniki nieporównywalne z bieżącą</summary>" +
         history.map(e => eraHtml(e, DATA.pass_threshold)).join("") + "</details>";
     }
     html += "</section>";
   }
-  html += "<footer>Ery wyznaczają stemple (template, hash zadania, sędzia, rubryka) — dashboard nie miesza wyników między erami. " +
-    "Surowe raporty: <a href=\"data.json\">data.json</a>.</footer>";
+  // Link do surowych danych tylko tam, gdzie plik powstaje obok strony
+  // (bench leaderboard); raport bench-analysis to jeden plik HTML.
+  html += "<footer>Ery wyznaczają stemple (template, hash zadania, sędzia, rubryka) — dashboard nie miesza wyników między erami." +
+    (DATA.data_file ? " Surowe raporty: <a href=\"" + esc(DATA.data_file) + "\">" + esc(DATA.data_file) + "</a>." : "") + "</footer>";
   app.innerHTML = html;
 
   const tip = document.getElementById("tooltip");

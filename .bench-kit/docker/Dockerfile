@@ -10,7 +10,7 @@
 # odbywa się skillem w instancji — przez obraz pochodny FROM tego obrazu,
 # nie przez edycję tego pliku.
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 # Harnessy prób — pinowane wersje (pliki <harness>.version obok; runner
 # podaje je jako build-argi i wpisuje do tagu obrazu). Osobna warstwa per

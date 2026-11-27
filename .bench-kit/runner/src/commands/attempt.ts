@@ -31,11 +31,16 @@
  * wywołania doganiają braki bez koordynacji; stan macierzy pokazuje
  * `bench status`.
  *
- * Retry 1× przy przejściowej awarii providera (5xx/429) i killu
- * sygnałowym (OOM) — artefakty pierwszego podejścia zostają obok.
+ * Retry 1× przy przejściowej awarii providera (5xx/429), awarii harnessu
+ * (model nieznany harnessowi, odrzucona prośba o uprawnienie, kod ≠ 0 bez
+ * żadnego tokenu) i killu sygnałowym (OOM) — artefakty pierwszego
+ * podejścia zostają obok. Awaria harnessu także po retry = infra_failure:
+ * próba wyłączona z oceny, nie wynik modelu.
  *
  * Sekrety modeli przechodzą do kontenera wyłącznie przez env
  * (*_API_KEY oraz OPENCODE_*), nigdy nie są zapiekane w obraz.
+ * Próby OpenCode dostają OPENCODE_CONFIG_CONTENT z deklaracją modeli
+ * biegu i ich cen (lib/opencode-config.ts); wartość operatora wygrywa.
  *
  * Użycie:
  *   bench attempt [<zadanie> <model>]
@@ -80,7 +85,9 @@ import {
   type StopRequest,
 } from "../lib/progress.ts";
 import { harnessVersion, parseModelId, type HarnessModel } from "../lib/harness.ts";
+import { opencodeConfigContent } from "../lib/opencode-config.ts";
 import {
+  catalogLimits,
   catalogSlugFor,
   costPolicy,
   fetchOpenRouterCatalog,
@@ -198,6 +205,54 @@ function detectProviderError(
   const stderrPath = join(trialDir, "agent.stderr.log");
   if (existsSync(stderrPath)) errors.push(readFileSync(stderrPath, "utf8").slice(-4000));
   return PROVIDER_ERROR_PATTERN.test(errors.join("\n").slice(-8000));
+}
+
+/** Sekwencje ANSI — OpenCode koloruje log także bez terminala. */
+const ANSI_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/g;
+/** OpenCode nie zna modelu (id spoza jego katalogu) — na wyjściu widać tylko ogólny "Unexpected server error". */
+const HARNESS_MODEL_ERROR_PATTERN = /ProviderModelNotFoundError|Model not found|Unexpected server error/i;
+/** `opencode run` sam odrzucił prośbę o uprawnienie i zakończył sesję (kod 0, zwykle pusty diff). */
+const PERMISSION_REJECT_PATTERN = /^\W*permission requested: .*auto-rejecting/im;
+
+/** Próba bez śladu pracy modelu: brak metryk albo zero tokenów wejścia, wyjścia i cache. */
+function noTokens(metrics: Record<string, unknown> | null): boolean {
+  const tokens = (metrics?.tokens ?? null) as Record<string, unknown> | null;
+  if (!tokens) return true;
+  return ["input", "output", "cache_read", "cache_write"].every((k) => !(typeof tokens[k] === "number" && (tokens[k] as number) > 0));
+}
+
+/**
+ * Awaria harnessu — próba, w której zawiodło CLI agenta, nie model:
+ * - OpenCode odrzucił prośbę o uprawnienie i zamknął sesję (kod 0!),
+ * - OpenCode nie uruchomił modelu (nieznane id / "Unexpected server error"),
+ * - agent zakończył się kodem ≠ 0 bez żadnego tokenu (model nie odpowiedział
+ *   ani razu, więc nie ma czego oceniać).
+ * Zwraca powód do logu i container.log albo null. Timeout i kody sygnałowe
+ * (128+N) mają własne ścieżki.
+ */
+export function detectHarnessFailure(
+  trialDir: string,
+  execution: { agent_exit: number; timed_out: boolean } | null,
+  spec: HarnessModel,
+): string | null {
+  if (!execution || execution.timed_out || signalFromExit(execution.agent_exit)) return null;
+  const logPath = join(trialDir, "agent.log");
+  const log = existsSync(logPath) ? readFileSync(logPath, "utf8").replace(ANSI_PATTERN, "") : "";
+  if (spec.harness === "opencode") {
+    const rejected = log.match(PERMISSION_REJECT_PATTERN)?.[0].trim();
+    if (rejected) return `OpenCode odrzucił prośbę o uprawnienie i zakończył sesję ("${rejected.slice(0, 160)}")`;
+  }
+  if (execution.agent_exit === 0) return null;
+  if (spec.harness === "opencode" && HARNESS_MODEL_ERROR_PATTERN.test(log.slice(-8000))) {
+    return `OpenCode nie uruchomił modelu "${spec.cliModel}" (exit ${execution.agent_exit}; "Unexpected server error" to zwykle ProviderModelNotFoundError — id spoza katalogu OpenCode)`;
+  }
+  let metrics: Record<string, unknown> | null = null;
+  try {
+    metrics = JSON.parse(readFileSync(join(trialDir, "metrics.json"), "utf8")) as Record<string, unknown>;
+  } catch {
+    // brak albo ucięty metrics.json = brak śladu tokenów
+  }
+  return noTokens(metrics) ? `agent zakończył się kodem ${execution.agent_exit} bez żadnego tokenu (model nie odpowiedział ani razu)` : null;
 }
 
 /**
@@ -587,8 +642,11 @@ export async function attemptCommand(args: string[]): Promise<number> {
     const lacksHistory = (cell: { task: string; model: string }) =>
       !(samplesByTask.get(cell.task) ?? []).some((s) => s.model === cell.model && s.cost !== null);
     const estimateModels = new Set(plan.filter((c) => c.numbers.length > 0 && lacksHistory(c)).map((c) => c.model));
+    // OpenCode dostaje ceny od runnera (deklaracja modeli niżej), więc katalog
+    // jest potrzebny każdemu modelowi bez pricing w configu. --plan-out to sama
+    // projekcja: tam wystarcza katalog dla modeli, które go potrzebują do szacunku.
     const needsCatalog = [...harnessSpecs.values()].some(
-      (s) => (costPolicy(s) !== "harness" || estimateModels.has(s.id)) && !config.pricing?.[s.id],
+      (s) => (costPolicy(s) !== "harness" || estimateModels.has(s.id) || !opts.planOut) && !config.pricing?.[s.id],
     );
     let catalog: Catalog | null = null;
     let catalogError: string | null = null;
@@ -605,7 +663,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
     for (const spec of harnessSpecs.values()) {
       const policy = costPolicy(spec);
       if (policy === "harness") {
-        if (estimateModels.has(spec.id)) estimatePrices.set(spec.id, resolvePrice(spec, config, catalog));
+        estimatePrices.set(spec.id, resolvePrice(spec, config, catalog));
         continue;
       }
       const price = resolvePrice(spec, config, catalog);
@@ -717,6 +775,28 @@ export async function attemptCommand(args: string[]): Promise<number> {
 
     // --- próby: pool --parallel, bez sieci do repo ---
     const envArgs = trialEnvNames().flatMap((name) => ["-e", name]);
+    // OpenCode: modele biegu i ich ceny zadeklarowane harnessowi — id spoza
+    // jego katalogu nie kończy próby błędem po sekundzie, a koszt nie wychodzi
+    // $0. Wartość idzie przez env procesu silnika (nie argument: konfiguracja
+    // operatora może nieść sekrety, a argumenty widać w `ps`).
+    const opencodeSpecs = [...harnessSpecs.values()].filter((s) => s.harness === "opencode");
+    const opencodeConfig = opencodeConfigContent(
+      opencodeSpecs.map((spec) => ({ spec, price: estimatePrices.get(spec.id) ?? null, limits: catalogLimits(spec, catalog) })),
+      process.env.OPENCODE_CONFIG_CONTENT,
+    );
+    if (opencodeConfig.warning) console.error(`warn:   ${opencodeConfig.warning}`);
+    for (const spec of opencodeSpecs) {
+      if (opencodeConfig.content === null || estimatePrices.get(spec.id)) continue;
+      const why = catalogError
+        ? `katalog cen OpenRouter niedostępny (${catalogError})`
+        : `brak "${catalogSlugFor(spec) ?? spec.cliModel}" w katalogu OpenRouter`;
+      console.error(
+        `warn:   ${spec.id}: cena nieznana (${why}) — model zadeklarowany OpenCode bez ceny; jeśli OpenCode sam jej nie zna, ` +
+          `próba zaraportuje koszt $0 i budżet biegu jej nie zobaczy; dodaj pricing["${spec.id}"] w bench.config.yaml`,
+      );
+    }
+    const trialEnv =
+      opencodeConfig.content !== null ? { ...process.env, OPENCODE_CONFIG_CONTENT: opencodeConfig.content } : undefined;
     let spentUsd = 0;
     let overBudget = false;
     let failures = 0;
@@ -813,6 +893,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
       let execution: { agent_exit: number; timed_out: boolean; wall_duration_s: number } | null = null;
       let infraFailure = false;
       let providerError = false;
+      let harnessFailure: string | null = null;
       let resourceKill = false;
       let stopped: StopRequest | null = null;
       let attempts = 0;
@@ -860,6 +941,7 @@ export async function attemptCommand(args: string[]): Promise<number> {
             `${trialDir}:/bench/out`,
             ...limitArgs,
             ...envArgs,
+            ...(harness.harness === "opencode" && trialEnv && !envArgs.includes("OPENCODE_CONFIG_CONTENT") ? ["-e", "OPENCODE_CONFIG_CONTENT"] : []),
             image,
             "/bench/trial.sh",
             String(task.timeout_s),
@@ -867,7 +949,9 @@ export async function attemptCommand(args: string[]): Promise<number> {
             harness.route,
             harness.cliModel,
           ],
-          { timeout: (task.timeout_s + 300) * 1000 },
+          // "-e OPENCODE_CONFIG_CONTENT" (envArgs, gdy ustawił go operator, albo
+          // dopisany tu) bierze wartość z env tego procesu — scaloną deklarację.
+          { timeout: (task.timeout_s + 300) * 1000, ...(harness.harness === "opencode" && trialEnv ? { env: trialEnv } : {}) },
         );
         clearInterval(watch);
         stopped = readStopRequest(trialDir);
@@ -876,6 +960,9 @@ export async function attemptCommand(args: string[]): Promise<number> {
         execution = readTrialJson(executionPath, label);
         infraFailure = !stopped && (result.status !== 0 || !execution);
         providerError = !infraFailure && !stopped && detectProviderError(trialDir, execution, harness);
+        // Awaria harnessu (lub kod ≠ 0 bez tokenów — także po awarii providera):
+        // to nie jest wynik modelu, więc nie może trafić do oceny.
+        harnessFailure = !infraFailure && !stopped ? detectHarnessFailure(trialDir, execution, harness) : null;
         // Zatrzymana próba kończy się SIGINT-em (exit 130) — to nie kill zasobowy.
         const signal = !infraFailure && !providerError && !stopped && execution && !execution.timed_out ? signalFromExit(execution.agent_exit) : null;
         if (stopped) {
@@ -885,17 +972,19 @@ export async function attemptCommand(args: string[]): Promise<number> {
           );
           break;
         }
-        if ((providerError || signal) && attempts === 1) {
-          const kind = providerError ? "provider-error" : "signal-kill";
+        if ((providerError || harnessFailure || signal) && attempts === 1) {
+          const kind = providerError ? "provider-error" : harnessFailure ? "harness-error" : "signal-kill";
           const archive = join(trialDir, `${kind}-attempt-${attempts}`);
           mkdirSync(archive);
           clearTransient(trialDir, ["heartbeat.json", "heartbeat.json.tmp", "progress.json", "progress.json.tmp"]);
           for (const entry of readdirSync(trialDir)) {
-            if (entry === "running.json" || /^(provider-error|signal-kill)-attempt-/.test(entry)) continue;
+            if (entry === "running.json" || /^(provider-error|harness-error|signal-kill)-attempt-/.test(entry)) continue;
             renameSync(join(trialDir, entry), join(archive, entry));
           }
           const why = providerError
             ? "awaria providera (5xx/429 w agent.log)"
+            : harnessFailure
+            ? `awaria harnessu — ${harnessFailure}`
             : `agent zabity sygnałem (exit ${execution?.agent_exit} = ${signal?.name}${signal?.likely_oom ? ", prawdopodobnie OOM" : ""})`;
           console.error(`trial:  ${label} — ${why}, retry próby; pierwsze podejście: ${archive}`);
           continue;
@@ -936,6 +1025,25 @@ export async function attemptCommand(args: string[]): Promise<number> {
           failures++;
           writeFileSync(join(trialDir, "container.log"), (result.stdout ?? "") + (result.stderr ?? ""));
           console.error(`trial:  ${label} — AWARIA infrastruktury (kod ${result.status}); szczegóły: ${trialDir}/container.log`);
+        } else if (harnessFailure) {
+          // Także po retry: próba nic nie mówi o modelu — infra_failure wyłącza
+          // ją z oceny (ta sama ścieżka co awaria kontenera), powód w container.log.
+          infraFailure = true;
+          failures++;
+          const logPath = join(trialDir, "agent.log");
+          const logTail = existsSync(logPath) ? readFileSync(logPath, "utf8").replace(ANSI_PATTERN, "").slice(-4000) : "";
+          writeFileSync(
+            join(trialDir, "container.log"),
+            `awaria harnessu (${harness.harness}): ${harnessFailure}\n` +
+              "próba wyłączona z oceny (infra_failure) — to nie jest wynik modelu; po usunięciu przyczyny powtórz ją: " +
+              `bench attempt ${name} ${model} --trial-index ${trial} --force\n\n--- koniec agent.log ---\n${logTail}\n` +
+              (result.stdout ?? "") +
+              (result.stderr ?? ""),
+          );
+          console.error(
+            `trial:  ${label} — AWARIA harnessu także po retry (${harnessFailure}); próba nieinterpretowalna, ` +
+              `wyłączona z oceny; szczegóły: ${trialDir}/container.log`,
+          );
         } else if (execution && execution.timed_out) {
           console.log(`trial:  ${label} — TIMEOUT po ${task.timeout_s}s (artefakty częściowe zapisane)`);
         } else if (execution) {
