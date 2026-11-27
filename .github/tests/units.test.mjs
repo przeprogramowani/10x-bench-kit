@@ -707,3 +707,12 @@ test("static/lint: npm bez lockfile'a instaluje przez npm install, a bez zależn
   assert.deepEqual(run({ ...lint, devDependencies: { eslint: "^9" } }, ["package-lock.json"]), ["ci --no-audit --no-fund", "run lint"]);
   assert.deepEqual(run(lint, ["npm-shrinkwrap.json"]), ["ci --no-audit --no-fund", "run lint"]);
 });
+
+test("bench-status: rozgrzanie obrazu w tle bez nohup (w sesji agenta nohup nie startuje)", () => {
+  const skillText = readFileSync(join(ROOT, ".agents", "skills", "bench-status", "SKILL.md"), "utf8");
+  const warm = skillText.split("\n").find((line) => line.includes("doctor --warm"));
+  assert.ok(warm, "komenda rozgrzania jest w skillu");
+  assert.doesNotMatch(warm, /\bnohup\b/);
+  // Podpowłoka w tle z zamkniętym stdin: wraca od razu i przeżywa koniec komendy.
+  assert.match(warm, /^\(node .* doctor --warm --offline > \.bench-warm\.log 2>&1 < \/dev\/null &\)$/);
+});

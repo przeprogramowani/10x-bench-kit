@@ -98,8 +98,15 @@ If doctor shows the base image as not built yet (`obraz bazowy` WARN),
 that otherwise lands on the first task build:
 
 ```
-nohup node --experimental-strip-types .bench-kit/runner/src/index.ts doctor --warm --offline > .bench-warm.log 2>&1 &
+(node --experimental-strip-types .bench-kit/runner/src/index.ts doctor --warm --offline > .bench-warm.log 2>&1 < /dev/null &)
 ```
+
+Use exactly this form — a backgrounded subshell with stdin closed. It
+returns at once and the build survives the end of the command, in an
+agent session and in a terminal alike. Do not wrap it in `nohup`: in an
+agent session without a console `nohup` can refuse to start
+(`nohup: can't detach from console`), the log then holds only that line
+and nothing gets built.
 
 Before handing over, look for the `obraz bazowy` line in
 `.bench-warm.log` (gitignored): `OK … (<n> s)` = built; no such line yet
